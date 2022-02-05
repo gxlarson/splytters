@@ -1,9 +1,9 @@
-import scipy
 import copy
 from pprint import pprint
+from scipy.spatial.distance import euclidean as _dist_euclidean
 
 def dist_euclidean(u, v):
-    return scipy.spatial.distance.euclidean(u, v)
+    return _dist_euclidean(u, v)
 
 def distance_to_mean(embeddings, distance=dist_euclidean):
     """
