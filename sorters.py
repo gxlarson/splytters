@@ -1,6 +1,10 @@
 import copy
 from pprint import pprint
+from readability import Readability
 from scipy.spatial.distance import euclidean as _dist_euclidean
+
+def simple_tokenizer(s):
+    return s.split()
 
 def dist_euclidean(u, v):
     return _dist_euclidean(u, v)
@@ -22,10 +26,28 @@ def character_length(texts, short_first=True):
     """
     sorts texts based on character count
     """
-    _texts = copy.deepcopy(texts)
-    _texts.sort(key=lambda s: len(s), reverse=not short_first)
-    return _texts
+    return _score_sorter(texts, len, short_first)
 
+def tokens_length(texts, short_first=True, tokenizer=simple_tokenizer):
+    """
+    sorts texts based on number of tokens
+    """
+    data = [tokenizer(text) for text in texts]
+    return _score_sorter(data, len, short_first)
+
+# TODO
+# def perplexity_score
+
+# TODO
+# def readability_score
+
+def _score_sorter(data, score_fn, low_first=True):
+    """
+    scores data based on score_fn score
+    """
+    _data = copy.deepcopy(data)
+    _data.sort(key=lambda d: score_fn(d), reverse=not(short_first))
+    return _data
 
 if __name__ == "__main__":
     """
