@@ -27,15 +27,26 @@ def diversity_text(
         distance_function=ngram_jaccard_distance,
         tokenizer=simple_tokenizer,
     ):
-    assert datatype in ["token", "character"]
-    if datatype == "token":
-        X = [tokenizer(s) for s in data]
-    elif datatype == "character":
-        X = data
+    """
+    See Figure 5 from https://aclanthology.org/N19-1051.pdf
+    The D(*,*) function is distance_function in diversity_text's
+        inner loop.
+    """
+    #assert datatype in ["token", "character"]
+    #if datatype == "token":
+    #    X = [tokenizer(s) for s in data]
+    #elif datatype == "character":
+    #    X = data
+    X = data
     tally = 0
     for a in X:
         for b in X:
             d = distance_function(a, b)
-                tally += d
+            tally += d
     score = tally / (len(X) ** 2)
     return score
+
+if __name__ == "__main__":
+    texts = ["how much money do i have", "my balance is what", "balance is my what"]
+    d = diversity_text(texts)
+    print(d)
