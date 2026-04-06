@@ -73,7 +73,8 @@ def distance_to_nearest_neighbor(
     """
     embeddings = np.asarray(embeddings)
 
-    # Compute pairwise distances
+    # TODO: Replace full pairwise matrix with NearestNeighbors(n_neighbors=2)
+    # to reduce memory from O(n²) to O(n). Only the 1-NN distance is needed.
     pairwise_dist = cdist(embeddings, embeddings, metric=metric)
 
     # Set diagonal to infinity so we don't count self as nearest neighbor
@@ -116,7 +117,8 @@ def local_density(
     """
     embeddings = np.asarray(embeddings)
 
-    # Compute pairwise distances
+    # TODO: Replace full pairwise matrix with BallTree.query_radius to count
+    # neighbors without materializing O(n²) distances.
     pairwise_dist = cdist(embeddings, embeddings, metric=metric)
 
     # Set diagonal to infinity so we don't count self

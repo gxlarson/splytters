@@ -100,7 +100,9 @@ def neighbor_coverage_split(
     n_samples = len(embeddings)
     rng = np.random.RandomState(random_state)
 
-    # Compute pairwise distances
+    # TODO: Replace full pairwise matrix with chunked or BallTree.query_radius
+    # computation to reduce memory from O(n²). Only threshold-based neighbor
+    # lookups are needed here.
     distances = cdist(embeddings, embeddings, metric=metric)
     np.fill_diagonal(distances, np.inf)
 
@@ -332,7 +334,8 @@ def duplicate_spread_split(
     n_samples = len(embeddings)
     rng = np.random.RandomState(random_state)
 
-    # Compute pairwise distances
+    # TODO: Replace full pairwise matrix with BallTree.query_radius to find
+    # near-duplicates without materializing O(n²) distances.
     distances = cdist(embeddings, embeddings, metric=metric)
     np.fill_diagonal(distances, np.inf)
 
@@ -404,7 +407,8 @@ def max_coverage_split(
     n_samples = len(embeddings)
     rng = np.random.RandomState(random_state)
 
-    # Compute pairwise distances
+    # TODO: Replace full pairwise matrix with BallTree.query_radius to check
+    # coverage without materializing O(n²) distances.
     distances = cdist(embeddings, embeddings, metric=metric)
     np.fill_diagonal(distances, np.inf)
 

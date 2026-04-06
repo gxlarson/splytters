@@ -34,7 +34,14 @@ def validate_split_inputs(
 
 
 def compute_pairwise_distances(X: ArrayLike, metric: str = "euclidean") -> np.ndarray:
-    """Compute pairwise distance matrix."""
+    """Compute pairwise distance matrix.
+
+    .. warning::
+        Materializes a full O(n²) matrix. For large datasets, prefer
+        NearestNeighbors or chunked computation.
+    """
+    # TODO: Add an optional max_samples guard or return a sparse representation
+    # for large inputs to avoid OOM.
     X = np.asarray(X)
     return cdist(X, X, metric=metric)
 
@@ -146,6 +153,8 @@ def compute_split_similarity(
     mean_cross_distance = min_distances.mean()
 
     # Coverage (fraction of test with nearby train sample)
+    # TODO: Replace full pairwise matrix with sampled median estimation and
+    # NearestNeighbors for coverage check to reduce O(n²) memory.
     all_distances = cdist(X, X, metric=metric)
     np.fill_diagonal(all_distances, np.inf)
     median_dist = np.median(all_distances[all_distances < np.inf])

@@ -8,9 +8,7 @@ maximize dissimilarity.
 
 from __future__ import annotations
 
-import copy
 from collections.abc import Callable
-from typing import Any, TypeVar
 
 import pysbd
 import torch
@@ -18,46 +16,46 @@ from readability import Readability
 from transformers import GPT2LMHeadModel, GPT2TokenizerFast
 from wordfreq import word_frequency
 
-T = TypeVar("T")
-
-
 def simple_tokenizer(s: str) -> list[str]:
     """Split text on whitespace into a list of tokens."""
     return s.split()
 
 
-def character_length(texts: list[str], short_first: bool = True) -> list[str]:
+def character_length(texts: list[str], low_first: bool = True) -> list[tuple[int, int]]:
     """
     Sort texts by character count.
 
     Args:
         texts: list of strings
-        short_first: if True, shortest texts first; if False, longest first
+        low_first: if True, shortest texts first; if False, longest first
 
     Returns:
-        List of texts sorted by character length.
+        List of (index, character_count) tuples sorted by length.
     """
-    return _score_sorter(texts, len, short_first)
+    scores = [(i, len(text)) for i, text in enumerate(texts)]
+    scores.sort(key=lambda p: p[1], reverse=not low_first)
+    return scores
 
 
 def tokens_length(
     texts: list[str],
-    short_first: bool = True,
+    low_first: bool = True,
     tokenizer: Callable[[str], list[str]] = simple_tokenizer,
-) -> list[list[str]]:
+) -> list[tuple[int, int]]:
     """
     Sort texts by token count.
 
     Args:
         texts: list of strings
-        short_first: if True, fewest tokens first; if False, most tokens first
+        low_first: if True, fewest tokens first; if False, most tokens first
         tokenizer: function that splits text into tokens, default whitespace split
 
     Returns:
-        List of tokenized texts sorted by token count.
+        List of (index, token_count) tuples sorted by token count.
     """
-    data = [tokenizer(text) for text in texts]
-    return _score_sorter(data, len, short_first)
+    scores = [(i, len(tokenizer(text))) for i, text in enumerate(texts)]
+    scores.sort(key=lambda p: p[1], reverse=not low_first)
+    return scores
 
 
 def sentence_count(
@@ -283,20 +281,3 @@ def readability_score(
     return scores
 
 
-def _score_sorter(
-    data: list[T], score_fn: Callable[[T], float], low_first: bool = True
-) -> list[T]:
-    """
-    Generic utility to sort data by a scoring function.
-
-    Args:
-        data: list of items to sort
-        score_fn: function that takes an item and returns a numeric score
-        low_first: if True, lowest scores first; if False, highest scores first
-
-    Returns:
-        Sorted copy of data (original is not modified).
-    """
-    _data = copy.deepcopy(data)
-    _data.sort(key=lambda d: score_fn(d), reverse=not low_first)
-    return _data

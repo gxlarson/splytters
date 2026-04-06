@@ -198,7 +198,8 @@ def density_balanced_split(
     n_samples = len(embeddings)
     rng = np.random.RandomState(random_state)
 
-    # Compute pairwise distances
+    # TODO: Replace full pairwise matrix with NearestNeighbors(k) to reduce
+    # memory from O(n²) to O(nk). Only k distances per point are needed here.
     distances = cdist(embeddings, embeddings, metric="euclidean")
     np.fill_diagonal(distances, np.inf)
 

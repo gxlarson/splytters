@@ -135,7 +135,7 @@ def dominant_color(
     n_clusters: int = 5,
     target_color: list[int] | None = None,
     low_first: bool = True,
-) -> list[tuple[int, float, list[int]]]:
+) -> list[tuple[int, float]]:
     """
     Sort images by their dominant color.
 
@@ -153,7 +153,7 @@ def dominant_color(
                    if False, images furthest from target first
 
     Returns:
-        List of (index, distance, dominant_rgb) tuples sorted by distance from target.
+        List of (index, distance) tuples sorted by distance from target color.
     """
     if target_color is None:
         target_color = np.array([128, 128, 128])
@@ -183,7 +183,7 @@ def dominant_color(
 
         # Distance from target color
         distance = np.linalg.norm(dominant_rgb - target_color)
-        scores.append((i, distance, dominant_rgb.astype(int).tolist()))
+        scores.append((i, float(distance)))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
     return scores

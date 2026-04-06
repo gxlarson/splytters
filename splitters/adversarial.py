@@ -217,7 +217,8 @@ def density_adversarial_split(
     validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
 
-    # Compute pairwise distances
+    # TODO: Replace full pairwise matrix with NearestNeighbors(k) to reduce
+    # memory from O(n²) to O(nk). Only k distances per point are needed here.
     distances = cdist(embeddings, embeddings, metric=metric)
     np.fill_diagonal(distances, np.inf)
 
@@ -319,7 +320,8 @@ def min_cut_split(
         n_train = int(n_samples * train_ratio)
         return list(range(n_train)), list(range(n_train, n_samples))
 
-    # Compute pairwise distances and convert to similarities
+    # TODO: Build sparse similarity graph directly via kneighbors_graph instead
+    # of materializing the full O(n²) distance matrix.
     distances = cdist(embeddings, embeddings, metric=metric)
 
     # Convert distance to similarity using Gaussian kernel
@@ -459,7 +461,8 @@ def normalized_cut_split(
         n_train = int(n_samples * train_ratio)
         return list(range(n_train)), list(range(n_train, n_samples))
 
-    # Compute similarity matrix
+    # TODO: Build sparse similarity graph directly via kneighbors_graph instead
+    # of materializing the full O(n²) distance matrix.
     distances = cdist(embeddings, embeddings, metric=metric)
     sigma = np.median(distances[distances > 0])
     if sigma == 0:

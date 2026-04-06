@@ -167,14 +167,14 @@ class TestDominantColor:
 
         assert names[0] == "dominant_blue"
 
-    def test_returns_dominant_rgb(self, dominant_images):
-        """Results should include dominant RGB values."""
+    def test_returns_index_distance_tuples(self, dominant_images):
+        """Results should be (index, distance) tuples."""
         results = dominant_color(dominant_images)
 
-        for idx, distance, dominant_rgb in results:
-            assert isinstance(dominant_rgb, list)
-            assert len(dominant_rgb) == 3
-            assert all(0 <= c <= 255 for c in dominant_rgb)
+        for idx, distance in results:
+            assert isinstance(idx, int)
+            assert isinstance(distance, float)
+            assert distance >= 0
 
 
 class TestCompressionRatio:
@@ -305,7 +305,7 @@ class TestEdgeCases:
         results = dominant_color(single_image)
         assert len(results) == 1
         assert results[0][0] == 0
-        assert len(results[0][2]) == 3  # RGB tuple
+        assert results[0][1] >= 0  # distance should be non-negative
 
     def test_single_image_compression_ratio(self, single_image):
         """compression_ratio should work with a single image."""

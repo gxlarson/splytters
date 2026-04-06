@@ -11,7 +11,6 @@ from sorters.text_sorters import (
     vocabulary_rarity,
     perplexity_score,
     readability_score,
-    _score_sorter,
 )
 
 
@@ -47,20 +46,32 @@ class TestCharacterLength:
         return ["hi", "hello", "greetings"]  # 2, 5, 9 chars
 
     def test_orders_short_first(self, texts):
-        """Shortest texts should come first when short_first=True."""
-        result = character_length(texts, short_first=True)
-        assert result == ["hi", "hello", "greetings"]
+        """Shortest texts should come first when low_first=True."""
+        result = character_length(texts, low_first=True)
+        indices = [idx for idx, _ in result]
+        assert indices == [0, 1, 2]
 
     def test_orders_long_first(self, texts):
-        """Longest texts should come first when short_first=False."""
-        result = character_length(texts, short_first=False)
-        assert result == ["greetings", "hello", "hi"]
+        """Longest texts should come first when low_first=False."""
+        result = character_length(texts, low_first=False)
+        indices = [idx for idx, _ in result]
+        assert indices == [2, 1, 0]
 
-    def test_preserves_original(self, texts):
-        """Original list should not be modified."""
-        original = texts.copy()
-        character_length(texts, short_first=True)
-        assert texts == original
+    def test_returns_correct_counts(self, texts):
+        """Should return correct character counts."""
+        result = character_length(texts, low_first=True)
+        scores = {idx: count for idx, count in result}
+        assert scores[0] == 2
+        assert scores[1] == 5
+        assert scores[2] == 9
+
+    def test_returns_index_count_tuples(self, texts):
+        """Results should be (index, count) tuples."""
+        result = character_length(texts)
+        for item in result:
+            assert len(item) == 2
+            assert isinstance(item[0], int)
+            assert isinstance(item[1], int)
 
 
 class TestTokensLength:
@@ -75,20 +86,31 @@ class TestTokensLength:
         ]
 
     def test_orders_short_first(self, texts):
-        """Fewest tokens should come first when short_first=True."""
-        result = tokens_length(texts, short_first=True)
-        assert result == [["one"], ["one", "two"], ["one", "two", "three", "four"]]
+        """Fewest tokens should come first when low_first=True."""
+        result = tokens_length(texts, low_first=True)
+        indices = [idx for idx, _ in result]
+        assert indices == [0, 1, 2]
 
     def test_orders_long_first(self, texts):
-        """Most tokens should come first when short_first=False."""
-        result = tokens_length(texts, short_first=False)
-        assert result == [["one", "two", "three", "four"], ["one", "two"], ["one"]]
+        """Most tokens should come first when low_first=False."""
+        result = tokens_length(texts, low_first=False)
+        indices = [idx for idx, _ in result]
+        assert indices == [2, 1, 0]
+
+    def test_returns_correct_counts(self, texts):
+        """Should return correct token counts."""
+        result = tokens_length(texts, low_first=True)
+        scores = {idx: count for idx, count in result}
+        assert scores[0] == 1
+        assert scores[1] == 2
+        assert scores[2] == 4
 
     def test_custom_tokenizer(self):
         """Should use custom tokenizer when provided."""
         texts = ["a,b,c", "a,b"]
         result = tokens_length(texts, tokenizer=lambda s: s.split(","))
-        assert result == [["a", "b"], ["a", "b", "c"]]
+        indices = [idx for idx, _ in result]
+        assert indices == [1, 0]  # 2 tokens, 3 tokens
 
 
 class TestSentenceCount:
@@ -318,40 +340,6 @@ class TestReadabilityScore:
             assert isinstance(item[1], float)
 
 
-class TestScoreSorter:
-    """Tests for _score_sorter function."""
-
-    def test_sorts_by_score_ascending(self):
-        """Should sort by score ascending when low_first=True."""
-        data = [3, 1, 2]
-        result = _score_sorter(data, lambda x: x, low_first=True)
-        assert result == [1, 2, 3]
-
-    def test_sorts_by_score_descending(self):
-        """Should sort by score descending when low_first=False."""
-        data = [3, 1, 2]
-        result = _score_sorter(data, lambda x: x, low_first=False)
-        assert result == [3, 2, 1]
-
-    def test_custom_score_function(self):
-        """Should use custom score function."""
-        data = ["aaa", "b", "cc"]
-        result = _score_sorter(data, len, low_first=True)
-        assert result == ["b", "cc", "aaa"]
-
-    def test_preserves_original(self):
-        """Original data should not be modified."""
-        data = [3, 1, 2]
-        original = data.copy()
-        _score_sorter(data, lambda x: x)
-        assert data == original
-
-    def test_handles_empty_list(self):
-        """Should handle empty list."""
-        result = _score_sorter([], lambda x: x)
-        assert result == []
-
-
 class TestEdgeCases:
     """Test edge cases for all text sorters."""
 
@@ -362,7 +350,8 @@ class TestEdgeCases:
     def test_character_length_single_item(self):
         """character_length should handle single item."""
         result = character_length(["hello"])
-        assert result == ["hello"]
+        assert len(result) == 1
+        assert result[0] == (0, 5)
 
     def test_tokens_length_empty_list(self):
         """tokens_length should handle empty list."""
@@ -371,7 +360,8 @@ class TestEdgeCases:
     def test_tokens_length_single_item(self):
         """tokens_length should handle single item."""
         result = tokens_length(["hello world"])
-        assert result == [["hello", "world"]]
+        assert len(result) == 1
+        assert result[0] == (0, 2)
 
     def test_sentence_count_empty_list(self):
         """sentence_count should handle empty list."""
