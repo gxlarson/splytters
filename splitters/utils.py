@@ -5,6 +5,7 @@ Shared utilities for splitting algorithms.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -155,6 +156,65 @@ def compute_split_similarity(
         "mean_cross_distance": mean_cross_distance,
         "coverage": coverage,
     }
+
+
+def optimized_split(
+    embeddings: np.ndarray,
+    train_ratio: float,
+    n_iterations: int,
+    score_fn: Callable[[np.ndarray, list[int], list[int]], float],
+    random_state: int = 42,
+    minimize: bool = True,
+) -> tuple[list[int], list[int]]:
+    """Iterative swap-optimization to find a split that optimizes a score.
+
+    Starts from a random split and repeatedly swaps one train/test pair,
+    keeping the swap only if the score improves.
+
+    Args:
+        embeddings: array of shape (n_samples, embedding_dim), already np.ndarray
+        train_ratio: fraction of data for training
+        n_iterations: number of swap attempts
+        score_fn: callable(embeddings, train_indices, test_indices) -> float
+        random_state: for reproducibility
+        minimize: if True, accept swaps that lower the score;
+                  if False, accept swaps that raise it
+    """
+    n_samples = len(embeddings)
+    rng = np.random.RandomState(random_state)
+
+    all_indices = np.arange(n_samples)
+    rng.shuffle(all_indices)
+
+    n_train = int(n_samples * train_ratio)
+    train_indices = set(all_indices[:n_train].tolist())
+    test_indices = set(all_indices[n_train:].tolist())
+
+    current_score = score_fn(embeddings, list(train_indices), list(test_indices))
+
+    for _ in range(n_iterations):
+        train_sample = rng.choice(list(train_indices))
+        test_sample = rng.choice(list(test_indices))
+
+        # swap
+        train_indices.remove(train_sample)
+        train_indices.add(test_sample)
+        test_indices.remove(test_sample)
+        test_indices.add(train_sample)
+
+        new_score = score_fn(embeddings, list(train_indices), list(test_indices))
+
+        improved = new_score < current_score if minimize else new_score > current_score
+        if improved:
+            current_score = new_score
+        else:
+            # revert
+            train_indices.remove(test_sample)
+            train_indices.add(train_sample)
+            test_indices.remove(train_sample)
+            test_indices.add(test_sample)
+
+    return list(train_indices), list(test_indices)
 
 
 def greedy_assign_to_target(

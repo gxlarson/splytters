@@ -49,6 +49,7 @@ from splitters.utils import (
     compute_split_similarity,
     cluster_embeddings,
     validate_split_inputs,
+    optimized_split,
 )
 
 __all__ = [
@@ -85,4 +86,5 @@ __all__ = [
     "compute_split_similarity",
     "cluster_embeddings",
     "validate_split_inputs",
+    "optimized_split",
 ]

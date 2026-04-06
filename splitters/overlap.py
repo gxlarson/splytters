@@ -15,7 +15,12 @@ from numpy.typing import ArrayLike
 from scipy.spatial.distance import cdist
 from sklearn.cluster import KMeans
 
-from splitters.utils import cluster_embeddings, compute_centroid, validate_split_inputs
+from splitters.utils import (
+    cluster_embeddings,
+    compute_centroid,
+    optimized_split,
+    validate_split_inputs,
+)
 
 
 def cluster_leak_split(
@@ -173,48 +178,15 @@ def centroid_matched_split(
     """
     validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
-    n_samples = len(embeddings)
-    rng = np.random.RandomState(random_state)
 
-    # Start with random split
-    all_indices = np.arange(n_samples)
-    rng.shuffle(all_indices)
+    def score_fn(X: np.ndarray, train: list[int], test: list[int]) -> float:
+        train_centroid = X[train].mean(axis=0)
+        test_centroid = X[test].mean(axis=0)
+        return float(np.linalg.norm(train_centroid - test_centroid))
 
-    n_train = int(n_samples * train_ratio)
-    train_indices = set(all_indices[:n_train])
-    test_indices = set(all_indices[n_train:])
-
-    def compute_centroid_distance():
-        train_centroid = embeddings[list(train_indices)].mean(axis=0)
-        test_centroid = embeddings[list(test_indices)].mean(axis=0)
-        return np.linalg.norm(train_centroid - test_centroid)
-
-    current_dist = compute_centroid_distance()
-
-    # Iteratively swap samples to minimize centroid distance
-    for _ in range(n_iterations):
-        # Pick random samples from each set
-        train_sample = rng.choice(list(train_indices))
-        test_sample = rng.choice(list(test_indices))
-
-        # Try swap
-        train_indices.remove(train_sample)
-        train_indices.add(test_sample)
-        test_indices.remove(test_sample)
-        test_indices.add(train_sample)
-
-        new_dist = compute_centroid_distance()
-
-        if new_dist < current_dist:
-            current_dist = new_dist
-        else:
-            # Revert swap
-            train_indices.remove(test_sample)
-            train_indices.add(train_sample)
-            test_indices.remove(train_sample)
-            test_indices.add(test_sample)
-
-    return list(train_indices), list(test_indices)
+    return optimized_split(
+        embeddings, train_ratio, n_iterations, score_fn, random_state
+    )
 
 
 def stratified_similarity_split(

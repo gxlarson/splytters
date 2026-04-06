@@ -12,7 +12,7 @@ from numpy.typing import ArrayLike
 from scipy.spatial.distance import cdist
 from scipy.stats import ks_2samp
 
-from splitters.utils import compute_centroid, validate_split_inputs
+from splitters.utils import compute_centroid, optimized_split, validate_split_inputs
 
 
 def distribution_matched_split(
@@ -39,55 +39,18 @@ def distribution_matched_split(
     """
     validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
-    n_samples, n_dims = embeddings.shape
-    rng = np.random.RandomState(random_state)
 
-    # Start with random split
-    all_indices = np.arange(n_samples)
-    rng.shuffle(all_indices)
+    def score_fn(X: np.ndarray, train: list[int], test: list[int]) -> float:
+        """Mean KS statistic across all dimensions."""
+        train_data, test_data = X[train], X[test]
+        return float(np.mean([
+            ks_2samp(train_data[:, d], test_data[:, d]).statistic
+            for d in range(X.shape[1])
+        ]))
 
-    n_train = int(n_samples * train_ratio)
-    train_indices = set(all_indices[:n_train])
-    test_indices = set(all_indices[n_train:])
-
-    def compute_divergence():
-        """Compute mean KS statistic across all dimensions."""
-        train_data = embeddings[list(train_indices)]
-        test_data = embeddings[list(test_indices)]
-
-        ks_stats = []
-        for dim in range(n_dims):
-            stat, _ = ks_2samp(train_data[:, dim], test_data[:, dim])
-            ks_stats.append(stat)
-
-        return np.mean(ks_stats)
-
-    current_divergence = compute_divergence()
-
-    # Iterative optimization
-    for _ in range(n_iterations):
-        # Pick random samples to swap
-        train_sample = rng.choice(list(train_indices))
-        test_sample = rng.choice(list(test_indices))
-
-        # Try swap
-        train_indices.remove(train_sample)
-        train_indices.add(test_sample)
-        test_indices.remove(test_sample)
-        test_indices.add(train_sample)
-
-        new_divergence = compute_divergence()
-
-        if new_divergence < current_divergence:
-            current_divergence = new_divergence
-        else:
-            # Revert swap
-            train_indices.remove(test_sample)
-            train_indices.add(train_sample)
-            test_indices.remove(train_sample)
-            test_indices.add(test_sample)
-
-    return list(train_indices), list(test_indices)
+    return optimized_split(
+        embeddings, train_ratio, n_iterations, score_fn, random_state
+    )
 
 
 def moment_matched_split(
@@ -113,56 +76,18 @@ def moment_matched_split(
     """
     validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
-    n_samples = len(embeddings)
-    rng = np.random.RandomState(random_state)
 
-    # Start with random split
-    all_indices = np.arange(n_samples)
-    rng.shuffle(all_indices)
-
-    n_train = int(n_samples * train_ratio)
-    train_indices = set(all_indices[:n_train])
-    test_indices = set(all_indices[n_train:])
-
-    def compute_moment_diff():
-        train_data = embeddings[list(train_indices)]
-        test_data = embeddings[list(test_indices)]
-
-        # Mean difference
+    def score_fn(X: np.ndarray, train: list[int], test: list[int]) -> float:
+        train_data, test_data = X[train], X[test]
         mean_diff = np.linalg.norm(train_data.mean(axis=0) - test_data.mean(axis=0))
-
         if match_variance:
-            # Variance difference
             var_diff = np.linalg.norm(train_data.var(axis=0) - test_data.var(axis=0))
             return mean_diff + var_diff
-
         return mean_diff
 
-    current_diff = compute_moment_diff()
-
-    # Iterative optimization
-    for _ in range(n_iterations):
-        train_sample = rng.choice(list(train_indices))
-        test_sample = rng.choice(list(test_indices))
-
-        # Try swap
-        train_indices.remove(train_sample)
-        train_indices.add(test_sample)
-        test_indices.remove(test_sample)
-        test_indices.add(train_sample)
-
-        new_diff = compute_moment_diff()
-
-        if new_diff < current_diff:
-            current_diff = new_diff
-        else:
-            # Revert
-            train_indices.remove(test_sample)
-            train_indices.add(train_sample)
-            test_indices.remove(train_sample)
-            test_indices.add(test_sample)
-
-    return list(train_indices), list(test_indices)
+    return optimized_split(
+        embeddings, train_ratio, n_iterations, score_fn, random_state
+    )
 
 
 def histogram_matched_split(
@@ -190,60 +115,26 @@ def histogram_matched_split(
     """
     validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
-    n_samples, n_dims = embeddings.shape
-    rng = np.random.RandomState(random_state)
+    n_dims = embeddings.shape[1]
 
-    # Compute bin edges for each dimension
-    bin_edges = []
-    for dim in range(n_dims):
-        edges = np.percentile(embeddings[:, dim], np.linspace(0, 100, n_bins + 1))
-        bin_edges.append(edges)
+    # Precompute bin edges for each dimension
+    bin_edges = [
+        np.percentile(embeddings[:, d], np.linspace(0, 100, n_bins + 1))
+        for d in range(n_dims)
+    ]
 
-    # Start with random split
-    all_indices = np.arange(n_samples)
-    rng.shuffle(all_indices)
-
-    n_train = int(n_samples * train_ratio)
-    train_indices = set(all_indices[:n_train])
-    test_indices = set(all_indices[n_train:])
-
-    def compute_histogram_diff():
-        train_data = embeddings[list(train_indices)]
-        test_data = embeddings[list(test_indices)]
-
-        total_diff = 0
-        for dim in range(n_dims):
-            train_hist, _ = np.histogram(train_data[:, dim], bins=bin_edges[dim], density=True)
-            test_hist, _ = np.histogram(test_data[:, dim], bins=bin_edges[dim], density=True)
+    def score_fn(X: np.ndarray, train: list[int], test: list[int]) -> float:
+        train_data, test_data = X[train], X[test]
+        total_diff = 0.0
+        for d in range(n_dims):
+            train_hist, _ = np.histogram(train_data[:, d], bins=bin_edges[d], density=True)
+            test_hist, _ = np.histogram(test_data[:, d], bins=bin_edges[d], density=True)
             total_diff += np.sum(np.abs(train_hist - test_hist))
-
         return total_diff
 
-    current_diff = compute_histogram_diff()
-
-    # Iterative optimization
-    for _ in range(n_iterations):
-        train_sample = rng.choice(list(train_indices))
-        test_sample = rng.choice(list(test_indices))
-
-        # Try swap
-        train_indices.remove(train_sample)
-        train_indices.add(test_sample)
-        test_indices.remove(test_sample)
-        test_indices.add(train_sample)
-
-        new_diff = compute_histogram_diff()
-
-        if new_diff < current_diff:
-            current_diff = new_diff
-        else:
-            # Revert
-            train_indices.remove(test_sample)
-            train_indices.add(train_sample)
-            test_indices.remove(train_sample)
-            test_indices.add(test_sample)
-
-    return list(train_indices), list(test_indices)
+    return optimized_split(
+        embeddings, train_ratio, n_iterations, score_fn, random_state
+    )
 
 
 def stratified_random_split(
@@ -366,67 +257,28 @@ def mmd_minimized_split(
     """
     validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
-    n_samples, n_dims = embeddings.shape
-    rng = np.random.RandomState(random_state)
+    n_dims = embeddings.shape[1]
 
-    if gamma is None:
-        gamma = 1.0 / n_dims
+    _gamma = gamma if gamma is not None else 1.0 / n_dims
 
-    def rbf_kernel(X, Y):
-        distances = cdist(X, Y, metric="sqeuclidean")
-        return np.exp(-gamma * distances)
+    def _rbf_kernel(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
+        return np.exp(-_gamma * cdist(X, Y, metric="sqeuclidean"))
 
-    def linear_kernel(X, Y):
+    def _linear_kernel(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
         return X @ Y.T
 
-    kernel_fn = rbf_kernel if kernel == "rbf" else linear_kernel
+    kernel_fn = _rbf_kernel if kernel == "rbf" else _linear_kernel
 
-    # Start with random split
-    all_indices = np.arange(n_samples)
-    rng.shuffle(all_indices)
-
-    n_train = int(n_samples * train_ratio)
-    train_indices = set(all_indices[:n_train])
-    test_indices = set(all_indices[n_train:])
-
-    def compute_mmd():
-        train_data = embeddings[list(train_indices)]
-        test_data = embeddings[list(test_indices)]
-
+    def score_fn(X: np.ndarray, train: list[int], test: list[int]) -> float:
+        train_data, test_data = X[train], X[test]
         K_tt = kernel_fn(train_data, train_data)
         K_ss = kernel_fn(test_data, test_data)
         K_ts = kernel_fn(train_data, test_data)
-
         m, n = len(train_data), len(test_data)
+        return (K_tt.sum() / (m * m) +
+                K_ss.sum() / (n * n) -
+                2 * K_ts.sum() / (m * n))
 
-        mmd = (K_tt.sum() / (m * m) +
-               K_ss.sum() / (n * n) -
-               2 * K_ts.sum() / (m * n))
-
-        return mmd
-
-    current_mmd = compute_mmd()
-
-    # Iterative optimization
-    for _ in range(n_iterations):
-        train_sample = rng.choice(list(train_indices))
-        test_sample = rng.choice(list(test_indices))
-
-        # Try swap
-        train_indices.remove(train_sample)
-        train_indices.add(test_sample)
-        test_indices.remove(test_sample)
-        test_indices.add(train_sample)
-
-        new_mmd = compute_mmd()
-
-        if new_mmd < current_mmd:
-            current_mmd = new_mmd
-        else:
-            # Revert
-            train_indices.remove(test_sample)
-            train_indices.add(train_sample)
-            test_indices.remove(train_sample)
-            test_indices.add(test_sample)
-
-    return list(train_indices), list(test_indices)
+    return optimized_split(
+        embeddings, train_ratio, n_iterations, score_fn, random_state
+    )
