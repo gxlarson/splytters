@@ -11,6 +11,7 @@ from splitters.utils import (
     random_split,
     compute_split_similarity,
     greedy_assign_to_target,
+    validate_split_inputs,
 )
 from splitters.adversarial import (
     cluster_split,
@@ -468,3 +469,71 @@ class TestListInput:
         X = [[i, i] for i in range(20)]
         train, test = cluster_split(X, n_clusters=2)
         assert_valid_split(train, test, 20, ratio_tol=0.3)
+
+
+# ===========================================================================
+# Input validation
+# ===========================================================================
+
+class TestValidateSplitInputs:
+
+    def test_ratio_too_high(self):
+        with pytest.raises(ValueError, match="between 0 and 1"):
+            validate_split_inputs(np.zeros((10, 2)), 1.0)
+
+    def test_ratio_too_low(self):
+        with pytest.raises(ValueError, match="between 0 and 1"):
+            validate_split_inputs(np.zeros((10, 2)), 0.0)
+
+    def test_ratio_negative(self):
+        with pytest.raises(ValueError, match="between 0 and 1"):
+            validate_split_inputs(np.zeros((10, 2)), -0.5)
+
+    def test_ratio_above_one(self):
+        with pytest.raises(ValueError, match="between 0 and 1"):
+            validate_split_inputs(np.zeros((10, 2)), 1.5)
+
+    def test_too_few_samples(self):
+        with pytest.raises(ValueError, match="at least 2 samples"):
+            validate_split_inputs(np.zeros((1, 2)), 0.5)
+
+    def test_empty_array(self):
+        with pytest.raises(ValueError, match="at least 2 samples"):
+            validate_split_inputs(np.zeros((0, 2)), 0.5)
+
+    def test_valid_passes(self):
+        validate_split_inputs(np.zeros((10, 2)), 0.7)  # should not raise
+
+
+class TestSplitterValidation:
+    """Splitters propagate validation errors."""
+
+    def test_random_split_bad_ratio(self):
+        X = np.zeros((10, 2))
+        with pytest.raises(ValueError, match="between 0 and 1"):
+            random_split(X, train_ratio=1.5)
+
+    def test_cluster_split_bad_ratio(self):
+        X = np.zeros((10, 2))
+        with pytest.raises(ValueError, match="between 0 and 1"):
+            cluster_split(X, train_ratio=0.0)
+
+    def test_distance_adversarial_too_few(self):
+        X = np.zeros((1, 2))
+        with pytest.raises(ValueError, match="at least 2 samples"):
+            distance_adversarial_split(X)
+
+    def test_moment_matched_bad_ratio(self):
+        X = np.zeros((10, 2))
+        with pytest.raises(ValueError, match="between 0 and 1"):
+            moment_matched_split(X, train_ratio=-0.1)
+
+    def test_cluster_leak_bad_ratio(self):
+        X = np.zeros((10, 2))
+        with pytest.raises(ValueError, match="between 0 and 1"):
+            cluster_leak_split(X, train_ratio=1.0)
+
+    def test_nearest_neighbor_too_few(self):
+        X = np.zeros((1, 2))
+        with pytest.raises(ValueError, match="at least 2 samples"):
+            nearest_neighbor_split(X)

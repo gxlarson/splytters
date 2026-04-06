@@ -24,7 +24,11 @@ def _load_image(img: ImageInput) -> Image.Image:
     """Load image from path or return PIL Image directly."""
     if isinstance(img, (str, Path)):
         return Image.open(img)
-    return img
+    if isinstance(img, Image.Image):
+        return img
+    raise TypeError(
+        f"Expected a file path or PIL Image, got {type(img).__name__}"
+    )
 
 
 def _to_array(img: ImageInput, mode: str | None = None) -> np.ndarray:

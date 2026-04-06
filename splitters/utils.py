@@ -13,6 +13,25 @@ from scipy.spatial.distance import cdist
 from sklearn.cluster import KMeans
 
 
+def validate_split_inputs(
+    embeddings: ArrayLike, train_ratio: float, min_samples: int = 2
+) -> None:
+    """Validate common inputs for splitting functions.
+
+    Raises:
+        ValueError: if train_ratio is out of (0, 1) or there are too few samples.
+    """
+    if not 0 < train_ratio < 1:
+        raise ValueError(
+            f"train_ratio must be between 0 and 1 exclusive, got {train_ratio}"
+        )
+    n = len(np.asarray(embeddings))
+    if n < min_samples:
+        raise ValueError(
+            f"Need at least {min_samples} samples to split, got {n}"
+        )
+
+
 def compute_pairwise_distances(X: ArrayLike, metric: str = "euclidean") -> np.ndarray:
     """Compute pairwise distance matrix."""
     X = np.asarray(X)
@@ -86,6 +105,7 @@ def random_split(
         train_indices: list of indices for training set
         test_indices: list of indices for test set
     """
+    validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
     n_samples = len(embeddings)
     n_train = int(n_samples * train_ratio)

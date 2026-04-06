@@ -33,11 +33,13 @@ def _load_audio(audio: AudioInput, sr: int = 22050) -> tuple[np.ndarray, int]:
     if isinstance(audio, (str, Path)):
         y, sr = librosa.load(audio, sr=sr)
         return y, sr
-    elif isinstance(audio, tuple):
+    if isinstance(audio, tuple):
         return audio
-    else:
-        # Assume it's already a numpy array, use default sr
+    if isinstance(audio, np.ndarray):
         return audio, sr
+    raise TypeError(
+        f"Expected a file path, (samples, sr) tuple, or numpy array, got {type(audio).__name__}"
+    )
 
 
 # =============================================================================

@@ -15,7 +15,7 @@ from numpy.typing import ArrayLike
 from scipy.spatial.distance import cdist
 from sklearn.cluster import KMeans
 
-from splitters.utils import cluster_embeddings, compute_centroid
+from splitters.utils import cluster_embeddings, compute_centroid, validate_split_inputs
 
 
 def cluster_leak_split(
@@ -43,6 +43,7 @@ def cluster_leak_split(
         train_indices: list of indices for training set
         test_indices: list of indices for test set
     """
+    validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
     rng = np.random.RandomState(random_state)
 
@@ -89,6 +90,7 @@ def neighbor_coverage_split(
         train_indices: list of indices for training set
         test_indices: list of indices for test set
     """
+    validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
     n_samples = len(embeddings)
     rng = np.random.RandomState(random_state)
@@ -169,6 +171,7 @@ def centroid_matched_split(
         train_indices: list of indices for training set
         test_indices: list of indices for test set
     """
+    validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
     n_samples = len(embeddings)
     rng = np.random.RandomState(random_state)
@@ -236,6 +239,7 @@ def stratified_similarity_split(
         train_indices: list of indices for training set
         test_indices: list of indices for test set
     """
+    validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
     rng = np.random.RandomState(random_state)
 
@@ -291,6 +295,7 @@ def nearest_neighbor_split(
     """
     from sklearn.neighbors import NearestNeighbors
 
+    validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
     n_samples = len(embeddings)
     n_test = n_samples - int(n_samples * train_ratio)
@@ -350,6 +355,7 @@ def duplicate_spread_split(
         train_indices: list of indices for training set
         test_indices: list of indices for test set
     """
+    validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
     n_samples = len(embeddings)
     rng = np.random.RandomState(random_state)
@@ -421,6 +427,7 @@ def max_coverage_split(
         train_indices: list of indices for training set
         test_indices: list of indices for test set
     """
+    validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
     n_samples = len(embeddings)
     rng = np.random.RandomState(random_state)

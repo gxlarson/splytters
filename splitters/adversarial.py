@@ -18,7 +18,7 @@ from scipy.sparse.csgraph import laplacian
 from scipy.sparse.linalg import eigsh
 from sklearn.cluster import KMeans, DBSCAN
 
-from splitters.utils import cluster_embeddings, compute_centroid
+from splitters.utils import cluster_embeddings, compute_centroid, validate_split_inputs
 
 
 def cluster_split(
@@ -46,6 +46,7 @@ def cluster_split(
         train_indices: list of indices for training set
         test_indices: list of indices for test set
     """
+    validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
 
     if method == "kmeans":
@@ -120,6 +121,7 @@ def centroid_adversarial_split(
         train_indices: list of indices for training set
         test_indices: list of indices for test set
     """
+    validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
 
     labels, cluster_to_indices, cluster_centers = cluster_embeddings(
@@ -173,6 +175,7 @@ def distance_adversarial_split(
         train_indices: list of indices for training set
         test_indices: list of indices for test set
     """
+    validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
     centroid = compute_centroid(embeddings)
 
@@ -211,6 +214,7 @@ def density_adversarial_split(
         train_indices: list of indices for training set
         test_indices: list of indices for test set
     """
+    validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
 
     # Compute pairwise distances
@@ -256,6 +260,7 @@ def outlier_adversarial_split(
     """
     from sklearn.ensemble import IsolationForest
 
+    validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
 
     detector = IsolationForest(
@@ -305,6 +310,7 @@ def min_cut_split(
         train_indices: list of indices for training set
         test_indices: list of indices for test set
     """
+    validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
     n_samples = len(embeddings)
 
@@ -445,6 +451,7 @@ def normalized_cut_split(
         train_indices: list of indices for training set
         test_indices: list of indices for test set
     """
+    validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
     n_samples = len(embeddings)
 

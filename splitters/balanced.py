@@ -12,7 +12,7 @@ from numpy.typing import ArrayLike
 from scipy.spatial.distance import cdist
 from scipy.stats import ks_2samp
 
-from splitters.utils import compute_centroid
+from splitters.utils import compute_centroid, validate_split_inputs
 
 
 def distribution_matched_split(
@@ -37,6 +37,7 @@ def distribution_matched_split(
         train_indices: list of indices for training set
         test_indices: list of indices for test set
     """
+    validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
     n_samples, n_dims = embeddings.shape
     rng = np.random.RandomState(random_state)
@@ -110,6 +111,7 @@ def moment_matched_split(
         train_indices: list of indices for training set
         test_indices: list of indices for test set
     """
+    validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
     n_samples = len(embeddings)
     rng = np.random.RandomState(random_state)
@@ -186,6 +188,7 @@ def histogram_matched_split(
         train_indices: list of indices for training set
         test_indices: list of indices for test set
     """
+    validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
     n_samples, n_dims = embeddings.shape
     rng = np.random.RandomState(random_state)
@@ -264,6 +267,7 @@ def stratified_random_split(
     """
     from sklearn.model_selection import train_test_split
 
+    validate_split_inputs(embeddings, train_ratio)
     indices = np.arange(len(embeddings))
 
     train_indices, test_indices = train_test_split(
@@ -298,6 +302,7 @@ def density_balanced_split(
         train_indices: list of indices for training set
         test_indices: list of indices for test set
     """
+    validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
     n_samples = len(embeddings)
     rng = np.random.RandomState(random_state)
@@ -359,6 +364,7 @@ def mmd_minimized_split(
         train_indices: list of indices for training set
         test_indices: list of indices for test set
     """
+    validate_split_inputs(embeddings, train_ratio)
     embeddings = np.asarray(embeddings)
     n_samples, n_dims = embeddings.shape
     rng = np.random.RandomState(random_state)
