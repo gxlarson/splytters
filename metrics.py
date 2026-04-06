@@ -1,14 +1,23 @@
+from __future__ import annotations
+
+from collections.abc import Callable
 from statistics import mean
+
+import numpy as np
 
 from distances import (
     dist_euclidean,
     ngram_jaccard_distance,
 )
 
-def simple_tokenizer(s):
+
+def simple_tokenizer(s: str) -> list[str]:
     return s.split()
 
-def mean_dist(embeddings, distance=dist_euclidean):
+def mean_dist(
+    embeddings: np.ndarray,
+    distance: Callable[[np.ndarray, np.ndarray], float] = dist_euclidean,
+) -> float:
     """
     computes mean distance from all samples to the centroid
 
@@ -22,11 +31,11 @@ def mean_dist(embeddings, distance=dist_euclidean):
     return mean(distances)
 
 def diversity_text(
-        data,
-        datatype="token",
-        distance_function=ngram_jaccard_distance,
-        tokenizer=simple_tokenizer,
-    ):
+        data: list[str],
+        datatype: str = "token",
+        distance_function: Callable[[str, str], float] = ngram_jaccard_distance,
+        tokenizer: Callable[[str], list[str]] = simple_tokenizer,
+    ) -> float:
     """
     See Figure 5 from https://aclanthology.org/N19-1051.pdf
     The D(*,*) function is distance_function in diversity_text's

@@ -6,20 +6,28 @@ nearest neighbors, density, outlier scores) to enable train-test splits that
 maximize dissimilarity.
 """
 
+from __future__ import annotations
+
+from collections.abc import Callable
 from pprint import pprint
+from typing import Any
 
 import numpy as np
+from numpy.typing import ArrayLike
 from scipy.spatial.distance import cdist, euclidean as _dist_euclidean
 from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import LocalOutlierFactor
 
 
-def dist_euclidean(u, v):
+def dist_euclidean(u: ArrayLike, v: ArrayLike) -> float:
     """Compute Euclidean distance between two vectors."""
     return _dist_euclidean(u, v)
 
 
-def distance_to_mean(embeddings, distance=dist_euclidean):
+def distance_to_mean(
+    embeddings: np.ndarray,
+    distance: Callable[[np.ndarray, np.ndarray], float] = dist_euclidean,
+) -> list[tuple[int, float]]:
     """
     Sort samples by distance from the dataset centroid.
 
@@ -44,7 +52,9 @@ def distance_to_mean(embeddings, distance=dist_euclidean):
     return distances
 
 
-def distance_to_nearest_neighbor(embeddings, metric="euclidean"):
+def distance_to_nearest_neighbor(
+    embeddings: ArrayLike, metric: str = "euclidean"
+) -> list[tuple[int, float]]:
     """
     Sort samples by distance to their nearest neighbor.
 
@@ -79,7 +89,12 @@ def distance_to_nearest_neighbor(embeddings, metric="euclidean"):
     return scores
 
 
-def local_density(embeddings, radius=None, metric="euclidean", low_first=True):
+def local_density(
+    embeddings: ArrayLike,
+    radius: float | None = None,
+    metric: str = "euclidean",
+    low_first: bool = True,
+) -> list[tuple[int, int]]:
     """
     Sort samples by local density (number of neighbors within radius).
 
@@ -123,7 +138,12 @@ def local_density(embeddings, radius=None, metric="euclidean", low_first=True):
     return scores
 
 
-def outlier_score(embeddings, method="isolation_forest", low_first=True, **kwargs):
+def outlier_score(
+    embeddings: ArrayLike,
+    method: str = "isolation_forest",
+    low_first: bool = True,
+    **kwargs: Any,
+) -> list[tuple[int, float]]:
     """
     Sort samples by anomaly/outlier score.
 

@@ -2,26 +2,32 @@
 Shared utilities for splitting algorithms.
 """
 
+from __future__ import annotations
+
 from collections import defaultdict
+from typing import Any
 
 import numpy as np
+from numpy.typing import ArrayLike
 from scipy.spatial.distance import cdist
 from sklearn.cluster import KMeans
 
 
-def compute_pairwise_distances(X, metric="euclidean"):
+def compute_pairwise_distances(X: ArrayLike, metric: str = "euclidean") -> np.ndarray:
     """Compute pairwise distance matrix."""
     X = np.asarray(X)
     return cdist(X, X, metric=metric)
 
 
-def compute_centroid(X):
+def compute_centroid(X: ArrayLike) -> np.ndarray:
     """Compute centroid of embeddings."""
     X = np.asarray(X)
     return X.mean(axis=0)
 
 
-def compute_split_centroids(X, train_indices, test_indices):
+def compute_split_centroids(
+    X: ArrayLike, train_indices: list[int], test_indices: list[int]
+) -> tuple[np.ndarray | None, np.ndarray | None]:
     """Compute centroids of train and test sets."""
     X = np.asarray(X)
     train_centroid = X[train_indices].mean(axis=0) if train_indices else None
@@ -29,7 +35,13 @@ def compute_split_centroids(X, train_indices, test_indices):
     return train_centroid, test_centroid
 
 
-def cluster_embeddings(X, n_clusters=10, method="kmeans", random_state=42, **kwargs):
+def cluster_embeddings(
+    X: ArrayLike,
+    n_clusters: int = 10,
+    method: str = "kmeans",
+    random_state: int = 42,
+    **kwargs: Any,
+) -> tuple[np.ndarray, dict[int, list[int]], np.ndarray]:
     """
     Cluster embeddings and return labels and cluster info.
 
@@ -59,7 +71,9 @@ def cluster_embeddings(X, n_clusters=10, method="kmeans", random_state=42, **kwa
     return labels, cluster_to_indices, cluster_centers
 
 
-def random_split(embeddings, train_ratio=0.7, random_state=42):
+def random_split(
+    embeddings: ArrayLike, train_ratio: float = 0.7, random_state: int = 42
+) -> tuple[list[int], list[int]]:
     """
     Simple random train/test split (baseline).
 
@@ -81,7 +95,12 @@ def random_split(embeddings, train_ratio=0.7, random_state=42):
     return indices[:n_train].tolist(), indices[n_train:].tolist()
 
 
-def compute_split_similarity(X, train_indices, test_indices, metric="euclidean"):
+def compute_split_similarity(
+    X: ArrayLike,
+    train_indices: list[int],
+    test_indices: list[int],
+    metric: str = "euclidean",
+) -> dict[str, float]:
     """
     Compute similarity metrics between train and test splits.
 
@@ -118,7 +137,9 @@ def compute_split_similarity(X, train_indices, test_indices, metric="euclidean")
     }
 
 
-def greedy_assign_to_target(items_with_sizes, target_size):
+def greedy_assign_to_target(
+    items_with_sizes: list[tuple[int, int]], target_size: int
+) -> tuple[list[int], list[int]]:
     """
     Greedily assign items to reach target size.
 

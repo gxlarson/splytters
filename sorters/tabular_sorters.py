@@ -8,6 +8,10 @@ train-test splits that maximize dissimilarity.
 All functions accept pandas DataFrames and return sorted index lists.
 """
 
+from __future__ import annotations
+
+from typing import Any, Hashable
+
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -15,7 +19,9 @@ from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import LocalOutlierFactor
 
 
-def column_value(df, column, low_first=True):
+def column_value(
+    df: pd.DataFrame, column: str, low_first: bool = True
+) -> list[tuple[Hashable, Any]]:
     """
     Sort rows by values in a specified column.
 
@@ -44,7 +50,9 @@ def column_value(df, column, low_first=True):
     return [(idx, val) for idx, val, _ in scores]
 
 
-def column_rank(df, column, low_first=True):
+def column_rank(
+    df: pd.DataFrame, column: str, low_first: bool = True
+) -> list[tuple[Hashable, float]]:
     """
     Sort rows by percentile rank within a column.
 
@@ -67,7 +75,9 @@ def column_rank(df, column, low_first=True):
     return scores
 
 
-def column_zscore(df, column, low_first=True):
+def column_zscore(
+    df: pd.DataFrame, column: str, low_first: bool = True
+) -> list[tuple[Hashable, float]]:
     """
     Sort rows by z-score (standard deviations from mean) in a column.
 
@@ -104,7 +114,9 @@ def column_zscore(df, column, low_first=True):
     return scores
 
 
-def column_absolute_zscore(df, column, low_first=True):
+def column_absolute_zscore(
+    df: pd.DataFrame, column: str, low_first: bool = True
+) -> list[tuple[Hashable, float]]:
     """
     Sort rows by absolute z-score (distance from mean) in a column.
 
@@ -139,7 +151,9 @@ def column_absolute_zscore(df, column, low_first=True):
     return scores
 
 
-def missing_value_ratio(df, low_first=True):
+def missing_value_ratio(
+    df: pd.DataFrame, low_first: bool = True
+) -> list[tuple[Hashable, float]]:
     """
     Sort rows by proportion of missing (NaN/None) values.
 
@@ -166,7 +180,9 @@ def missing_value_ratio(df, low_first=True):
     return scores
 
 
-def row_sparsity(df, zero_threshold=1e-10, low_first=True):
+def row_sparsity(
+    df: pd.DataFrame, zero_threshold: float = 1e-10, low_first: bool = True
+) -> list[tuple[Hashable, float]]:
     """
     Sort rows by proportion of zero (or near-zero) values.
 
@@ -199,7 +215,12 @@ def row_sparsity(df, zero_threshold=1e-10, low_first=True):
     return scores
 
 
-def outlier_score(df, method="isolation_forest", low_first=True, **kwargs):
+def outlier_score(
+    df: pd.DataFrame,
+    method: str = "isolation_forest",
+    low_first: bool = True,
+    **kwargs: Any,
+) -> list[tuple[Hashable, float]]:
     """
     Sort rows by anomaly/outlier score.
 
@@ -254,7 +275,9 @@ def outlier_score(df, method="isolation_forest", low_first=True, **kwargs):
     return scores
 
 
-def numerical_range_score(df, low_first=True):
+def numerical_range_score(
+    df: pd.DataFrame, low_first: bool = True
+) -> list[tuple[Hashable, float]]:
     """
     Sort rows by how extreme their numerical values are (distance from median).
 
@@ -287,7 +310,9 @@ def numerical_range_score(df, low_first=True):
     return scores
 
 
-def categorical_rarity(df, column, low_first=True):
+def categorical_rarity(
+    df: pd.DataFrame, column: str, low_first: bool = True
+) -> list[tuple[Hashable, float]]:
     """
     Sort rows by rarity of categorical value in a column.
 
@@ -321,7 +346,9 @@ def categorical_rarity(df, column, low_first=True):
     return scores
 
 
-def feature_entropy(df, low_first=True):
+def feature_entropy(
+    df: pd.DataFrame, low_first: bool = True
+) -> list[tuple[Hashable, float]]:
     """
     Sort rows by entropy of categorical features.
 
@@ -367,7 +394,9 @@ def feature_entropy(df, low_first=True):
     return scores
 
 
-def row_distance_to_mean(df, low_first=True):
+def row_distance_to_mean(
+    df: pd.DataFrame, low_first: bool = True
+) -> list[tuple[Hashable, float]]:
     """
     Sort rows by Euclidean distance from the column-wise mean.
 
@@ -403,7 +432,12 @@ def row_distance_to_mean(df, low_first=True):
     return scores
 
 
-def multi_column_sort(df, columns, weights=None, low_first=True):
+def multi_column_sort(
+    df: pd.DataFrame,
+    columns: list[str],
+    weights: list[float] | None = None,
+    low_first: bool = True,
+) -> list[tuple[Hashable, float]]:
     """
     Sort rows by weighted combination of multiple columns.
 

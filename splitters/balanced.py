@@ -5,7 +5,10 @@ These methods create splits where train and test have similar statistical
 properties, useful for fair evaluation without distribution shift.
 """
 
+from __future__ import annotations
+
 import numpy as np
+from numpy.typing import ArrayLike
 from scipy.spatial.distance import cdist
 from scipy.stats import ks_2samp
 
@@ -13,11 +16,11 @@ from splitters.utils import compute_centroid
 
 
 def distribution_matched_split(
-    embeddings,
-    train_ratio=0.7,
-    n_iterations=1000,
-    random_state=42
-):
+    embeddings: ArrayLike,
+    train_ratio: float = 0.7,
+    n_iterations: int = 1000,
+    random_state: int = 42,
+) -> tuple[list[int], list[int]]:
     """
     Minimize distribution divergence between train and test.
 
@@ -87,12 +90,12 @@ def distribution_matched_split(
 
 
 def moment_matched_split(
-    embeddings,
-    train_ratio=0.7,
-    n_iterations=1000,
-    match_variance=True,
-    random_state=42
-):
+    embeddings: ArrayLike,
+    train_ratio: float = 0.7,
+    n_iterations: int = 1000,
+    match_variance: bool = True,
+    random_state: int = 42,
+) -> tuple[list[int], list[int]]:
     """
     Match mean (and optionally variance) between train and test.
 
@@ -161,12 +164,12 @@ def moment_matched_split(
 
 
 def histogram_matched_split(
-    embeddings,
-    train_ratio=0.7,
-    n_bins=10,
-    n_iterations=1000,
-    random_state=42
-):
+    embeddings: ArrayLike,
+    train_ratio: float = 0.7,
+    n_bins: int = 10,
+    n_iterations: int = 1000,
+    random_state: int = 42,
+) -> tuple[list[int], list[int]]:
     """
     Match feature histograms between train and test.
 
@@ -241,11 +244,11 @@ def histogram_matched_split(
 
 
 def stratified_random_split(
-    embeddings,
-    labels,
-    train_ratio=0.7,
-    random_state=42
-):
+    embeddings: ArrayLike,
+    labels: ArrayLike,
+    train_ratio: float = 0.7,
+    random_state: int = 42,
+) -> tuple[list[int], list[int]]:
     """
     Standard stratified split maintaining label proportions.
 
@@ -274,11 +277,11 @@ def stratified_random_split(
 
 
 def density_balanced_split(
-    embeddings,
-    train_ratio=0.7,
-    n_bins=10,
-    random_state=42
-):
+    embeddings: ArrayLike,
+    train_ratio: float = 0.7,
+    n_bins: int = 10,
+    random_state: int = 42,
+) -> tuple[list[int], list[int]]:
     """
     Balance local density distribution between train and test.
 
@@ -331,13 +334,13 @@ def density_balanced_split(
 
 
 def mmd_minimized_split(
-    embeddings,
-    train_ratio=0.7,
-    n_iterations=500,
-    kernel="rbf",
-    gamma=None,
-    random_state=42
-):
+    embeddings: ArrayLike,
+    train_ratio: float = 0.7,
+    n_iterations: int = 500,
+    kernel: str = "rbf",
+    gamma: float | None = None,
+    random_state: int = 42,
+) -> tuple[list[int], list[int]]:
     """
     Minimize Maximum Mean Discrepancy between train and test.
 

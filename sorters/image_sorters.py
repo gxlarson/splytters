@@ -7,6 +7,8 @@ complexity) to enable train-test splits that maximize dissimilarity.
 All functions accept either file paths or PIL Image objects.
 """
 
+from __future__ import annotations
+
 import io
 from pathlib import Path
 
@@ -15,15 +17,17 @@ from PIL import Image
 from scipy import fft
 from sklearn.cluster import KMeans
 
+ImageInput = str | Path | Image.Image
 
-def _load_image(img):
+
+def _load_image(img: ImageInput) -> Image.Image:
     """Load image from path or return PIL Image directly."""
     if isinstance(img, (str, Path)):
         return Image.open(img)
     return img
 
 
-def _to_array(img, mode=None):
+def _to_array(img: ImageInput, mode: str | None = None) -> np.ndarray:
     """Convert image to numpy array, optionally converting mode first."""
     img = _load_image(img)
     if mode is not None:
@@ -31,7 +35,9 @@ def _to_array(img, mode=None):
     return np.array(img, dtype=np.float32)
 
 
-def mean_brightness(images, low_first=True):
+def mean_brightness(
+    images: list[ImageInput], low_first: bool = True
+) -> list[tuple[int, float]]:
     """
     Sort images by mean brightness (average pixel intensity).
 
@@ -57,7 +63,9 @@ def mean_brightness(images, low_first=True):
     return scores
 
 
-def contrast(images, low_first=True):
+def contrast(
+    images: list[ImageInput], low_first: bool = True
+) -> list[tuple[int, float]]:
     """
     Sort images by contrast (standard deviation of pixel intensities).
 
@@ -85,7 +93,9 @@ def contrast(images, low_first=True):
     return scores
 
 
-def color_variance(images, low_first=True):
+def color_variance(
+    images: list[ImageInput], low_first: bool = True
+) -> list[tuple[int, float]]:
     """
     Sort images by color variance (spread across RGB channels).
 
@@ -116,7 +126,12 @@ def color_variance(images, low_first=True):
     return scores
 
 
-def dominant_color(images, n_clusters=5, target_color=None, low_first=True):
+def dominant_color(
+    images: list[ImageInput],
+    n_clusters: int = 5,
+    target_color: list[int] | None = None,
+    low_first: bool = True,
+) -> list[tuple[int, float, list[int]]]:
     """
     Sort images by their dominant color.
 
@@ -170,7 +185,9 @@ def dominant_color(images, n_clusters=5, target_color=None, low_first=True):
     return scores
 
 
-def compression_ratio(images, quality=85, low_first=True):
+def compression_ratio(
+    images: list[ImageInput], quality: int = 85, low_first: bool = True
+) -> list[tuple[int, float]]:
     """
     Sort images by JPEG compression ratio.
 
@@ -209,7 +226,9 @@ def compression_ratio(images, quality=85, low_first=True):
     return scores
 
 
-def frequency_content(images, low_first=True):
+def frequency_content(
+    images: list[ImageInput], low_first: bool = True
+) -> list[tuple[int, float]]:
     """
     Sort images by high-frequency content (texture/detail level).
 

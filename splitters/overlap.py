@@ -5,9 +5,13 @@ These methods create "easy" evaluation sets where test samples are
 similar to training samples, useful for sanity checks and debugging.
 """
 
+from __future__ import annotations
+
 from collections import defaultdict
+from typing import Any
 
 import numpy as np
+from numpy.typing import ArrayLike
 from scipy.spatial.distance import cdist
 from sklearn.cluster import KMeans
 
@@ -15,12 +19,12 @@ from splitters.utils import cluster_embeddings, compute_centroid
 
 
 def cluster_leak_split(
-    embeddings,
-    train_ratio=0.7,
-    n_clusters=10,
-    random_state=42,
-    **cluster_kwargs
-):
+    embeddings: ArrayLike,
+    train_ratio: float = 0.7,
+    n_clusters: int = 10,
+    random_state: int = 42,
+    **cluster_kwargs: Any,
+) -> tuple[list[int], list[int]]:
     """
     Split clusters across train/test to maximize similarity.
 
@@ -62,12 +66,12 @@ def cluster_leak_split(
 
 
 def neighbor_coverage_split(
-    embeddings,
-    train_ratio=0.7,
-    k=5,
-    metric="euclidean",
-    random_state=42
-):
+    embeddings: ArrayLike,
+    train_ratio: float = 0.7,
+    k: int = 5,
+    metric: str = "euclidean",
+    random_state: int = 42,
+) -> tuple[list[int], list[int]]:
     """
     Ensure each test sample has k similar samples in train.
 
@@ -144,11 +148,11 @@ def neighbor_coverage_split(
 
 
 def centroid_matched_split(
-    embeddings,
-    train_ratio=0.7,
-    n_iterations=100,
-    random_state=42
-):
+    embeddings: ArrayLike,
+    train_ratio: float = 0.7,
+    n_iterations: int = 100,
+    random_state: int = 42,
+) -> tuple[list[int], list[int]]:
     """
     Minimize distance between train and test centroids.
 
@@ -211,11 +215,11 @@ def centroid_matched_split(
 
 
 def stratified_similarity_split(
-    embeddings,
-    train_ratio=0.7,
-    n_bins=10,
-    random_state=42
-):
+    embeddings: ArrayLike,
+    train_ratio: float = 0.7,
+    n_bins: int = 10,
+    random_state: int = 42,
+) -> tuple[list[int], list[int]]:
     """
     Stratify by distance from centroid, ensuring similar distribution in both sets.
 
@@ -262,11 +266,11 @@ def stratified_similarity_split(
 
 
 def nearest_neighbor_split(
-    embeddings,
-    train_ratio=0.7,
-    metric="euclidean",
-    random_state=42
-):
+    embeddings: ArrayLike,
+    train_ratio: float = 0.7,
+    metric: str = "euclidean",
+    random_state: int = 42,
+) -> tuple[list[int], list[int]]:
     """
     For each test sample, ensure its nearest neighbor is in train.
 
@@ -322,12 +326,12 @@ def nearest_neighbor_split(
 
 
 def duplicate_spread_split(
-    embeddings,
-    train_ratio=0.7,
-    similarity_threshold=None,
-    metric="euclidean",
-    random_state=42
-):
+    embeddings: ArrayLike,
+    train_ratio: float = 0.7,
+    similarity_threshold: float | None = None,
+    metric: str = "euclidean",
+    random_state: int = 42,
+) -> tuple[list[int], list[int]]:
     """
     Intentionally put near-duplicates in both train and test.
 
@@ -394,12 +398,12 @@ def duplicate_spread_split(
 
 
 def max_coverage_split(
-    embeddings,
-    train_ratio=0.7,
-    radius=None,
-    metric="euclidean",
-    random_state=42
-):
+    embeddings: ArrayLike,
+    train_ratio: float = 0.7,
+    radius: float | None = None,
+    metric: str = "euclidean",
+    random_state: int = 42,
+) -> tuple[list[int], list[int]]:
     """
     Maximize the coverage of test set by train set.
 

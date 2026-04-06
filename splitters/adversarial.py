@@ -5,9 +5,13 @@ These methods create "hard" evaluation sets where test samples are
 dissimilar from training samples, testing model generalization.
 """
 
+from __future__ import annotations
+
 from collections import defaultdict
+from typing import Any
 
 import numpy as np
+from numpy.typing import ArrayLike
 from scipy.spatial.distance import cdist
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import laplacian
@@ -18,13 +22,13 @@ from splitters.utils import cluster_embeddings, compute_centroid
 
 
 def cluster_split(
-    embeddings,
-    train_ratio=0.7,
-    method="kmeans",
-    n_clusters=10,
-    random_state=42,
-    **cluster_kwargs
-):
+    embeddings: ArrayLike,
+    train_ratio: float = 0.7,
+    method: str = "kmeans",
+    n_clusters: int = 10,
+    random_state: int = 42,
+    **cluster_kwargs: Any,
+) -> tuple[list[int], list[int]]:
     """
     Split dataset by assigning entire clusters to train or test.
 
@@ -92,12 +96,12 @@ def cluster_split(
 
 
 def centroid_adversarial_split(
-    embeddings,
-    train_ratio=0.7,
-    n_clusters=10,
-    random_state=42,
-    **cluster_kwargs
-):
+    embeddings: ArrayLike,
+    train_ratio: float = 0.7,
+    n_clusters: int = 10,
+    random_state: int = 42,
+    **cluster_kwargs: Any,
+) -> tuple[list[int], list[int]]:
     """
     Adversarial cluster split: assign clusters nearest to global centroid
     to train, furthest clusters to test.
@@ -151,7 +155,9 @@ def centroid_adversarial_split(
     return train_indices, test_indices
 
 
-def distance_adversarial_split(embeddings, train_ratio=0.7, metric="euclidean"):
+def distance_adversarial_split(
+    embeddings: ArrayLike, train_ratio: float = 0.7, metric: str = "euclidean"
+) -> tuple[list[int], list[int]]:
     """
     Adversarial split based on individual sample distance from centroid.
 
@@ -185,11 +191,11 @@ def distance_adversarial_split(embeddings, train_ratio=0.7, metric="euclidean"):
 
 
 def density_adversarial_split(
-    embeddings,
-    train_ratio=0.7,
-    metric="euclidean",
-    k=10
-):
+    embeddings: ArrayLike,
+    train_ratio: float = 0.7,
+    metric: str = "euclidean",
+    k: int = 10,
+) -> tuple[list[int], list[int]]:
     """
     Adversarial split based on local density.
 
@@ -228,11 +234,11 @@ def density_adversarial_split(
 
 
 def outlier_adversarial_split(
-    embeddings,
-    train_ratio=0.7,
-    contamination=0.1,
-    random_state=42
-):
+    embeddings: ArrayLike,
+    train_ratio: float = 0.7,
+    contamination: float = 0.1,
+    random_state: int = 42,
+) -> tuple[list[int], list[int]]:
     """
     Adversarial split using outlier detection.
 
@@ -273,13 +279,13 @@ def outlier_adversarial_split(
 
 
 def min_cut_split(
-    embeddings,
-    train_ratio=0.7,
-    similarity_threshold=None,
-    metric="euclidean",
-    method="spectral",
-    random_state=42,
-):
+    embeddings: ArrayLike,
+    train_ratio: float = 0.7,
+    similarity_threshold: float | None = None,
+    metric: str = "euclidean",
+    method: str = "spectral",
+    random_state: int = 42,
+) -> tuple[list[int], list[int]]:
     """
     Adversarial split using graph min-cut.
 
@@ -416,11 +422,11 @@ def min_cut_split(
 
 
 def normalized_cut_split(
-    embeddings,
-    train_ratio=0.7,
-    metric="euclidean",
-    random_state=42,
-):
+    embeddings: ArrayLike,
+    train_ratio: float = 0.7,
+    metric: str = "euclidean",
+    random_state: int = 42,
+) -> tuple[list[int], list[int]]:
     """
     Adversarial split using normalized graph cut.
 
@@ -476,7 +482,13 @@ def normalized_cut_split(
     return train_indices, test_indices
 
 
-def get_cluster_info(embeddings, train_indices, test_indices, n_clusters=10, random_state=42):
+def get_cluster_info(
+    embeddings: ArrayLike,
+    train_indices: list[int],
+    test_indices: list[int],
+    n_clusters: int = 10,
+    random_state: int = 42,
+) -> dict[str, Any]:
     """
     Utility to analyze cluster distribution across train/test split.
 

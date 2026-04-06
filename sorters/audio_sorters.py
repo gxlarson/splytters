@@ -8,14 +8,18 @@ All functions accept either file paths or pre-loaded audio arrays.
 Requires librosa for audio processing.
 """
 
+from __future__ import annotations
+
 import io
 from pathlib import Path
 
 import librosa
 import numpy as np
 
+AudioInput = str | Path | tuple[np.ndarray, int] | np.ndarray
 
-def _load_audio(audio, sr=22050):
+
+def _load_audio(audio: AudioInput, sr: int = 22050) -> tuple[np.ndarray, int]:
     """
     Load audio from path or return array directly.
 
@@ -40,7 +44,9 @@ def _load_audio(audio, sr=22050):
 # Loudness / Energy
 # =============================================================================
 
-def mean_amplitude(audios, sr=22050, low_first=True):
+def mean_amplitude(
+    audios: list[AudioInput], sr: int = 22050, low_first: bool = True
+) -> list[tuple[int, float]]:
     """
     Sort audio by mean absolute amplitude.
 
@@ -65,7 +71,9 @@ def mean_amplitude(audios, sr=22050, low_first=True):
     return scores
 
 
-def rms_energy(audios, sr=22050, low_first=True):
+def rms_energy(
+    audios: list[AudioInput], sr: int = 22050, low_first: bool = True
+) -> list[tuple[int, float]]:
     """
     Sort audio by root mean square energy.
 
@@ -93,7 +101,9 @@ def rms_energy(audios, sr=22050, low_first=True):
     return scores
 
 
-def dynamic_range(audios, sr=22050, low_first=True):
+def dynamic_range(
+    audios: list[AudioInput], sr: int = 22050, low_first: bool = True
+) -> list[tuple[int, float]]:
     """
     Sort audio by dynamic range (difference between max and min amplitude).
 
@@ -121,7 +131,9 @@ def dynamic_range(audios, sr=22050, low_first=True):
     return scores
 
 
-def peak_to_average_ratio(audios, sr=22050, low_first=True):
+def peak_to_average_ratio(
+    audios: list[AudioInput], sr: int = 22050, low_first: bool = True
+) -> list[tuple[int, float]]:
     """
     Sort audio by peak-to-average ratio (crest factor).
 
@@ -155,7 +167,9 @@ def peak_to_average_ratio(audios, sr=22050, low_first=True):
 # Frequency / Spectral
 # =============================================================================
 
-def spectral_centroid(audios, sr=22050, low_first=True):
+def spectral_centroid(
+    audios: list[AudioInput], sr: int = 22050, low_first: bool = True
+) -> list[tuple[int, float]]:
     """
     Sort audio by spectral centroid ("center of mass" of the spectrum).
 
@@ -184,7 +198,9 @@ def spectral_centroid(audios, sr=22050, low_first=True):
     return scores
 
 
-def spectral_bandwidth(audios, sr=22050, low_first=True):
+def spectral_bandwidth(
+    audios: list[AudioInput], sr: int = 22050, low_first: bool = True
+) -> list[tuple[int, float]]:
     """
     Sort audio by spectral bandwidth (spread around the centroid).
 
@@ -213,7 +229,12 @@ def spectral_bandwidth(audios, sr=22050, low_first=True):
     return scores
 
 
-def spectral_rolloff(audios, sr=22050, roll_percent=0.85, low_first=True):
+def spectral_rolloff(
+    audios: list[AudioInput],
+    sr: int = 22050,
+    roll_percent: float = 0.85,
+    low_first: bool = True,
+) -> list[tuple[int, float]]:
     """
     Sort audio by spectral rolloff frequency.
 
@@ -248,7 +269,9 @@ def spectral_rolloff(audios, sr=22050, roll_percent=0.85, low_first=True):
     return scores
 
 
-def spectral_flatness(audios, sr=22050, low_first=True):
+def spectral_flatness(
+    audios: list[AudioInput], sr: int = 22050, low_first: bool = True
+) -> list[tuple[int, float]]:
     """
     Sort audio by spectral flatness (Wiener entropy).
 
@@ -277,7 +300,9 @@ def spectral_flatness(audios, sr=22050, low_first=True):
     return scores
 
 
-def zero_crossing_rate(audios, sr=22050, low_first=True):
+def zero_crossing_rate(
+    audios: list[AudioInput], sr: int = 22050, low_first: bool = True
+) -> list[tuple[int, float]]:
     """
     Sort audio by zero crossing rate.
 
@@ -306,7 +331,9 @@ def zero_crossing_rate(audios, sr=22050, low_first=True):
     return scores
 
 
-def fundamental_frequency(audios, sr=22050, low_first=True):
+def fundamental_frequency(
+    audios: list[AudioInput], sr: int = 22050, low_first: bool = True
+) -> list[tuple[int, float]]:
     """
     Sort audio by estimated fundamental frequency (pitch).
 
@@ -343,7 +370,12 @@ def fundamental_frequency(audios, sr=22050, low_first=True):
 # Timbre / MFCCs
 # =============================================================================
 
-def mfcc_mean(audios, sr=22050, n_mfcc=13, low_first=True):
+def mfcc_mean(
+    audios: list[AudioInput],
+    sr: int = 22050,
+    n_mfcc: int = 13,
+    low_first: bool = True,
+) -> list[tuple[int, float]]:
     """
     Sort audio by mean of first MFCC coefficient.
 
@@ -373,7 +405,12 @@ def mfcc_mean(audios, sr=22050, n_mfcc=13, low_first=True):
     return scores
 
 
-def mfcc_variance(audios, sr=22050, n_mfcc=13, low_first=True):
+def mfcc_variance(
+    audios: list[AudioInput],
+    sr: int = 22050,
+    n_mfcc: int = 13,
+    low_first: bool = True,
+) -> list[tuple[int, float]]:
     """
     Sort audio by variance of MFCC coefficients over time.
 
@@ -408,7 +445,9 @@ def mfcc_variance(audios, sr=22050, n_mfcc=13, low_first=True):
 # Rhythm / Music
 # =============================================================================
 
-def tempo(audios, sr=22050, low_first=True):
+def tempo(
+    audios: list[AudioInput], sr: int = 22050, low_first: bool = True
+) -> list[tuple[int, float]]:
     """
     Sort audio by estimated tempo (beats per minute).
 
@@ -433,7 +472,9 @@ def tempo(audios, sr=22050, low_first=True):
     return scores
 
 
-def beat_strength(audios, sr=22050, low_first=True):
+def beat_strength(
+    audios: list[AudioInput], sr: int = 22050, low_first: bool = True
+) -> list[tuple[int, float]]:
     """
     Sort audio by beat/onset strength.
 
@@ -462,7 +503,9 @@ def beat_strength(audios, sr=22050, low_first=True):
     return scores
 
 
-def harmonic_ratio(audios, sr=22050, low_first=True):
+def harmonic_ratio(
+    audios: list[AudioInput], sr: int = 22050, low_first: bool = True
+) -> list[tuple[int, float]]:
     """
     Sort audio by harmonic-to-percussive ratio.
 
@@ -497,7 +540,9 @@ def harmonic_ratio(audios, sr=22050, low_first=True):
 # Quality
 # =============================================================================
 
-def compression_ratio(audios, sr=22050, low_first=True):
+def compression_ratio(
+    audios: list[AudioInput], sr: int = 22050, low_first: bool = True
+) -> list[tuple[int, float]]:
     """
     Sort audio by compression ratio (uncompressed / compressed size).
 

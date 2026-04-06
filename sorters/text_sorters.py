@@ -6,7 +6,11 @@ perplexity, readability, vocabulary) to enable train-test splits that
 maximize dissimilarity.
 """
 
+from __future__ import annotations
+
 import copy
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 import pysbd
 import torch
@@ -14,13 +18,15 @@ from readability import Readability
 from transformers import GPT2LMHeadModel, GPT2TokenizerFast
 from wordfreq import word_frequency
 
+T = TypeVar("T")
 
-def simple_tokenizer(s):
+
+def simple_tokenizer(s: str) -> list[str]:
     """Split text on whitespace into a list of tokens."""
     return s.split()
 
 
-def character_length(texts, short_first=True):
+def character_length(texts: list[str], short_first: bool = True) -> list[str]:
     """
     Sort texts by character count.
 
@@ -34,7 +40,11 @@ def character_length(texts, short_first=True):
     return _score_sorter(texts, len, short_first)
 
 
-def tokens_length(texts, short_first=True, tokenizer=simple_tokenizer):
+def tokens_length(
+    texts: list[str],
+    short_first: bool = True,
+    tokenizer: Callable[[str], list[str]] = simple_tokenizer,
+) -> list[list[str]]:
     """
     Sort texts by token count.
 
@@ -50,7 +60,9 @@ def tokens_length(texts, short_first=True, tokenizer=simple_tokenizer):
     return _score_sorter(data, len, short_first)
 
 
-def sentence_count(texts, language="en", low_first=True):
+def sentence_count(
+    texts: list[str], language: str = "en", low_first: bool = True
+) -> list[tuple[int, int]]:
     """
     Sort texts by number of sentences.
 
@@ -78,7 +90,11 @@ def sentence_count(texts, language="en", low_first=True):
     return scores
 
 
-def lexical_diversity(texts, tokenizer=simple_tokenizer, low_first=True):
+def lexical_diversity(
+    texts: list[str],
+    tokenizer: Callable[[str], list[str]] = simple_tokenizer,
+    low_first: bool = True,
+) -> list[tuple[int, float]]:
     """
     Sort texts by lexical diversity (type-token ratio).
 
@@ -111,7 +127,12 @@ def lexical_diversity(texts, tokenizer=simple_tokenizer, low_first=True):
     return scores
 
 
-def vocabulary_rarity(texts, language="en", tokenizer=simple_tokenizer, low_first=True):
+def vocabulary_rarity(
+    texts: list[str],
+    language: str = "en",
+    tokenizer: Callable[[str], list[str]] = simple_tokenizer,
+    low_first: bool = True,
+) -> list[tuple[int, float]]:
     """
     Sort texts by average word rarity.
 
@@ -148,7 +169,12 @@ def vocabulary_rarity(texts, language="en", tokenizer=simple_tokenizer, low_firs
     return scores
 
 
-def perplexity_score(texts, model=None, tokenizer=None, low_first=True):
+def perplexity_score(
+    texts: list[str],
+    model: GPT2LMHeadModel | None = None,
+    tokenizer: GPT2TokenizerFast | None = None,
+    low_first: bool = True,
+) -> list[tuple[int, float]]:
     """
     Sort texts by language model perplexity.
 
@@ -196,7 +222,9 @@ def perplexity_score(texts, model=None, tokenizer=None, low_first=True):
     return scores
 
 
-def readability_score(texts, metric="flesch_kincaid", low_first=True):
+def readability_score(
+    texts: list[str], metric: str = "flesch_kincaid", low_first: bool = True
+) -> list[tuple[int, float]]:
     """
     Sort texts by readability score.
 
@@ -255,7 +283,9 @@ def readability_score(texts, metric="flesch_kincaid", low_first=True):
     return scores
 
 
-def _score_sorter(data, score_fn, low_first=True):
+def _score_sorter(
+    data: list[T], score_fn: Callable[[T], float], low_first: bool = True
+) -> list[T]:
     """
     Generic utility to sort data by a scoring function.
 

@@ -1,21 +1,29 @@
-from scipy.spatial.distance import euclidean as _dist_euclidean
+from __future__ import annotations
+
+from collections.abc import Callable, Iterator
 from difflib import SequenceMatcher
 
-def simple_tokenizer(s):
+from numpy.typing import ArrayLike
+from scipy.spatial.distance import euclidean as _dist_euclidean
+
+
+def simple_tokenizer(s: str) -> list[str]:
     return s.split()
 
-def dist_euclidean(u, v):
+def dist_euclidean(u: ArrayLike, v: ArrayLike) -> float:
     return _dist_euclidean(u, v)
 
-def difflib_character_similarity(s1, s2):
+def difflib_character_similarity(s1: str, s2: str) -> float:
     return SequenceMatcher(a=s1, b=s2).ratio()
 
-def difflib_token_similarity(s1, s2, tokenizer=simple_tokenizer):
+def difflib_token_similarity(
+    s1: str, s2: str, tokenizer: Callable[[str], list[str]] = simple_tokenizer
+) -> float:
     seq1 = tokenizer(s1)
     seq2 = tokenizer(s2)
     return SequenceMatcher(a=seq1, b=seq2).ratio()
 
-def _ngrams(tokens, n):
+def _ngrams(tokens: list[str], n: int) -> Iterator[tuple[str, ...]]:
     """
     compute ngrams from list of tokens
 
@@ -26,7 +34,12 @@ def _ngrams(tokens, n):
     ngrams = zip(*[tokens[i:] for i in range(n)])
     return ngrams
 
-def ngram_jaccard_similarity(text1, text2, n=3, tokenizer=simple_tokenizer):
+def ngram_jaccard_similarity(
+    text1: str,
+    text2: str,
+    n: int = 3,
+    tokenizer: Callable[[str], list[str]] = simple_tokenizer,
+) -> float:
     """
     Compute ngram (w/ jaccard) similarity between two lists of tokens.
 
@@ -47,7 +60,7 @@ def ngram_jaccard_similarity(text1, text2, n=3, tokenizer=simple_tokenizer):
     score = tally / n
     return score
 
-def ngram_jaccard_distance(t1, t2, n=3):
+def ngram_jaccard_distance(t1: str, t2: str, n: int = 3) -> float:
     """
     Compute ngram (w/ jaccard) distance between two lists of tokens.
 
