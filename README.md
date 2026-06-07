@@ -96,17 +96,17 @@ distance, mean 1-D Wasserstein/KS, and optional label-distribution shift).
 **Adversarial** (minimize train/test similarity):
 `cluster_split`, `centroid_adversarial_split`, `distance_adversarial_split`, `density_adversarial_split`, `outlier_adversarial_split`, `min_cut_split`, `normalized_cut_split`, `wasserstein_adversarial_split`
 
-![Adversarial splitters on 2D distributions](docs/adv.png)
+![Adversarial splitters on 2D distributions](https://raw.githubusercontent.com/gxlarson/splytters/main/docs/adv.png)
 
 **Overlap** (maximize train/test similarity):
 `cluster_leak_split`, `neighbor_coverage_split`, `centroid_matched_split`, `stratified_similarity_split`, `nearest_neighbor_split`, `duplicate_spread_split`, `max_coverage_split`
 
-![Overlap splitters on 2D distributions](docs/overlap.png)
+![Overlap splitters on 2D distributions](https://raw.githubusercontent.com/gxlarson/splytters/main/docs/overlap.png)
 
 **Balanced** (match train/test distributions):
 `distribution_matched_split`, `moment_matched_split`, `histogram_matched_split`, `stratified_random_split`, `density_balanced_split`, `mmd_minimized_split`
 
-![Balanced splitters on 2D distributions](docs/bal.png)
+![Balanced splitters on 2D distributions](https://raw.githubusercontent.com/gxlarson/splytters/main/docs/bal.png)
 
 A plain `random_split` baseline and utilities (`compute_pairwise_distances`, `compute_split_similarity`, `cluster_embeddings`, ...) are also exported from `splitters`.
 

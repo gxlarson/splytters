@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "splytters"
-version = "0.1.0"
+version = "0.2.0"
 description = "Clustering-based data splits for model robustness testing: adversarial, overlap, and distribution-balanced train-test splitting."
 readme = "README.md"
 license = "MIT"
@@ -78,7 +78,10 @@ Repository = "https://github.com/gxlarson/splytters"
 Issues = "https://github.com/gxlarson/splytters/issues"
 
 [tool.setuptools]
+# Importable packages plus the top-level `embedders` module (TextEmbedder / CLIP
+# / OpenAI). Heavy deps inside embedders are imported lazily, so it stays core.
 packages = ["splitters", "sorters"]
+py-modules = ["embedders"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
