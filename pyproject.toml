@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "splytters"
+version = "0.1.0"
+description = "Clustering-based data splits for model robustness testing: adversarial, overlap, and distribution-balanced train-test splitting."
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Stefan Larson" },
+]
+requires-python = ">=3.10"
+keywords = [
+    "train-test-split",
+    "adversarial-splits",
+    "dataset-partitioning",
+    "model-evaluation",
+    "robustness",
+    "machine-learning",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# Core: the splitters/ package (embedding-based splitting algorithms)
+dependencies = [
+    "numpy>=1.23",
+    "scipy>=1.9",
+    "scikit-learn>=1.1",
+]
+
+[project.optional-dependencies]
+# Modality-specific sorters
+text = [
+    "pysbd",
+    "torch",
+    "transformers",
+    "wordfreq",
+    "py-readability-metrics",
+]
+image = ["pillow"]
+audio = ["librosa"]
+tabular = ["pandas"]
+# Embedding models (TextEmbedder, CLIP, OpenAI)
+embedders = [
+    "sentence-transformers",
+    "transformers",
+    "openai",
+]
+viz = ["matplotlib"]
+all = ["splytters[text,image,audio,tabular,embedders,viz]"]
+dev = [
+    "splytters[all]",
+    "pytest",
+]
+
+[project.urls]
+Homepage = "https://github.com/gxlarson/splytters"
+Repository = "https://github.com/gxlarson/splytters"
+Issues = "https://github.com/gxlarson/splytters/issues"
+
+[tool.setuptools]
+packages = ["splitters", "sorters"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
