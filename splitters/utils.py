@@ -12,25 +12,91 @@ import numpy as np
 from numpy.typing import ArrayLike
 from scipy.spatial.distance import cdist
 from sklearn.cluster import KMeans
+from sklearn.utils import check_array, check_random_state
+
+
+def to_numpy(X: ArrayLike) -> Any:
+    """Best-effort conversion of framework tensors to numpy.
+
+    Handles PyTorch tensors (including those on GPU / requiring grad) by
+    detaching, moving to CPU, and converting. Any other input is returned
+    unchanged so the caller's downstream ``check_array``/``np.asarray`` can
+    handle lists, numpy arrays, pandas DataFrames, etc.
+    """
+    # Duck-type torch.Tensor without importing torch.
+    if hasattr(X, "detach") and hasattr(X, "cpu") and hasattr(X, "numpy"):
+        try:
+            return X.detach().cpu().numpy()
+        except Exception:  # pragma: no cover - fall through to generic handling
+            pass
+    return X
 
 
 def validate_split_inputs(
-    embeddings: ArrayLike, train_ratio: float, min_samples: int = 2
-) -> None:
-    """Validate common inputs for splitting functions.
+    embeddings: ArrayLike, train_size: float | int, min_samples: int = 2
+) -> np.ndarray:
+    """Validate and coerce inputs shared by every splitting function.
 
-    Raises:
-        ValueError: if train_ratio is out of (0, 1) or there are too few samples.
+    Accepts any array-like (numpy, list, pandas, torch tensor), converts it to
+    a finite 2-D float ``ndarray``, and validates ``train_size``.
+
+    Parameters
+    ----------
+    embeddings : array-like of shape (n_samples, n_features)
+    train_size : float or int
+        Fraction in the open interval (0, 1), or an absolute count in
+        ``[1, n_samples)``. Mirrors ``sklearn.model_selection.train_test_split``.
+    min_samples : int, default=2
+        Minimum number of samples required to form a split.
+
+    Returns
+    -------
+    X : ndarray of shape (n_samples, n_features)
+        The validated, finite, float embeddings.
+
+    Raises
+    ------
+    ValueError
+        If ``train_size`` is out of range, there are too few samples, or the
+        embeddings contain NaN/inf or are not 2-D.
     """
-    if not 0 < train_ratio < 1:
-        raise ValueError(
-            f"train_ratio must be between 0 and 1 exclusive, got {train_ratio}"
-        )
-    n = len(np.asarray(embeddings))
+    # Validate train_size first so its message takes priority (matches the
+    # historical "between 0 and 1" contract for fractional sizes).
+    is_int = isinstance(train_size, (int, np.integer)) and not isinstance(
+        train_size, bool
+    )
+    if not is_int:
+        if not (isinstance(train_size, (float, np.floating)) and 0 < train_size < 1):
+            raise ValueError(
+                "train_size as a fraction must be between 0 and 1 exclusive, "
+                f"got {train_size!r}"
+            )
+
+    X = to_numpy(embeddings)
+    n = len(X)
     if n < min_samples:
+        raise ValueError(f"Need at least {min_samples} samples to split, got {n}")
+
+    if is_int and not (1 <= train_size < n):
         raise ValueError(
-            f"Need at least {min_samples} samples to split, got {n}"
+            f"train_size as an absolute count must be in [1, {n}), got {train_size}"
         )
+
+    # Coerce to a finite 2-D numeric array (rejects NaN/inf, 1-D, ragged, sparse).
+    X = check_array(X, ensure_2d=True, allow_nd=False, dtype="numeric")
+    return X
+
+
+def resolve_n_train(n_samples: int, train_size: float | int) -> int:
+    """Resolve ``train_size`` (fraction or absolute count) to an int count."""
+    if isinstance(train_size, (int, np.integer)) and not isinstance(train_size, bool):
+        return int(train_size)
+    return int(n_samples * train_size)
+
+
+def as_index_array(indices: ArrayLike) -> np.ndarray:
+    """Return ``indices`` as a 1-D integer ndarray (the canonical split output)."""
+    return np.asarray(list(indices), dtype=np.intp)
 
 
 def compute_pairwise_distances(X: ArrayLike, metric: str = "euclidean") -> np.ndarray:
@@ -53,12 +119,14 @@ def compute_centroid(X: ArrayLike) -> np.ndarray:
 
 
 def compute_split_centroids(
-    X: ArrayLike, train_indices: list[int], test_indices: list[int]
+    X: ArrayLike, train_indices: ArrayLike, test_indices: ArrayLike
 ) -> tuple[np.ndarray | None, np.ndarray | None]:
     """Compute centroids of train and test sets."""
     X = np.asarray(X)
-    train_centroid = X[train_indices].mean(axis=0) if train_indices else None
-    test_centroid = X[test_indices].mean(axis=0) if test_indices else None
+    train_indices = np.asarray(train_indices, dtype=np.intp)
+    test_indices = np.asarray(test_indices, dtype=np.intp)
+    train_centroid = X[train_indices].mean(axis=0) if len(train_indices) else None
+    test_centroid = X[test_indices].mean(axis=0) if len(test_indices) else None
     return train_centroid, test_centroid
 
 
@@ -99,34 +167,33 @@ def cluster_embeddings(
 
 
 def random_split(
-    embeddings: ArrayLike, train_ratio: float = 0.7, random_state: int = 42
-) -> tuple[list[int], list[int]]:
+    embeddings: ArrayLike, train_size: float | int = 0.7, random_state: int = 42
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Simple random train/test split (baseline).
 
     Args:
-        embeddings: np.array of shape (n_samples, embedding_dim)
-        train_ratio: fraction of data for training
-        random_state: for reproducibility
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        train_size: fraction in (0, 1) or absolute count for the training set
+        random_state: int, RandomState, or None for reproducibility
 
     Returns:
-        train_indices: list of indices for training set
-        test_indices: list of indices for test set
+        train_indices: ndarray of indices for training set
+        test_indices: ndarray of indices for test set
     """
-    validate_split_inputs(embeddings, train_ratio)
-    embeddings = np.asarray(embeddings)
+    embeddings = validate_split_inputs(embeddings, train_size)
     n_samples = len(embeddings)
-    n_train = int(n_samples * train_ratio)
-    rng = np.random.RandomState(random_state)
+    n_train = resolve_n_train(n_samples, train_size)
+    rng = check_random_state(random_state)
     indices = np.arange(n_samples)
     rng.shuffle(indices)
-    return indices[:n_train].tolist(), indices[n_train:].tolist()
+    return indices[:n_train], indices[n_train:]
 
 
 def compute_split_similarity(
     X: ArrayLike,
-    train_indices: list[int],
-    test_indices: list[int],
+    train_indices: ArrayLike,
+    test_indices: ArrayLike,
     metric: str = "euclidean",
 ) -> dict[str, float]:
     """
@@ -138,6 +205,13 @@ def compute_split_similarity(
         - coverage: fraction of test samples with train neighbor within median distance
     """
     X = np.asarray(X)
+    train_indices = np.asarray(train_indices, dtype=np.intp)
+    test_indices = np.asarray(test_indices, dtype=np.intp)
+
+    if len(train_indices) == 0 or len(test_indices) == 0:
+        raise ValueError(
+            "compute_split_similarity requires non-empty train and test sets"
+        )
 
     train_X = X[train_indices]
     test_X = X[test_indices]
@@ -161,20 +235,20 @@ def compute_split_similarity(
     coverage = (min_distances <= median_dist).mean()
 
     return {
-        "centroid_distance": centroid_distance,
-        "mean_cross_distance": mean_cross_distance,
-        "coverage": coverage,
+        "centroid_distance": float(centroid_distance),
+        "mean_cross_distance": float(mean_cross_distance),
+        "coverage": float(coverage),
     }
 
 
 def optimized_split(
     embeddings: np.ndarray,
-    train_ratio: float,
+    train_size: float | int,
     n_iterations: int,
     score_fn: Callable[[np.ndarray, list[int], list[int]], float],
     random_state: int = 42,
     minimize: bool = True,
-) -> tuple[list[int], list[int]]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Iterative swap-optimization to find a split that optimizes a score.
 
     Starts from a random split and repeatedly swaps one train/test pair,
@@ -182,20 +256,20 @@ def optimized_split(
 
     Args:
         embeddings: array of shape (n_samples, embedding_dim), already np.ndarray
-        train_ratio: fraction of data for training
+        train_size: fraction in (0, 1) or absolute count for the training set
         n_iterations: number of swap attempts
         score_fn: callable(embeddings, train_indices, test_indices) -> float
-        random_state: for reproducibility
+        random_state: int, RandomState, or None for reproducibility
         minimize: if True, accept swaps that lower the score;
                   if False, accept swaps that raise it
     """
     n_samples = len(embeddings)
-    rng = np.random.RandomState(random_state)
+    rng = check_random_state(random_state)
 
     all_indices = np.arange(n_samples)
     rng.shuffle(all_indices)
 
-    n_train = int(n_samples * train_ratio)
+    n_train = resolve_n_train(n_samples, train_size)
     train_indices = set(all_indices[:n_train].tolist())
     test_indices = set(all_indices[n_train:].tolist())
 
@@ -223,7 +297,7 @@ def optimized_split(
             test_indices.remove(train_sample)
             test_indices.add(test_sample)
 
-    return list(train_indices), list(test_indices)
+    return as_index_array(sorted(train_indices)), as_index_array(sorted(test_indices))
 
 
 def greedy_assign_to_target(

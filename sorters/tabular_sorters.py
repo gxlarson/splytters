@@ -10,7 +10,8 @@ All functions accept pandas DataFrames and return sorted index lists.
 
 from __future__ import annotations
 
-from typing import Any, Hashable
+from collections.abc import Hashable
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -327,6 +328,13 @@ def categorical_rarity(
     Returns:
         List of (index, frequency) tuples sorted by category frequency.
         Higher frequency = more common.
+
+    Note:
+        Unlike most sorters (whose ``score`` is a difficulty/rarity measure
+        where ``low_first`` orders ascending), the score here is *frequency*
+        (high = common). ``low_first=True`` therefore orders by commonness —
+        common categories first — which is the natural "train on common,
+        test on rare" direction for an adversarial split.
     """
     # Compute value counts as frequencies
     value_counts = df[column].value_counts(normalize=True)
@@ -467,7 +475,9 @@ def multi_column_sort(
         min_val = series.min()
         max_val = series.max()
         if max_val > min_val:
-            normalized[col] = (series - min_val) / (max_val - min_val)
+            # NaN cells normalize to NaN; map them to the neutral midpoint so
+            # the weighted sum stays finite instead of poisoning the score.
+            normalized[col] = ((series - min_val) / (max_val - min_val)).fillna(0.5)
         else:
             normalized[col] = 0.5
 

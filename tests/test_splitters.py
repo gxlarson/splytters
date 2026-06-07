@@ -21,6 +21,7 @@ from splitters.adversarial import (
     outlier_adversarial_split,
     min_cut_split,
     normalized_cut_split,
+    wasserstein_adversarial_split,
     get_cluster_info,
 )
 from splitters.balanced import (
@@ -73,28 +74,33 @@ def embeddings_high_dim():
 # Helpers
 # ---------------------------------------------------------------------------
 
-def assert_valid_split(train, test, n_samples, train_ratio=0.7, ratio_tol=0.15):
+def assert_valid_split(train, test, n_samples, train_size=0.7, ratio_tol=0.15):
     """Check structural invariants that every split must satisfy."""
-    # Both are lists
-    assert isinstance(train, list)
-    assert isinstance(test, list)
+    # Both are ndarrays of indices (sklearn-style return)
+    assert isinstance(train, np.ndarray)
+    assert isinstance(test, np.ndarray)
 
     # No duplicates within each set
-    assert len(set(train)) == len(train), "Duplicate indices in train"
-    assert len(set(test)) == len(test), "Duplicate indices in test"
+    assert len(set(train.tolist())) == len(train), "Duplicate indices in train"
+    assert len(set(test.tolist())) == len(test), "Duplicate indices in test"
 
     # Disjoint
-    overlap = set(train) & set(test)
+    overlap = set(train.tolist()) & set(test.tolist())
     assert len(overlap) == 0, f"Train/test overlap: {overlap}"
 
     # Union covers all indices
-    assert set(train) | set(test) == set(range(n_samples))
+    assert set(train.tolist()) | set(test.tolist()) == set(range(n_samples))
 
     # Ratio within tolerance
     actual_ratio = len(train) / n_samples
-    assert abs(actual_ratio - train_ratio) < ratio_tol, (
-        f"Train ratio {actual_ratio:.2f} outside tolerance of {train_ratio} ± {ratio_tol}"
+    assert abs(actual_ratio - train_size) < ratio_tol, (
+        f"Train ratio {actual_ratio:.2f} outside tolerance of {train_size} ± {ratio_tol}"
     )
+
+
+def _splits_equal(a, b):
+    """Compare two (train, test) splits of ndarrays for exact equality."""
+    return np.array_equal(a[0], b[0]) and np.array_equal(a[1], b[1])
 
 
 # ===========================================================================
@@ -154,13 +160,13 @@ class TestClusterEmbeddings:
 class TestRandomSplit:
 
     def test_valid_split(self, embeddings_2d):
-        train, test = random_split(embeddings_2d, train_ratio=0.7)
+        train, test = random_split(embeddings_2d, train_size=0.7)
         assert_valid_split(train, test, len(embeddings_2d))
 
     def test_deterministic(self, embeddings_2d):
         t1, _ = random_split(embeddings_2d, random_state=0)
         t2, _ = random_split(embeddings_2d, random_state=0)
-        assert t1 == t2
+        assert np.array_equal(t1, t2)
 
 
 class TestComputeSplitSimilarity:
@@ -254,8 +260,8 @@ class TestMinCutSplit:
 
     def test_tiny_dataset(self):
         X = np.array([[0, 0], [1, 1]])
-        train, test = min_cut_split(X, train_ratio=0.5)
-        assert_valid_split(train, test, 2, train_ratio=0.5, ratio_tol=0.5)
+        train, test = min_cut_split(X, train_size=0.5)
+        assert_valid_split(train, test, 2, train_size=0.5, ratio_tol=0.5)
 
     def test_invalid_method(self, embeddings_small):
         with pytest.raises(ValueError, match="Unknown method"):
@@ -270,8 +276,20 @@ class TestNormalizedCutSplit:
 
     def test_tiny_dataset(self):
         X = np.array([[0, 0], [1, 1]])
-        train, test = normalized_cut_split(X, train_ratio=0.5)
-        assert_valid_split(train, test, 2, train_ratio=0.5, ratio_tol=0.5)
+        train, test = normalized_cut_split(X, train_size=0.5)
+        assert_valid_split(train, test, 2, train_size=0.5, ratio_tol=0.5)
+
+
+class TestWassersteinAdversarialSplit:
+
+    def test_valid_split(self, embeddings_2d):
+        train, test = wasserstein_adversarial_split(embeddings_2d)
+        assert_valid_split(train, test, len(embeddings_2d), ratio_tol=0.2)
+
+    def test_deterministic(self, embeddings_2d):
+        a = wasserstein_adversarial_split(embeddings_2d, random_state=3)
+        b = wasserstein_adversarial_split(embeddings_2d, random_state=3)
+        assert _splits_equal(a, b)
 
 
 class TestGetClusterInfo:
@@ -334,7 +352,7 @@ class TestStratifiedRandomSplit:
 
     def test_preserves_proportions(self, embeddings_2d):
         labels = np.array([0] * 50 + [1] * 50)
-        train, test = stratified_random_split(embeddings_2d, labels, train_ratio=0.8)
+        train, test = stratified_random_split(embeddings_2d, labels, train_size=0.8)
         train_labels = labels[train]
         # Each class should have ~80% in train
         for cls in [0, 1]:
@@ -439,22 +457,22 @@ class TestDeterminism:
     def test_random_split(self, embeddings_2d):
         a = random_split(embeddings_2d, random_state=1)
         b = random_split(embeddings_2d, random_state=1)
-        assert a == b
+        assert _splits_equal(a, b)
 
     def test_cluster_split(self, embeddings_2d):
         a = cluster_split(embeddings_2d, random_state=1)
         b = cluster_split(embeddings_2d, random_state=1)
-        assert a == b
+        assert _splits_equal(a, b)
 
     def test_distribution_matched(self, embeddings_2d):
         a = distribution_matched_split(embeddings_2d, n_iterations=20, random_state=1)
         b = distribution_matched_split(embeddings_2d, n_iterations=20, random_state=1)
-        assert a == b
+        assert _splits_equal(a, b)
 
     def test_nearest_neighbor(self, embeddings_2d):
         a = nearest_neighbor_split(embeddings_2d, random_state=1)
         b = nearest_neighbor_split(embeddings_2d, random_state=1)
-        assert a == b
+        assert _splits_equal(a, b)
 
 
 class TestListInput:
@@ -462,8 +480,8 @@ class TestListInput:
 
     def test_random_split_with_list(self):
         X = [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10]]
-        train, test = random_split(X, train_ratio=0.6)
-        assert_valid_split(train, test, 5, train_ratio=0.6, ratio_tol=0.3)
+        train, test = random_split(X, train_size=0.6)
+        assert_valid_split(train, test, 5, train_size=0.6, ratio_tol=0.3)
 
     def test_cluster_split_with_list(self):
         X = [[i, i] for i in range(20)]
@@ -511,12 +529,12 @@ class TestSplitterValidation:
     def test_random_split_bad_ratio(self):
         X = np.zeros((10, 2))
         with pytest.raises(ValueError, match="between 0 and 1"):
-            random_split(X, train_ratio=1.5)
+            random_split(X, train_size=1.5)
 
     def test_cluster_split_bad_ratio(self):
         X = np.zeros((10, 2))
         with pytest.raises(ValueError, match="between 0 and 1"):
-            cluster_split(X, train_ratio=0.0)
+            cluster_split(X, train_size=0.0)
 
     def test_distance_adversarial_too_few(self):
         X = np.zeros((1, 2))
@@ -526,14 +544,66 @@ class TestSplitterValidation:
     def test_moment_matched_bad_ratio(self):
         X = np.zeros((10, 2))
         with pytest.raises(ValueError, match="between 0 and 1"):
-            moment_matched_split(X, train_ratio=-0.1)
+            moment_matched_split(X, train_size=-0.1)
 
     def test_cluster_leak_bad_ratio(self):
         X = np.zeros((10, 2))
         with pytest.raises(ValueError, match="between 0 and 1"):
-            cluster_leak_split(X, train_ratio=1.0)
+            cluster_leak_split(X, train_size=1.0)
 
     def test_nearest_neighbor_too_few(self):
         X = np.zeros((1, 2))
         with pytest.raises(ValueError, match="at least 2 samples"):
             nearest_neighbor_split(X)
+
+
+# ===========================================================================
+# sklearn-aligned conventions (ndarray returns, check_array, train_size)
+# ===========================================================================
+
+class TestSklearnAlignment:
+    """Returns and input handling should match sklearn conventions."""
+
+    def test_returns_integer_ndarrays(self, embeddings_2d):
+        train, test = random_split(embeddings_2d)
+        assert isinstance(train, np.ndarray) and isinstance(test, np.ndarray)
+        assert np.issubdtype(train.dtype, np.integer)
+        assert np.issubdtype(test.dtype, np.integer)
+
+    def test_int_train_size_is_absolute_count(self, embeddings_2d):
+        train, test = random_split(embeddings_2d, train_size=30)
+        assert len(train) == 30
+        assert len(test) == len(embeddings_2d) - 30
+
+    def test_int_train_size_in_splitter(self, embeddings_2d):
+        train, test = distance_adversarial_split(embeddings_2d, train_size=40)
+        assert len(train) == 40
+
+    def test_rejects_nan(self):
+        X = np.ones((10, 3))
+        X[0, 0] = np.nan
+        with pytest.raises(ValueError):
+            random_split(X)
+
+    def test_rejects_inf(self):
+        X = np.ones((10, 3))
+        X[2, 1] = np.inf
+        with pytest.raises(ValueError):
+            cluster_split(X, n_clusters=2)
+
+    def test_rejects_1d_input(self):
+        with pytest.raises(ValueError):
+            random_split(np.arange(10))
+
+    def test_accepts_python_list_returns_ndarray(self):
+        X = [[i, i + 1] for i in range(12)]
+        train, test = random_split(X, train_size=0.5)
+        assert isinstance(train, np.ndarray)
+        assert len(train) == 6
+
+    def test_torch_tensor_input(self):
+        torch = pytest.importorskip("torch")
+        X = torch.randn(20, 4)
+        train, test = random_split(X, train_size=0.7)
+        assert isinstance(train, np.ndarray)
+        assert len(train) + len(test) == 20

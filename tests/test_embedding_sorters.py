@@ -227,3 +227,35 @@ class TestOutlierScore:
     def test_invalid_method_raises(self, embeddings):
         with pytest.raises(ValueError, match="Unknown outlier detection method"):
             outlier_score(embeddings, method="invalid")
+
+
+class TestNearestNeighborScalability:
+    """distance_to_nearest_neighbor uses NearestNeighbors (O(n·k) memory)."""
+
+    def test_matches_bruteforce(self):
+        from scipy.spatial.distance import cdist
+
+        rng = np.random.RandomState(0)
+        X = rng.randn(60, 8)
+        got = dict(distance_to_nearest_neighbor(X))
+
+        D = cdist(X, X)
+        np.fill_diagonal(D, np.inf)
+        ref = D.min(axis=1)
+        for i in range(60):
+            assert got[i] == pytest.approx(ref[i], rel=1e-9)
+
+    def test_sorted_ascending(self):
+        rng = np.random.RandomState(2)
+        vals = [d for _, d in distance_to_nearest_neighbor(rng.randn(40, 5))]
+        assert vals == sorted(vals)
+
+    def test_runs_on_large_n(self):
+        # A full O(n²) matrix here would allocate ~0.5 GB; the NN path does not.
+        rng = np.random.RandomState(1)
+        got = distance_to_nearest_neighbor(rng.randn(8000, 12))
+        assert len(got) == 8000
+
+    def test_single_sample(self):
+        got = distance_to_nearest_neighbor(np.zeros((1, 3)))
+        assert got == [(0, float("inf"))]

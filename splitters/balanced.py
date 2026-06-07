@@ -11,16 +11,22 @@ import numpy as np
 from numpy.typing import ArrayLike
 from scipy.spatial.distance import cdist
 from scipy.stats import ks_2samp
+from sklearn.utils import check_random_state
 
-from splitters.utils import compute_centroid, optimized_split, validate_split_inputs
+from splitters.utils import (
+    as_index_array,
+    optimized_split,
+    resolve_n_train,
+    validate_split_inputs,
+)
 
 
 def distribution_matched_split(
     embeddings: ArrayLike,
-    train_ratio: float = 0.7,
+    train_size: float | int = 0.7,
     n_iterations: int = 1000,
     random_state: int = 42,
-) -> tuple[list[int], list[int]]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Minimize distribution divergence between train and test.
 
@@ -28,17 +34,16 @@ def distribution_matched_split(
     of each feature dimension.
 
     Args:
-        embeddings: np.array of shape (n_samples, embedding_dim)
-        train_ratio: fraction of data for training
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        train_size: fraction in (0, 1) or absolute count for the training set
         n_iterations: number of optimization iterations
         random_state: for reproducibility
 
     Returns:
-        train_indices: list of indices for training set
-        test_indices: list of indices for test set
+        train_indices: ndarray of indices for training set
+        test_indices: ndarray of indices for test set
     """
-    validate_split_inputs(embeddings, train_ratio)
-    embeddings = np.asarray(embeddings)
+    embeddings = validate_split_inputs(embeddings, train_size)
 
     def score_fn(X: np.ndarray, train: list[int], test: list[int]) -> float:
         """Mean KS statistic across all dimensions."""
@@ -49,33 +54,32 @@ def distribution_matched_split(
         ]))
 
     return optimized_split(
-        embeddings, train_ratio, n_iterations, score_fn, random_state
+        embeddings, train_size, n_iterations, score_fn, random_state
     )
 
 
 def moment_matched_split(
     embeddings: ArrayLike,
-    train_ratio: float = 0.7,
+    train_size: float | int = 0.7,
     n_iterations: int = 1000,
     match_variance: bool = True,
     random_state: int = 42,
-) -> tuple[list[int], list[int]]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Match mean (and optionally variance) between train and test.
 
     Args:
-        embeddings: np.array of shape (n_samples, embedding_dim)
-        train_ratio: fraction of data for training
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        train_size: fraction in (0, 1) or absolute count for the training set
         n_iterations: number of optimization iterations
         match_variance: if True, also match variance
         random_state: for reproducibility
 
     Returns:
-        train_indices: list of indices for training set
-        test_indices: list of indices for test set
+        train_indices: ndarray of indices for training set
+        test_indices: ndarray of indices for test set
     """
-    validate_split_inputs(embeddings, train_ratio)
-    embeddings = np.asarray(embeddings)
+    embeddings = validate_split_inputs(embeddings, train_size)
 
     def score_fn(X: np.ndarray, train: list[int], test: list[int]) -> float:
         train_data, test_data = X[train], X[test]
@@ -86,35 +90,34 @@ def moment_matched_split(
         return mean_diff
 
     return optimized_split(
-        embeddings, train_ratio, n_iterations, score_fn, random_state
+        embeddings, train_size, n_iterations, score_fn, random_state
     )
 
 
 def histogram_matched_split(
     embeddings: ArrayLike,
-    train_ratio: float = 0.7,
+    train_size: float | int = 0.7,
     n_bins: int = 10,
     n_iterations: int = 1000,
     random_state: int = 42,
-) -> tuple[list[int], list[int]]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Match feature histograms between train and test.
 
     Minimizes the sum of histogram differences across all dimensions.
 
     Args:
-        embeddings: np.array of shape (n_samples, embedding_dim)
-        train_ratio: fraction of data for training
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        train_size: fraction in (0, 1) or absolute count for the training set
         n_bins: number of histogram bins per dimension
         n_iterations: number of optimization iterations
         random_state: for reproducibility
 
     Returns:
-        train_indices: list of indices for training set
-        test_indices: list of indices for test set
+        train_indices: ndarray of indices for training set
+        test_indices: ndarray of indices for test set
     """
-    validate_split_inputs(embeddings, train_ratio)
-    embeddings = np.asarray(embeddings)
+    embeddings = validate_split_inputs(embeddings, train_size)
     n_dims = embeddings.shape[1]
 
     # Precompute bin edges for each dimension
@@ -133,50 +136,50 @@ def histogram_matched_split(
         return total_diff
 
     return optimized_split(
-        embeddings, train_ratio, n_iterations, score_fn, random_state
+        embeddings, train_size, n_iterations, score_fn, random_state
     )
 
 
 def stratified_random_split(
     embeddings: ArrayLike,
-    labels: ArrayLike,
-    train_ratio: float = 0.7,
+    y: ArrayLike,
+    train_size: float | int = 0.7,
     random_state: int = 42,
-) -> tuple[list[int], list[int]]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Standard stratified split maintaining label proportions.
 
     Args:
-        embeddings: np.array of shape (n_samples, embedding_dim)
-        labels: array of labels for stratification
-        train_ratio: fraction of data for training
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        y: array of labels for stratification (aligned with sklearn's ``split(X, y)``)
+        train_size: fraction in (0, 1) or absolute count for the training set
         random_state: for reproducibility
 
     Returns:
-        train_indices: list of indices for training set
-        test_indices: list of indices for test set
+        train_indices: ndarray of indices for training set
+        test_indices: ndarray of indices for test set
     """
     from sklearn.model_selection import train_test_split
 
-    validate_split_inputs(embeddings, train_ratio)
+    embeddings = validate_split_inputs(embeddings, train_size)
     indices = np.arange(len(embeddings))
 
     train_indices, test_indices = train_test_split(
         indices,
-        train_size=train_ratio,
-        stratify=labels,
+        train_size=train_size,
+        stratify=y,
         random_state=random_state
     )
 
-    return train_indices.tolist(), test_indices.tolist()
+    return as_index_array(train_indices), as_index_array(test_indices)
 
 
 def density_balanced_split(
     embeddings: ArrayLike,
-    train_ratio: float = 0.7,
+    train_size: float | int = 0.7,
     n_bins: int = 10,
     random_state: int = 42,
-) -> tuple[list[int], list[int]]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Balance local density distribution between train and test.
 
@@ -184,19 +187,18 @@ def density_balanced_split(
     from each bin for both sets.
 
     Args:
-        embeddings: np.array of shape (n_samples, embedding_dim)
-        train_ratio: fraction of data for training
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        train_size: fraction in (0, 1) or absolute count for the training set
         n_bins: number of density bins
         random_state: for reproducibility
 
     Returns:
-        train_indices: list of indices for training set
-        test_indices: list of indices for test set
+        train_indices: ndarray of indices for training set
+        test_indices: ndarray of indices for test set
     """
-    validate_split_inputs(embeddings, train_ratio)
-    embeddings = np.asarray(embeddings)
+    embeddings = validate_split_inputs(embeddings, train_size)
     n_samples = len(embeddings)
-    rng = np.random.RandomState(random_state)
+    rng = check_random_state(random_state)
 
     # TODO: Replace full pairwise matrix with NearestNeighbors(k) to reduce
     # memory from O(n²) to O(nk). Only k distances per point are needed here.
@@ -212,6 +214,8 @@ def density_balanced_split(
     bin_edges = np.percentile(densities, np.linspace(0, 100, n_bins + 1))
     bin_assignments = np.digitize(densities, bin_edges[1:-1])
 
+    train_fraction = resolve_n_train(n_samples, train_size) / n_samples
+
     train_indices = []
     test_indices = []
 
@@ -222,22 +226,22 @@ def density_balanced_split(
             continue
 
         rng.shuffle(bin_samples)
-        n_train = max(1, int(len(bin_samples) * train_ratio))
+        n_train = max(1, int(len(bin_samples) * train_fraction))
 
         train_indices.extend(bin_samples[:n_train].tolist())
         test_indices.extend(bin_samples[n_train:].tolist())
 
-    return train_indices, test_indices
+    return as_index_array(train_indices), as_index_array(test_indices)
 
 
 def mmd_minimized_split(
     embeddings: ArrayLike,
-    train_ratio: float = 0.7,
+    train_size: float | int = 0.7,
     n_iterations: int = 500,
     kernel: str = "rbf",
     gamma: float | None = None,
     random_state: int = 42,
-) -> tuple[list[int], list[int]]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Minimize Maximum Mean Discrepancy between train and test.
 
@@ -245,19 +249,18 @@ def mmd_minimized_split(
     Lower MMD indicates more similar distributions.
 
     Args:
-        embeddings: np.array of shape (n_samples, embedding_dim)
-        train_ratio: fraction of data for training
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        train_size: fraction in (0, 1) or absolute count for the training set
         n_iterations: number of optimization iterations
         kernel: kernel type ('rbf' or 'linear')
         gamma: RBF kernel parameter (default: 1/n_features)
         random_state: for reproducibility
 
     Returns:
-        train_indices: list of indices for training set
-        test_indices: list of indices for test set
+        train_indices: ndarray of indices for training set
+        test_indices: ndarray of indices for test set
     """
-    validate_split_inputs(embeddings, train_ratio)
-    embeddings = np.asarray(embeddings)
+    embeddings = validate_split_inputs(embeddings, train_size)
     n_dims = embeddings.shape[1]
 
     _gamma = gamma if gamma is not None else 1.0 / n_dims
@@ -281,5 +284,5 @@ def mmd_minimized_split(
                 2 * K_ts.sum() / (m * n))
 
     return optimized_split(
-        embeddings, train_ratio, n_iterations, score_fn, random_state
+        embeddings, train_size, n_iterations, score_fn, random_state
     )

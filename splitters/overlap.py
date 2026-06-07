@@ -13,23 +13,25 @@ from typing import Any
 import numpy as np
 from numpy.typing import ArrayLike
 from scipy.spatial.distance import cdist
-from sklearn.cluster import KMeans
+from sklearn.utils import check_random_state
 
 from splitters.utils import (
+    as_index_array,
     cluster_embeddings,
     compute_centroid,
     optimized_split,
+    resolve_n_train,
     validate_split_inputs,
 )
 
 
 def cluster_leak_split(
     embeddings: ArrayLike,
-    train_ratio: float = 0.7,
+    train_size: float | int = 0.7,
     n_clusters: int = 10,
     random_state: int = 42,
     **cluster_kwargs: Any,
-) -> tuple[list[int], list[int]]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Split clusters across train/test to maximize similarity.
 
@@ -38,19 +40,18 @@ def cluster_leak_split(
     ensuring similar samples appear in both sets.
 
     Args:
-        embeddings: np.array of shape (n_samples, embedding_dim)
-        train_ratio: fraction of data for training
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        train_size: fraction in (0, 1) or absolute count for the training set
         n_clusters: number of clusters
         random_state: for reproducibility
         **cluster_kwargs: passed to KMeans
 
     Returns:
-        train_indices: list of indices for training set
-        test_indices: list of indices for test set
+        train_indices: ndarray of indices for training set
+        test_indices: ndarray of indices for test set
     """
-    validate_split_inputs(embeddings, train_ratio)
-    embeddings = np.asarray(embeddings)
-    rng = np.random.RandomState(random_state)
+    embeddings = validate_split_inputs(embeddings, train_size)
+    rng = check_random_state(random_state)
 
     labels, cluster_to_indices, _ = cluster_embeddings(
         embeddings, n_clusters, "kmeans", random_state, **cluster_kwargs
@@ -59,25 +60,29 @@ def cluster_leak_split(
     train_indices = []
     test_indices = []
 
+    # Determine the per-cluster fraction to send to train.
+    n_samples = len(embeddings)
+    train_fraction = resolve_n_train(n_samples, train_size) / n_samples
+
     # Split each cluster proportionally
-    for cluster_id, indices in cluster_to_indices.items():
+    for indices in cluster_to_indices.values():
         indices = np.array(indices)
         rng.shuffle(indices)
 
-        n_train = int(len(indices) * train_ratio)
+        n_train = int(len(indices) * train_fraction)
         train_indices.extend(indices[:n_train].tolist())
         test_indices.extend(indices[n_train:].tolist())
 
-    return train_indices, test_indices
+    return as_index_array(train_indices), as_index_array(test_indices)
 
 
 def neighbor_coverage_split(
     embeddings: ArrayLike,
-    train_ratio: float = 0.7,
+    train_size: float | int = 0.7,
     k: int = 5,
     metric: str = "euclidean",
     random_state: int = 42,
-) -> tuple[list[int], list[int]]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Ensure each test sample has k similar samples in train.
 
@@ -85,20 +90,19 @@ def neighbor_coverage_split(
     similar samples already in train, maximizing coverage.
 
     Args:
-        embeddings: np.array of shape (n_samples, embedding_dim)
-        train_ratio: fraction of data for training
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        train_size: fraction in (0, 1) or absolute count for the training set
         k: minimum number of similar train samples for each test sample
         metric: distance metric
         random_state: for reproducibility
 
     Returns:
-        train_indices: list of indices for training set
-        test_indices: list of indices for test set
+        train_indices: ndarray of indices for training set
+        test_indices: ndarray of indices for test set
     """
-    validate_split_inputs(embeddings, train_ratio)
-    embeddings = np.asarray(embeddings)
+    embeddings = validate_split_inputs(embeddings, train_size)
     n_samples = len(embeddings)
-    rng = np.random.RandomState(random_state)
+    rng = check_random_state(random_state)
 
     # TODO: Replace full pairwise matrix with chunked or BallTree.query_radius
     # computation to reduce memory from O(n²). Only threshold-based neighbor
@@ -114,7 +118,7 @@ def neighbor_coverage_split(
     all_indices = np.arange(n_samples)
     rng.shuffle(all_indices)
 
-    n_train = int(n_samples * train_ratio)
+    n_train = resolve_n_train(n_samples, train_size)
     train_set = set(all_indices[:n_train])
     remaining = list(all_indices[n_train:])
 
@@ -153,15 +157,15 @@ def neighbor_coverage_split(
             else:
                 test_indices.append(idx)
 
-    return list(train_set), test_indices
+    return as_index_array(train_set), as_index_array(test_indices)
 
 
 def centroid_matched_split(
     embeddings: ArrayLike,
-    train_ratio: float = 0.7,
+    train_size: float | int = 0.7,
     n_iterations: int = 100,
     random_state: int = 42,
-) -> tuple[list[int], list[int]]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Minimize distance between train and test centroids.
 
@@ -169,17 +173,16 @@ def centroid_matched_split(
     of train and test sets are as close as possible.
 
     Args:
-        embeddings: np.array of shape (n_samples, embedding_dim)
-        train_ratio: fraction of data for training
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        train_size: fraction in (0, 1) or absolute count for the training set
         n_iterations: number of swap iterations
         random_state: for reproducibility
 
     Returns:
-        train_indices: list of indices for training set
-        test_indices: list of indices for test set
+        train_indices: ndarray of indices for training set
+        test_indices: ndarray of indices for test set
     """
-    validate_split_inputs(embeddings, train_ratio)
-    embeddings = np.asarray(embeddings)
+    embeddings = validate_split_inputs(embeddings, train_size)
 
     def score_fn(X: np.ndarray, train: list[int], test: list[int]) -> float:
         train_centroid = X[train].mean(axis=0)
@@ -187,16 +190,16 @@ def centroid_matched_split(
         return float(np.linalg.norm(train_centroid - test_centroid))
 
     return optimized_split(
-        embeddings, train_ratio, n_iterations, score_fn, random_state
+        embeddings, train_size, n_iterations, score_fn, random_state
     )
 
 
 def stratified_similarity_split(
     embeddings: ArrayLike,
-    train_ratio: float = 0.7,
+    train_size: float | int = 0.7,
     n_bins: int = 10,
     random_state: int = 42,
-) -> tuple[list[int], list[int]]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Stratify by distance from centroid, ensuring similar distribution in both sets.
 
@@ -204,18 +207,17 @@ def stratified_similarity_split(
     proportionally from each bin for both train and test.
 
     Args:
-        embeddings: np.array of shape (n_samples, embedding_dim)
-        train_ratio: fraction of data for training
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        train_size: fraction in (0, 1) or absolute count for the training set
         n_bins: number of distance bins for stratification
         random_state: for reproducibility
 
     Returns:
-        train_indices: list of indices for training set
-        test_indices: list of indices for test set
+        train_indices: ndarray of indices for training set
+        test_indices: ndarray of indices for test set
     """
-    validate_split_inputs(embeddings, train_ratio)
-    embeddings = np.asarray(embeddings)
-    rng = np.random.RandomState(random_state)
+    embeddings = validate_split_inputs(embeddings, train_size)
+    rng = check_random_state(random_state)
 
     # Compute distances from centroid
     centroid = compute_centroid(embeddings)
@@ -224,6 +226,8 @@ def stratified_similarity_split(
     # Bin samples by distance
     bin_edges = np.percentile(distances, np.linspace(0, 100, n_bins + 1))
     bin_assignments = np.digitize(distances, bin_edges[1:-1])
+
+    train_fraction = resolve_n_train(len(embeddings), train_size) / len(embeddings)
 
     train_indices = []
     test_indices = []
@@ -235,20 +239,20 @@ def stratified_similarity_split(
             continue
 
         rng.shuffle(bin_samples)
-        n_train = max(1, int(len(bin_samples) * train_ratio))
+        n_train = max(1, int(len(bin_samples) * train_fraction))
 
         train_indices.extend(bin_samples[:n_train].tolist())
         test_indices.extend(bin_samples[n_train:].tolist())
 
-    return train_indices, test_indices
+    return as_index_array(train_indices), as_index_array(test_indices)
 
 
 def nearest_neighbor_split(
     embeddings: ArrayLike,
-    train_ratio: float = 0.7,
+    train_size: float | int = 0.7,
     metric: str = "euclidean",
     random_state: int = 42,
-) -> tuple[list[int], list[int]]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     For each test sample, ensure its nearest neighbor is in train.
 
@@ -258,22 +262,21 @@ def nearest_neighbor_split(
     brute force) based on dimensionality.
 
     Args:
-        embeddings: np.array of shape (n_samples, embedding_dim)
-        train_ratio: fraction of data for training
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        train_size: fraction in (0, 1) or absolute count for the training set
         metric: distance metric
         random_state: for reproducibility
 
     Returns:
-        train_indices: list of indices for training set
-        test_indices: list of indices for test set
+        train_indices: ndarray of indices for training set
+        test_indices: ndarray of indices for test set
     """
     from sklearn.neighbors import NearestNeighbors
 
-    validate_split_inputs(embeddings, train_ratio)
-    embeddings = np.asarray(embeddings)
+    embeddings = validate_split_inputs(embeddings, train_size)
     n_samples = len(embeddings)
-    n_test = n_samples - int(n_samples * train_ratio)
-    rng = np.random.RandomState(random_state)
+    n_test = n_samples - resolve_n_train(n_samples, train_size)
+    rng = check_random_state(random_state)
 
     # Find each point's nearest neighbor
     nn_model = NearestNeighbors(n_neighbors=2, metric=metric, algorithm="auto")
@@ -300,17 +303,17 @@ def nearest_neighbor_split(
             in_train[idx] = False
             test_indices.append(idx)
 
-    train_indices = np.where(in_train)[0].tolist()
-    return train_indices, test_indices
+    train_indices = np.where(in_train)[0]
+    return as_index_array(train_indices), as_index_array(test_indices)
 
 
 def duplicate_spread_split(
     embeddings: ArrayLike,
-    train_ratio: float = 0.7,
+    train_size: float | int = 0.7,
     similarity_threshold: float | None = None,
     metric: str = "euclidean",
     random_state: int = 42,
-) -> tuple[list[int], list[int]]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Intentionally put near-duplicates in both train and test.
 
@@ -318,21 +321,19 @@ def duplicate_spread_split(
     sample from each cluster appears in both sets.
 
     Args:
-        embeddings: np.array of shape (n_samples, embedding_dim)
-        train_ratio: fraction of data for training
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        train_size: fraction in (0, 1) or absolute count for the training set
         similarity_threshold: distance threshold for near-duplicates
                               (default: 10th percentile of distances)
         metric: distance metric
         random_state: for reproducibility
 
     Returns:
-        train_indices: list of indices for training set
-        test_indices: list of indices for test set
+        train_indices: ndarray of indices for training set
+        test_indices: ndarray of indices for test set
     """
-    validate_split_inputs(embeddings, train_ratio)
-    embeddings = np.asarray(embeddings)
-    n_samples = len(embeddings)
-    rng = np.random.RandomState(random_state)
+    embeddings = validate_split_inputs(embeddings, train_size)
+    rng = check_random_state(random_state)
 
     # TODO: Replace full pairwise matrix with BallTree.query_radius to find
     # near-duplicates without materializing O(n²) distances.
@@ -356,11 +357,13 @@ def duplicate_spread_split(
     for idx, label in enumerate(labels):
         component_to_indices[label].append(idx)
 
+    train_fraction = resolve_n_train(len(embeddings), train_size) / len(embeddings)
+
     train_indices = []
     test_indices = []
 
     # For each component, split proportionally (ensuring both sets get samples)
-    for component_id, indices in component_to_indices.items():
+    for indices in component_to_indices.values():
         indices = np.array(indices)
         rng.shuffle(indices)
 
@@ -369,22 +372,22 @@ def duplicate_spread_split(
             train_indices.extend(indices.tolist())
         else:
             # Split ensuring both sets get at least one
-            n_train = max(1, int(len(indices) * train_ratio))
+            n_train = max(1, int(len(indices) * train_fraction))
             n_train = min(n_train, len(indices) - 1)  # Leave at least 1 for test
 
             train_indices.extend(indices[:n_train].tolist())
             test_indices.extend(indices[n_train:].tolist())
 
-    return train_indices, test_indices
+    return as_index_array(train_indices), as_index_array(test_indices)
 
 
 def max_coverage_split(
     embeddings: ArrayLike,
-    train_ratio: float = 0.7,
+    train_size: float | int = 0.7,
     radius: float | None = None,
     metric: str = "euclidean",
     random_state: int = 42,
-) -> tuple[list[int], list[int]]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Maximize the coverage of test set by train set.
 
@@ -392,20 +395,19 @@ def max_coverage_split(
     sample within radius.
 
     Args:
-        embeddings: np.array of shape (n_samples, embedding_dim)
-        train_ratio: fraction of data for training
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        train_size: fraction in (0, 1) or absolute count for the training set
         radius: distance threshold for coverage (default: median distance)
         metric: distance metric
         random_state: for reproducibility
 
     Returns:
-        train_indices: list of indices for training set
-        test_indices: list of indices for test set
+        train_indices: ndarray of indices for training set
+        test_indices: ndarray of indices for test set
     """
-    validate_split_inputs(embeddings, train_ratio)
-    embeddings = np.asarray(embeddings)
+    embeddings = validate_split_inputs(embeddings, train_size)
     n_samples = len(embeddings)
-    rng = np.random.RandomState(random_state)
+    rng = check_random_state(random_state)
 
     # TODO: Replace full pairwise matrix with BallTree.query_radius to check
     # coverage without materializing O(n²) distances.
@@ -421,7 +423,7 @@ def max_coverage_split(
     all_indices = np.arange(n_samples)
     rng.shuffle(all_indices)
 
-    n_train = int(n_samples * train_ratio)
+    n_train = resolve_n_train(n_samples, train_size)
     train_set = set(all_indices[:n_train])
     test_set = set(all_indices[n_train:])
 
@@ -485,4 +487,4 @@ def max_coverage_split(
                     improved = True
                     break
 
-    return list(train_set), list(test_set)
+    return as_index_array(train_set), as_index_array(test_set)

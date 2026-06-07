@@ -56,6 +56,8 @@ embedders = [
     "openai",
 ]
 viz = ["matplotlib"]
+# Approximate-nearest-neighbor backend for large-n splits (scalability)
+ann = ["pynndescent"]
 # Demo scripts (demo.py, im_demo.py, visualize_splits.py)
 demo = [
     "sentence-transformers",
@@ -63,10 +65,11 @@ demo = [
     "matplotlib",
     "umap-learn",
 ]
-all = ["splytters[text,image,audio,tabular,embedders,viz,demo]"]
+all = ["splytters[text,image,audio,tabular,embedders,viz,demo,ann]"]
 dev = [
     "splytters[all]",
     "pytest",
+    "ruff",
 ]
 
 [project.urls]
@@ -79,3 +82,15 @@ packages = ["splitters", "sorters"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+# E741: single-char names like `l` are used in a few tight numeric loops.
+ignore = ["E741"]

@@ -14,7 +14,8 @@ from typing import Any
 
 import numpy as np
 from numpy.typing import ArrayLike
-from scipy.spatial.distance import cdist, euclidean as _dist_euclidean
+from scipy.spatial.distance import cdist
+from scipy.spatial.distance import euclidean as _dist_euclidean
 from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import LocalOutlierFactor
 
@@ -72,19 +73,22 @@ def distance_to_nearest_neighbor(
         List of (index, distance) tuples sorted by nearest neighbor distance ascending.
     """
     embeddings = np.asarray(embeddings)
+    n = len(embeddings)
+    if n < 2:
+        # No neighbor to measure against.
+        return [(i, float("inf")) for i in range(n)]
 
-    # TODO: Replace full pairwise matrix with NearestNeighbors(n_neighbors=2)
-    # to reduce memory from O(n²) to O(n). Only the 1-NN distance is needed.
-    pairwise_dist = cdist(embeddings, embeddings, metric=metric)
+    # O(n·k) memory via NearestNeighbors instead of a full O(n²) matrix.
+    # Querying the fit data puts each point's self at column 0 (distance 0),
+    # so column 1 is exactly the 1-nearest-neighbor distance.
+    from sklearn.neighbors import NearestNeighbors
 
-    # Set diagonal to infinity so we don't count self as nearest neighbor
-    np.fill_diagonal(pairwise_dist, np.inf)
+    nn = NearestNeighbors(n_neighbors=2, metric=metric)
+    nn.fit(embeddings)
+    dists, _ = nn.kneighbors(embeddings)
+    min_distances = dists[:, 1]
 
-    # Find minimum distance for each sample
-    min_distances = pairwise_dist.min(axis=1)
-
-    # Create sorted list of (index, distance)
-    scores = [(i, min_distances[i]) for i in range(len(embeddings))]
+    scores = [(i, float(min_distances[i])) for i in range(n)]
     scores.sort(key=lambda p: p[1])
 
     return scores
