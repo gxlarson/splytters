@@ -19,7 +19,7 @@ from scipy.spatial.distance import cdist
 from sklearn.cluster import DBSCAN, KMeans
 from sklearn.utils import check_random_state
 
-from splitters.utils import (
+from splytters.utils import (
     as_index_array,
     cluster_embeddings,
     compute_centroid,

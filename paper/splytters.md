@@ -55,9 +55,9 @@ train_idx, test_idx = some_split(embeddings, train_size=0.7, random_state=42)
 
 | Objective | Module | Goal | Representative splitters |
 |---|---|---|---|
-| Adversarial | `splitters.adversarial` | minimize train/test similarity | `cluster_split`, `centroid_adversarial_split`, `min_cut_split`, `normalized_cut_split`, `wasserstein_adversarial_split` |
-| Overlap | `splitters.overlap` | maximize train/test similarity | `cluster_leak_split`, `nearest_neighbor_split`, `max_coverage_split` |
-| Balanced | `splitters.balanced` | match distributions | `distribution_matched_split`, `mmd_minimized_split`, `moment_matched_split` |
+| Adversarial | `splytters.adversarial` | minimize train/test similarity | `cluster_split`, `centroid_adversarial_split`, `min_cut_split`, `normalized_cut_split`, `wasserstein_adversarial_split` |
+| Overlap | `splytters.overlap` | maximize train/test similarity | `cluster_leak_split`, `nearest_neighbor_split`, `max_coverage_split` |
+| Balanced | `splytters.balanced` | match distributions | `distribution_matched_split`, `mmd_minimized_split`, `moment_matched_split` |
 
 `wasserstein_adversarial_split` implements the Wasserstein nearest-neighbor
 construction of Søgaard et al. (2021): treating each embedding as a 1-D
@@ -76,13 +76,13 @@ The functional core is wrapped for the ecosystems practitioners already use:
   `split_dataset` return native `DataFrame`s, `torch.utils.data.Subset`s, and a
   `DatasetDict`. Splitters also accept torch tensors (CPU/GPU) directly.
 
-Heavy dependencies are imported lazily, so `import splitters`/`import sorters`
-require nothing beyond numpy/scipy/scikit-learn, and each optional extra is
-self-sufficient.
+Heavy dependencies are imported lazily, so `import splytters` /
+`import splytters.sorters` require nothing beyond numpy/scipy/scikit-learn, and
+each optional extra is self-sufficient.
 
 ### 2.3 Sorters
 
-A companion `sorters` package ranks samples by interpretable per-modality
+A companion `splytters.sorters` package ranks samples by interpretable per-modality
 difficulty/quality metrics (text length/readability/perplexity, image
 brightness/contrast/frequency, audio spectral/rhythm features, tabular
 column/row statistics, embedding distance/density/outlier scores) — useful for
@@ -198,4 +198,4 @@ covariate-vs-coverage decomposition throughout, is the natural follow-on.
   Talk About Random Splits.* EACL. https://aclanthology.org/2021.eacl-main.156
 - *[TODO: finalize the Computational Linguistics reference cited in the original
   proposal, https://aclanthology.org/J15-3006, and the diversity reference
-  https://aclanthology.org/N19-1051 used by `metrics.diversity_text`.]*
+  https://aclanthology.org/N19-1051 used by `splytters.metrics.diversity_text`.]*

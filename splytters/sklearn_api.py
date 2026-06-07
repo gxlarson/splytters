@@ -23,9 +23,9 @@ import numpy as np
 from sklearn.model_selection import BaseCrossValidator
 from sklearn.utils import _safe_indexing
 
-from splitters.adversarial import cluster_split
-from splitters.balanced import distribution_matched_split
-from splitters.overlap import cluster_leak_split
+from splytters.adversarial import cluster_split
+from splytters.balanced import distribution_matched_split
+from splytters.overlap import cluster_leak_split
 
 Splitter = Callable[..., tuple[np.ndarray, np.ndarray]]
 
@@ -46,7 +46,7 @@ class SplytterSplit(BaseCrossValidator):
 
     Parameters
     ----------
-    splitter : callable, default=:func:`~splitters.adversarial.cluster_split`
+    splitter : callable, default=:func:`~splytters.adversarial.cluster_split`
         Any splytter splitter taking ``(embeddings, train_size=, random_state=)``
         and returning ``(train_idx, test_idx)`` integer ndarrays.
     embeddings : array-like of shape (n_samples, n_features), optional
@@ -127,7 +127,7 @@ def splytter_train_test_split(
     ----------
     *arrays : sequence of array-likes (numpy, list, pandas, etc.)
         Objects to split, all of the same length (n_samples).
-    splitter : callable, default=:func:`~splitters.adversarial.cluster_split`
+    splitter : callable, default=:func:`~splytters.adversarial.cluster_split`
     embeddings : array-like, optional
         Embeddings to compute the split on. Defaults to the first array.
     train_size, random_state, **splitter_kwargs

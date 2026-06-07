@@ -9,7 +9,7 @@ from datasets import load_dataset
 # pip install sentence_transformers
 from sentence_transformers import SentenceTransformer
 
-from sorters import distance_to_mean
+from splytters.sorters import distance_to_mean
 
 embedder = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
 

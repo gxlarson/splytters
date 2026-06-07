@@ -4,7 +4,7 @@ import pytest
 import pandas as pd
 import numpy as np
 
-from sorters.tabular_sorters import (
+from splytters.sorters.tabular_sorters import (
     column_value,
     column_rank,
     column_zscore,

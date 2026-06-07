@@ -5,7 +5,7 @@ from statistics import mean
 
 import numpy as np
 
-from distances import (
+from splytters.distances import (
     dist_euclidean,
     ngram_jaccard_distance,
 )

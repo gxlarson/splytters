@@ -15,7 +15,7 @@ from numpy.typing import ArrayLike
 from scipy.spatial.distance import cdist
 from sklearn.utils import check_random_state
 
-from splitters.utils import (
+from splytters.utils import (
     as_index_array,
     cluster_embeddings,
     compute_centroid,

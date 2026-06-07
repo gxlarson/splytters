@@ -36,7 +36,7 @@ def alt_queries(queries):
 
 @pytest.fixture(scope="module")
 def text_embedder():
-    from embedders import TextEmbedder
+    from splytters.embedders import TextEmbedder
     return TextEmbedder()
 
 
@@ -72,7 +72,7 @@ class TestTextEmbedder:
 
 @pytest.fixture(scope="module")
 def clip_text_embedder():
-    from embedders import CLIPTextEmbedder
+    from splytters.embedders import CLIPTextEmbedder
     return CLIPTextEmbedder()
 
 

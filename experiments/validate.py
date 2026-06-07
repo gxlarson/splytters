@@ -38,7 +38,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import LinearSVC
 
-from splitters import (
+from splytters import (
     centroid_adversarial_split,
     cluster_leak_split,
     cluster_split,

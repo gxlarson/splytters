@@ -3,7 +3,7 @@
 import pytest
 from pathlib import Path
 
-from sorters.audio_sorters import (
+from splytters.sorters.audio_sorters import (
     # Loudness / Energy
     mean_amplitude,
     rms_energy,

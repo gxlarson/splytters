@@ -3,7 +3,7 @@
 import pytest
 from pathlib import Path
 
-from sorters.image_sorters import (
+from splytters.sorters.image_sorters import (
     mean_brightness,
     contrast,
     color_variance,

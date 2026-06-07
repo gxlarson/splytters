@@ -25,16 +25,22 @@ deliberately before the API has downstream users.
   symmetry.
 - `stratified_random_split`'s second argument was renamed `labels` → `y` to
   match scikit-learn's `split(X, y)` convention.
+- **Single import namespace.** Everything now lives under the `splytters`
+  package: `from splytters import cluster_split, SplytterSplit, split_report`,
+  `from splytters.sorters import …`, `from splytters.embedders import …`. The
+  former top-level `splitters` / `sorters` / `embedders` import names are gone
+  (they squatted generic namespace and the dist name `splytters` didn't match
+  the import name `splitters`).
 
 ### Added
-- **scikit-learn compatibility** (`splitters.sklearn_api`):
+- **scikit-learn compatibility** (`splytters.sklearn_api`):
   `SplytterSplit` cross-validator (`split`/`get_n_splits`) usable as `cv=` in
   `cross_validate`/`GridSearchCV`, plus `splytter_train_test_split` and
   `adversarial_/overlap_/balanced_train_test_split` convenience functions.
-- **Framework interop** (`splitters.interop`, lazily imported): `split_dataframe`
+- **Framework interop** (`splytters.interop`, lazily imported): `split_dataframe`
   (pandas), `to_torch_subsets` (PyTorch), `split_dataset` (HuggingFace
   `datasets`). Splitters also accept torch tensors directly (CPU/GPU).
-- **Split-quality report** (`splitters.report`): `split_report` (centroid /
+- **Split-quality report** (`splytters.report`): `split_report` (centroid /
   cross / coverage / cluster-leakage / MMD / energy distance / mean Wasserstein
   / mean KS, plus optional label-distribution shift) and `compare_splitters`.
 - **`wasserstein_adversarial_split`** — Wasserstein nearest-neighbor adversarial
@@ -49,22 +55,23 @@ deliberately before the API has downstream users.
 - `[ann]` extra (`pynndescent`) for approximate-nearest-neighbor backends.
 
 ### Fixed
-- `sorters/__init__.py` now imports each modality **lazily** (PEP 562
-  `__getattr__`), so `import sorters` no longer requires every optional
+- `splytters/sorters/__init__.py` now imports each modality **lazily** (PEP 562
+  `__getattr__`), so `import splytters.sorters` no longer requires every optional
   dependency and each extra (`[image]`, `[audio]`, …) is self-sufficient.
 - `multi_column_sort` no longer produces `NaN` scores when a column contains
   missing values (NaN cells map to the neutral midpoint).
 - `compute_split_similarity` raises a clear error on empty train/test sets
   instead of crashing.
-- `metrics.diversity_text`: removed the dead `datatype` parameter, computes over
-  unique pairs (halving work), and gained optional subsampling for large inputs.
+- `splytters.metrics.diversity_text`: removed the dead `datatype` parameter,
+  computes over unique pairs (halving work), and gained optional subsampling for
+  large inputs.
 
 ### Fixed (test suite / latest dependencies)
 The suite is now fully green on current library versions (307 passed, incl. slow
 model-download tests). Failures fell into three buckets:
 - **Library API drift:** librosa now returns tempo as an array (`tempo` extracts
   the scalar); transformers ≥5 returns a `BaseModelOutputWithPooling` from CLIP
-  `get_*_features` (`embedders._features_to_numpy` handles tensor *and* object);
+  `get_*_features` (`splytters.embedders._features_to_numpy` handles tensor *and* object);
   NLTK 3.9 renamed `punkt`→`punkt_tab` (readability tests ensure the resource).
 - **Return types:** audio/image sorters returned `np.float32`; they now return
   Python `float` (matching their `-> tuple[int, float]` hints).

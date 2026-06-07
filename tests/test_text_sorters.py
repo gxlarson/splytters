@@ -2,7 +2,7 @@
 
 import pytest
 
-from sorters.text_sorters import (
+from splytters.sorters.text_sorters import (
     simple_tokenizer,
     character_length,
     tokens_length,

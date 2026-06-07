@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from splitters import (
+from splytters import (
     SplytterSplit,
     splytter_train_test_split,
     adversarial_train_test_split,
@@ -12,7 +12,7 @@ from splitters import (
     cluster_split,
     distance_adversarial_split,
 )
-from splitters.interop import split_dataframe, to_torch_subsets, split_dataset
+from splytters.interop import split_dataframe, to_torch_subsets, split_dataset
 
 
 @pytest.fixture

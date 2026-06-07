@@ -3,8 +3,8 @@ Split-quality reporting.
 
 Quantifies *how* adversarial, overlapping, or balanced a produced train/test
 split actually is — so users can compare splitters and so papers can report a
-single, interpretable table. Builds on :func:`splitters.utils.compute_split_similarity`
-and :func:`splitters.adversarial.get_cluster_info`, adding distribution-distance
+single, interpretable table. Builds on :func:`splytters.utils.compute_split_similarity`
+and :func:`splytters.adversarial.get_cluster_info`, adding distribution-distance
 metrics (MMD, energy distance, mean 1-D Wasserstein / KS) and label balance.
 """
 
@@ -19,8 +19,8 @@ from scipy.spatial.distance import cdist
 from scipy.stats import ks_2samp, wasserstein_distance
 from sklearn.utils import check_random_state
 
-from splitters.adversarial import get_cluster_info
-from splitters.utils import compute_split_similarity, validate_split_inputs
+from splytters.adversarial import get_cluster_info
+from splytters.utils import compute_split_similarity, validate_split_inputs
 
 
 def _rbf_mmd(A: np.ndarray, B: np.ndarray, gamma: float) -> float:

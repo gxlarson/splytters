@@ -31,7 +31,7 @@ def _ngrams(tokens: list[str], n: int) -> Iterator[tuple[str, ...]]:
     https://albertauyeung.github.io/2018/06/03/generating-ngrams.html/
     """
     assert n > 0
-    ngrams = zip(*[tokens[i:] for i in range(n)])
+    ngrams = zip(*[tokens[i:] for i in range(n)], strict=False)
     return ngrams
 
 def ngram_jaccard_similarity(

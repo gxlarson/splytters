@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from splitters import (
+from splytters import (
     split_report,
     compare_splitters,
     random_split,

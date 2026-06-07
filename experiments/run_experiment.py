@@ -34,7 +34,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, balanced_accuracy_score
 from sklearn.preprocessing import StandardScaler
 
-from splitters import (
+from splytters import (
     cluster_leak_split,
     cluster_split,
     distribution_matched_split,

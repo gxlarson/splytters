@@ -1,27 +1,16 @@
 """Unit tests for embedding_sorters.py"""
 
-import importlib.util
-import sys
-from pathlib import Path
-
 import numpy as np
 import pytest
 
-# Import the module directly to avoid sorters/__init__.py pulling in optional
-# dependencies (readability, librosa, etc.) that may not be installed.
-_spec = importlib.util.spec_from_file_location(
-    "embedding_sorters",
-    Path(__file__).resolve().parent.parent / "sorters" / "embedding_sorters.py",
+# Lazy per-modality imports mean this pulls in only numpy/scikit-learn.
+from splytters.sorters.embedding_sorters import (
+    dist_euclidean,
+    distance_to_mean,
+    distance_to_nearest_neighbor,
+    local_density,
+    outlier_score,
 )
-_mod = importlib.util.module_from_spec(_spec)
-sys.modules[_spec.name] = _mod
-_spec.loader.exec_module(_mod)
-
-dist_euclidean = _mod.dist_euclidean
-distance_to_mean = _mod.distance_to_mean
-distance_to_nearest_neighbor = _mod.distance_to_nearest_neighbor
-local_density = _mod.local_density
-outlier_score = _mod.outlier_score
 
 
 # ---------------------------------------------------------------------------

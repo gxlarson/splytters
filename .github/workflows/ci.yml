@@ -29,7 +29,7 @@ jobs:
       - name: Install (core only)
         run: pip install -e . pytest
       - name: Import with no extras installed
-        run: python -c "import splitters, sorters; print('import ok:', len(splitters.__all__), 'symbols')"
+        run: python -c "import splytters, splytters.sorters; print('import ok:', len(splytters.__all__), 'symbols')"
       - name: Core + interop + report tests
         run: pytest tests/test_splitters.py tests/test_interop.py tests/test_report.py -q
 
@@ -43,7 +43,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install ruff
-      - run: ruff check splitters
+      - run: ruff check splytters
 
   # Canary: full install on the latest releases of every optional dependency.
   # Allowed to fail so upstream API drift in torch/librosa/transformers/etc.

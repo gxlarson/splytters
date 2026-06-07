@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from PIL import Image
 
-from metrics import mean_dist
+from splytters.metrics import mean_dist
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model, preprocess = clip.load("ViT-B/32", device=device)

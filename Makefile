@@ -1,4 +1,4 @@
-.PHONY: install test test-core lint figures clean
+.PHONY: install test test-core lint figures validate clean
 
 install:
 	pip install -e ".[dev]"
@@ -12,7 +12,7 @@ test-core:
 	pytest tests/test_splitters.py tests/test_interop.py tests/test_report.py
 
 lint:
-	ruff check splitters
+	ruff check splytters
 
 # Regenerate the paper's figures + CSVs (offline / cached embeddings, fixed seeds).
 figures:

@@ -13,7 +13,7 @@ from scipy.spatial.distance import cdist
 from scipy.stats import ks_2samp
 from sklearn.utils import check_random_state
 
-from splitters.utils import (
+from splytters.utils import (
     as_index_array,
     optimized_split,
     resolve_n_train,

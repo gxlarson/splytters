@@ -16,7 +16,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from generate_test_2d import ALL_GENERATORS
-import splitters
+import splytters
 
 # Splitters grouped by category. Each entry is (name, callable).
 # stratified_random_split is excluded because it requires labels.

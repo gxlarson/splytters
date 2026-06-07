@@ -11,11 +11,11 @@ Modules:
     audio_sorters: Audio-based sorting (loudness, spectral, rhythm, timbre)
     tabular_sorters: Tabular data sorting (columns, missing values, outliers)
 
-Imports are **lazy** per modality: ``import sorters`` pulls in no optional
-dependencies, and accessing e.g. ``sorters.mean_brightness`` only imports
-Pillow (the ``[image]`` extra). This means each extra is self-sufficient —
-you can install ``splytters[image]`` and use the image sorters without torch,
-librosa, or pandas.
+Imports are **lazy** per modality: ``import splytters.sorters`` pulls in no
+optional dependencies, and accessing e.g. ``splytters.sorters.mean_brightness``
+only imports Pillow (the ``[image]`` extra). This means each extra is
+self-sufficient — you can install ``splytters[image]`` and use the image sorters
+without torch, librosa, or pandas.
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ def __getattr__(name: str) -> Any:
         raise AttributeError(
             f"module {__name__!r} has no attribute {name!r}"
         ) from None
-    module = importlib.import_module(f"sorters.{module_suffix}")
+    module = importlib.import_module(f"splytters.sorters.{module_suffix}")
     value = getattr(module, attr)
     globals()[name] = value  # cache so subsequent access skips __getattr__
     return value

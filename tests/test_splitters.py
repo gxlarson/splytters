@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from splitters.utils import (
+from splytters.utils import (
     compute_pairwise_distances,
     compute_centroid,
     compute_split_centroids,
@@ -13,7 +13,7 @@ from splitters.utils import (
     greedy_assign_to_target,
     validate_split_inputs,
 )
-from splitters.adversarial import (
+from splytters.adversarial import (
     cluster_split,
     centroid_adversarial_split,
     distance_adversarial_split,
@@ -24,7 +24,7 @@ from splitters.adversarial import (
     wasserstein_adversarial_split,
     get_cluster_info,
 )
-from splitters.balanced import (
+from splytters.balanced import (
     distribution_matched_split,
     moment_matched_split,
     histogram_matched_split,
@@ -32,7 +32,7 @@ from splitters.balanced import (
     density_balanced_split,
     mmd_minimized_split,
 )
-from splitters.overlap import (
+from splytters.overlap import (
     cluster_leak_split,
     neighbor_coverage_split,
     centroid_matched_split,

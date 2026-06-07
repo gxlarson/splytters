@@ -32,7 +32,7 @@ pytest tests/test_splitters.py tests/test_interop.py tests/test_report.py
 ```bash
 pytest                 # full suite
 pytest -m "not slow"   # skip model-download tests (perplexity etc.)
-ruff check splitters   # lint
+ruff check splytters   # lint
 ```
 
 - A **core-only** install (`pip install -e .`) collects and runs cleanly:
@@ -47,7 +47,7 @@ ruff check splitters   # lint
 - **Splitters** take `(embeddings, train_size=0.7, random_state=42, ...)` and
   return a `(train_indices, test_indices)` pair of integer `ndarray`s that
   partition `range(n_samples)`. Validate inputs through
-  `splitters.utils.validate_split_inputs` (handles `check_array`, finite
+  `splytters.utils.validate_split_inputs` (handles `check_array`, finite
   checks, and `train_size` as a fraction *or* absolute count).
 - **Returns are ndarrays**, parameters follow scikit-learn naming
   (`train_size`, `random_state`, `y`).
@@ -71,4 +71,4 @@ pip install -e ".[dev]" -c constraints.txt
 1. Branch off `main` (e.g. `feature/my-splitter`).
 2. Keep the core (`pip install -e .`) test job green.
 3. Update `CHANGELOG.md` under "Unreleased".
-4. Run `ruff check splitters` and `pytest -m "not slow"` before pushing.
+4. Run `ruff check splytters` and `pytest -m "not slow"` before pushing.

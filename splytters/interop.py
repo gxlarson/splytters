@@ -14,7 +14,7 @@ from typing import Any
 
 import numpy as np
 
-from splitters.adversarial import cluster_split
+from splytters.adversarial import cluster_split
 
 Splitter = Callable[..., tuple[np.ndarray, np.ndarray]]
 

@@ -11,7 +11,7 @@ Modules:
     utils: Shared utilities
 """
 
-from splitters.adversarial import (
+from splytters.adversarial import (
     centroid_adversarial_split,
     cluster_split,
     density_adversarial_split,
@@ -22,7 +22,7 @@ from splitters.adversarial import (
     outlier_adversarial_split,
     wasserstein_adversarial_split,
 )
-from splitters.balanced import (
+from splytters.balanced import (
     density_balanced_split,
     distribution_matched_split,
     histogram_matched_split,
@@ -33,12 +33,12 @@ from splitters.balanced import (
 
 # Framework interop (pandas / torch / HuggingFace datasets). Heavy deps are
 # imported lazily inside each helper, so this import stays dependency-light.
-from splitters.interop import (
+from splytters.interop import (
     split_dataframe,
     split_dataset,
     to_torch_subsets,
 )
-from splitters.overlap import (
+from splytters.overlap import (
     centroid_matched_split,
     cluster_leak_split,
     duplicate_spread_split,
@@ -49,17 +49,17 @@ from splitters.overlap import (
 )
 
 # Split-quality reporting (how adversarial/overlapping/balanced is a split?).
-from splitters.report import compare_splitters, split_report
+from splytters.report import compare_splitters, split_report
 
 # scikit-learn compatibility layer (CV protocol + train_test_split convenience).
-from splitters.sklearn_api import (
+from splytters.sklearn_api import (
     SplytterSplit,
     adversarial_train_test_split,
     balanced_train_test_split,
     overlap_train_test_split,
     splytter_train_test_split,
 )
-from splitters.utils import (
+from splytters.utils import (
     cluster_embeddings,
     compute_centroid,
     compute_pairwise_distances,
