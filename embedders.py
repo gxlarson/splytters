@@ -1,9 +1,25 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
+
+
+def _features_to_numpy(outputs: Any) -> np.ndarray:
+    """Convert a CLIP feature output to a numpy array.
+
+    transformers < 5 returns a tensor from ``get_*_features``; transformers >= 5
+    returns a ``BaseModelOutputWithPooling`` — handle both.
+    """
+    if hasattr(outputs, "detach"):
+        tensor = outputs
+    elif getattr(outputs, "pooler_output", None) is not None:
+        tensor = outputs.pooler_output
+    else:
+        tensor = outputs.last_hidden_state.mean(dim=1)
+    return tensor.detach().cpu().numpy()
 
 
 class Embedder(ABC):
@@ -38,7 +54,7 @@ class CLIPTextEmbedder(Embedder):
     def embed(self, texts: Sequence[str]) -> np.ndarray:
         inputs = self.tokenizer(texts, padding=True, truncation=True, return_tensors="pt")
         outputs = self.model.get_text_features(**inputs)
-        return outputs.detach().cpu().numpy()
+        return _features_to_numpy(outputs)
 
 
 class CLIPImageEmbedder(Embedder):
@@ -53,7 +69,7 @@ class CLIPImageEmbedder(Embedder):
     def embed(self, images: Sequence[Any]) -> np.ndarray:
         inputs = self.processor(images=images, return_tensors="pt")
         outputs = self.model.get_image_features(**inputs)
-        return outputs.detach().cpu().numpy()
+        return _features_to_numpy(outputs)
 
 
 class OpenAIEmbedder(Embedder):

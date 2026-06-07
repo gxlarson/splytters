@@ -5,6 +5,10 @@ import os
 import numpy as np
 import pytest
 
+# These tests download real models (SentenceTransformer ~90 MB, CLIP ~600 MB),
+# so they are marked slow and excluded from the default `-m "not slow"` run.
+pytestmark = pytest.mark.slow
+
 DATA_PATH = os.path.join(os.path.dirname(__file__), "..", "test_data", "text", "bank_balance_queries.txt")
 
 

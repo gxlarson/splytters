@@ -9,6 +9,9 @@ output_dir.mkdir(parents=True, exist_ok=True)
 
 SIZE = (50, 50)
 
+# Seed so the noise-based fixtures are reproducible.
+np.random.seed(0)
+
 
 def save_image(arr, name):
     """Save numpy array as image."""
@@ -96,14 +99,11 @@ for i in range(SIZE[0]):
     low_freq[i, :] = [val, val, val]
 save_image(low_freq, "freq_smooth")
 
-# High frequency (fine stripes)
-high_freq = np.zeros((*SIZE, 3))
-for i in range(SIZE[0]):
-    for j in range(SIZE[1]):
-        if (i + j) % 2 == 0:
-            high_freq[i, j] = [200, 200, 200]
-        else:
-            high_freq[i, j] = [50, 50, 50]
+# High frequency (fine random texture). A 1-pixel checkerboard concentrates all
+# its energy at a single Nyquist frequency, which the high/low-frequency ratio
+# metric scores *lower* than broadband texture; per-pixel noise spreads energy
+# across the whole high-frequency band and is the genuinely "most detailed" case.
+high_freq = np.random.randint(0, 256, (*SIZE, 3))
 save_image(high_freq, "freq_detailed")
 
 # Medium frequency (larger pattern)

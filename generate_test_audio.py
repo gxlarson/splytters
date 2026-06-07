@@ -10,12 +10,20 @@ output_dir.mkdir(parents=True, exist_ok=True)
 SR = 22050  # Sample rate
 DURATION = 1.0  # Duration in seconds
 
+# Seed so the noise-based fixtures are reproducible.
+np.random.seed(0)
+
 
 def save_audio(samples, name):
-    """Save numpy array as WAV file."""
-    # Normalize to prevent clipping
-    if np.abs(samples).max() > 0:
-        samples = samples / np.abs(samples).max() * 0.9
+    """Save numpy array as WAV file.
+
+    Only scales *down* to prevent clipping (peak > 1.0); otherwise the signal's
+    amplitude is preserved so that loudness and dynamic-range variations survive
+    (peak-normalizing every file would make 'quiet' and 'loud' identical).
+    """
+    peak = np.abs(samples).max()
+    if peak > 1.0:
+        samples = samples / peak * 0.99
     sf.write(output_dir / f"{name}.wav", samples.astype(np.float32), SR)
     print(f"Created {name}.wav")
 

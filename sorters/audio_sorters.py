@@ -70,7 +70,7 @@ def mean_amplitude(
         scores.append((i, amp))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]
 
 
 def rms_energy(
@@ -100,7 +100,7 @@ def rms_energy(
         scores.append((i, rms))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]
 
 
 def dynamic_range(
@@ -130,7 +130,7 @@ def dynamic_range(
         scores.append((i, dyn_range))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]
 
 
 def peak_to_average_ratio(
@@ -162,7 +162,7 @@ def peak_to_average_ratio(
         scores.append((i, ratio))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]
 
 
 # =============================================================================
@@ -197,7 +197,7 @@ def spectral_centroid(
         scores.append((i, mean_centroid))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]
 
 
 def spectral_bandwidth(
@@ -228,7 +228,7 @@ def spectral_bandwidth(
         scores.append((i, mean_bandwidth))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]
 
 
 def spectral_rolloff(
@@ -268,7 +268,7 @@ def spectral_rolloff(
         scores.append((i, mean_rolloff))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]
 
 
 def spectral_flatness(
@@ -299,7 +299,7 @@ def spectral_flatness(
         scores.append((i, mean_flatness))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]
 
 
 def zero_crossing_rate(
@@ -330,7 +330,7 @@ def zero_crossing_rate(
         scores.append((i, mean_zcr))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]
 
 
 def fundamental_frequency(
@@ -365,7 +365,7 @@ def fundamental_frequency(
         scores.append((i, mean_f0))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]
 
 
 # =============================================================================
@@ -404,7 +404,7 @@ def mfcc_mean(
         scores.append((i, mean_mfcc))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]
 
 
 def mfcc_variance(
@@ -440,7 +440,7 @@ def mfcc_variance(
         scores.append((i, var))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]
 
 
 # =============================================================================
@@ -467,11 +467,12 @@ def tempo(
     scores = []
     for i, audio in enumerate(audios):
         y, sample_rate = _load_audio(audio, sr)
+        # librosa >=0.10 returns tempo as an array; take the scalar.
         bpm, _ = librosa.beat.beat_track(y=y, sr=sample_rate)
-        scores.append((i, float(bpm)))
+        scores.append((i, float(np.atleast_1d(bpm)[0])))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]
 
 
 def beat_strength(
@@ -502,7 +503,7 @@ def beat_strength(
         scores.append((i, mean_strength))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]
 
 
 def harmonic_ratio(
@@ -535,7 +536,7 @@ def harmonic_ratio(
         scores.append((i, ratio))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]
 
 
 # =============================================================================
@@ -580,4 +581,4 @@ def compression_ratio(
         scores.append((i, ratio))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]

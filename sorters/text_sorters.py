@@ -16,6 +16,7 @@ from readability import Readability
 from transformers import GPT2LMHeadModel, GPT2TokenizerFast
 from wordfreq import word_frequency
 
+
 def simple_tokenizer(s: str) -> list[str]:
     """Split text on whitespace into a list of tokens."""
     return s.split()
@@ -249,6 +250,15 @@ def readability_score(
         List of (index, score) tuples sorted by readability.
         Texts too short to score receive a score of infinity.
     """
+    valid_metrics = {
+        "flesch_kincaid", "flesch", "gunning_fog", "coleman_liau",
+        "dale_chall", "ari", "linsear_write", "smog",
+    }
+    # Validate up front so an unknown metric raises instead of being swallowed
+    # by the per-text "too short -> inf" exception handler below.
+    if metric not in valid_metrics:
+        raise ValueError(f"Unknown readability metric: {metric}")
+
     scores = []
 
     for i, text in enumerate(texts):

@@ -64,7 +64,7 @@ def mean_brightness(
         scores.append((i, brightness))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]
 
 
 def contrast(
@@ -94,7 +94,7 @@ def contrast(
         scores.append((i, std))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]
 
 
 def color_variance(
@@ -127,7 +127,7 @@ def color_variance(
         scores.append((i, channel_variance))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]
 
 
 def dominant_color(
@@ -186,7 +186,7 @@ def dominant_color(
         scores.append((i, float(distance)))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]
 
 
 def compression_ratio(
@@ -227,7 +227,7 @@ def compression_ratio(
         scores.append((i, ratio))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]
 
 
 def frequency_content(
@@ -284,4 +284,4 @@ def frequency_content(
         scores.append((i, high_freq_ratio))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
-    return scores
+    return [(idx, float(value)) for idx, value in scores]

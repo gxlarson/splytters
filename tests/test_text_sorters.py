@@ -286,13 +286,56 @@ class TestPerplexityScore:
 class TestReadabilityScore:
     """Tests for readability_score function."""
 
+    @pytest.fixture(autouse=True)
+    def _ensure_nltk(self):
+        """py-readability-metrics tokenizes via NLTK; ensure its data is present.
+
+        NLTK 3.9 renamed ``punkt`` -> ``punkt_tab``. Download quietly if missing;
+        skip these tests if the data can't be obtained (e.g. offline).
+        """
+        try:
+            import nltk
+
+            for res in ("punkt_tab", "punkt"):
+                try:
+                    nltk.data.find(f"tokenizers/{res}")
+                except LookupError:
+                    nltk.download(res, quiet=True)
+        except Exception:
+            pytest.skip("NLTK tokenizer data unavailable")
+
     @pytest.fixture
     def texts(self):
+        # py-readability-metrics needs >= 100 words, so both passages are long.
         return [
-            # Simple text (low grade level)
-            "The cat sat. The dog ran. It was fun.",
-            # Complex text (high grade level)
-            "The implementation of sophisticated algorithmic procedures necessitates comprehensive understanding of computational complexity theory and abstract mathematical concepts.",
+            # Simple text (low grade level): short words, short sentences.
+            "The cat sat on the mat. The dog ran in the yard. The sun was warm "
+            "and bright. A boy and a girl went out to play. They ran and ran. "
+            "Then they sat down to rest. A bird sang a song in the tree. The cat "
+            "looked up at it. The dog wagged its tail. We had fun in the park all "
+            "day long. Mom made us a good lunch. We ate bread and jam and eggs. "
+            "The day was warm and nice. We went home when the sky grew dark. We "
+            "were tired but glad. It was a fun day for all of us. We slept well "
+            "that night and did not wake up.",
+            # Complex text (high grade level): long words, long sentences.
+            "The implementation of sophisticated algorithmic procedures "
+            "necessitates a comprehensive understanding of computational "
+            "complexity theory, abstract mathematical formalisms, and the "
+            "intricate interdependencies among heterogeneous subsystems. "
+            "Consequently, practitioners must assiduously evaluate the asymptotic "
+            "ramifications of their architectural decisions, particularly when "
+            "confronting the inherent tensions between theoretical optimality and "
+            "pragmatic implementability. Furthermore, the proliferation of "
+            "distributed paradigms introduces additional considerations regarding "
+            "consistency, fault tolerance, and the probabilistic guarantees "
+            "afforded by contemporary consensus mechanisms. Such considerations, "
+            "when inadequately addressed, precipitate cascading failures whose "
+            "etiology proves exceedingly difficult to diagnose, thereby "
+            "undermining the reliability and maintainability of these "
+            "increasingly elaborate computational artifacts. Moreover, the "
+            "systematic verification of such guarantees demands formal "
+            "methodologies whose computational expense frequently exceeds that "
+            "of the very systems they purport to validate.",
         ]
 
     def test_orders_simple_first(self, texts):
