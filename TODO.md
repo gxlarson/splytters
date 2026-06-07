@@ -4,28 +4,38 @@
 
 Make the splytters API coalesce with scikit-learn so splitters can drop into existing workflows.
 
-- [ ] **CV splitter protocol wrappers** — class wrappers implementing `split(X, y=None, groups=None)` (yields `(train_idx, test_idx)` ndarrays) and `get_n_splits()`, so splitters work as `cv=` in `GridSearchCV` / `cross_validate`. Single-split CV objects are an established sklearn pattern (`PredefinedSplit`, `ShuffleSplit(n_splits=1)`). The functional core stays as-is; wrappers are additive.
-- [ ] **`train_test_split`-style convenience function** — accept `*arrays` and return split data directly, e.g. `adversarial_train_test_split(texts, labels, embeddings=emb, train_size=0.7)`, mirroring `sklearn.model_selection.train_test_split` for drop-in swaps.
-- [ ] **Align conventions with sklearn** — rename `train_ratio` → `train_size`; return ndarray indices instead of lists. Worth doing before the API has users.
+- [x] **CV splitter protocol wrappers** — `SplytterSplit` (`splitters/sklearn_api.py`) implements `split`/`get_n_splits` and works as `cv=` in `cross_validate`/`GridSearchCV`.
+- [x] **`train_test_split`-style convenience** — `splytter_train_test_split` + `adversarial_/overlap_/balanced_train_test_split` slice every passed array via `_safe_indexing`.
+- [x] **Align conventions with sklearn** — `train_ratio` → `train_size` (fraction *or* int count); splitters return ndarray indices; `check_array`/`check_random_state` validation; `stratified_random_split(..., y=...)`.
 
 ## Other library interop
 
-- [ ] **PyTorch** — accept torch tensors as embeddings input (GPU tensors currently fail in `np.asarray`; needs a `.cpu()` conversion path). Add a helper that returns `torch.utils.data.Subset` pairs from a Dataset + embeddings.
-- [ ] **Pandas** — `split_dataframe(df, embeddings, ...)` returning two DataFrames via `.iloc`. (`sorters/tabular_sorters.py` already uses pandas; splitters have no DataFrame story yet.)
-- [ ] **HuggingFace datasets** — helper returning `DatasetDict({"train": ds.select(train_idx), "test": ds.select(test_idx)})`; would also simplify `demo.py`.
-- [ ] **Sparse embeddings** — `scipy.sparse` input (e.g. TF-IDF) is silently mangled by `np.asarray`; either support it or reject it with a clear error.
+- [x] **PyTorch** — splitters accept torch tensors (CPU/GPU, via `to_numpy`); `to_torch_subsets` returns `Subset` pairs.
+- [x] **Pandas** — `split_dataframe(df, embeddings, ...)` returns two DataFrames via `.iloc`.
+- [x] **HuggingFace datasets** — `split_dataset(ds, embeddings, ...)` returns a `DatasetDict`.
+- [x] **Sparse embeddings** — `scipy.sparse` input is now rejected with a clear error via `check_array` (dense ANN support is future work).
 - [ ] **Polars** — accept polars DataFrames/Series as input alongside pandas.
 
 ## Scalability
 
-- [ ] **Approximate nearest neighbors backend** — `compute_pairwise_distances` materializes a full O(n²) matrix (already flagged in its docstring). Offer faiss/annoy/pynndescent for large datasets.
+- [~] **Approximate / chunked nearest neighbors** — `embedding_sorters.distance_to_nearest_neighbor` now uses `NearestNeighbors` (O(n·k)); `[ann]` extra (`pynndescent`) added. Remaining O(n²): `local_density`, `density_*_split`, `min_cut_split`, `normalized_cut_split`, `neighbor_coverage_split`, `duplicate_spread_split`, `max_coverage_split`, `compute_split_similarity` (each still TODO-flagged in-code).
 
 ## Infra
 
-- [ ] **CI** — GitHub Actions workflow running the pytest suite (~274 tests; install `[dev]` so the torch/librosa test files collect — without them only 94 tests collect) on push/PR.
-- [ ] **Split-quality report** — build on `compute_split_similarity` to expose a summary of how adversarial/overlapping/balanced a produced split actually is, to help users compare splitters.
+- [x] **CI** — GitHub Actions: core-only matrix (3.10–3.12) + ruff lint + full-deps canary. `conftest.py` seeds RNG and skips heavy-modality test modules when their optional dep is absent.
+- [x] **Split-quality report** — `split_report` / `compare_splitters` (`splitters/report.py`): geometric + cluster-leakage + MMD/energy/Wasserstein/KS + label-shift metrics.
+- [x] **Heavy-modality test drift** — fixed for the latest librosa/transformers/NLTK; also fixed two broken data generators (loudness/frequency fixtures) and a swallowed `ValueError` in `readability_score`. Suite is green (307 passed incl. slow; 294 in the default `-m "not slow"` scope).
+- [ ] **Docs site** — mkdocs-material/Sphinx API reference + "reproduce the paper" page.
+- [ ] **Zenodo DOI** — archive a tagged release; fill `doi:` in `CITATION.cff` + README badge.
+
+## Research / paper
+
+- [x] **Illustrative experiment harness** — `experiments/run_experiment.py` (+ `make figures`): offline `digits` shows a **38-pt** accuracy drop under an adversarial split vs random (overlap inflates, balanced matches); MMD tracks difficulty.
+- [x] **Demo-paper draft** — `paper/splytters.md`.
+- [ ] **Multi-dataset / multi-model evaluation** (text + vision) for a fuller study.
+- [x] **Reconcile `wasserstein-splitting` branch** — ported as `wasserstein_adversarial_split` (Søgaard et al., EACL 2021).
 
 ## Packaging
 
-- [x] Add `pyproject.toml` with core deps (`numpy`, `scipy`, `scikit-learn`) and optional extras (`[text]`, `[audio]`, `[image]`, `[demo]`), enabling `pip install -e .`; simplify the README install section accordingly.
-- [ ] **Lazy imports in `sorters/__init__.py`** — importing any sorter currently pulls in every modality (torch, librosa, ...), so `[image]` alone isn't enough for image sorters. Make per-modality imports lazy so each extra is self-sufficient.
+- [x] Add `pyproject.toml` with core deps and optional extras (`[text]`, `[audio]`, `[image]`, `[tabular]`, `[embedders]`, `[viz]`, `[ann]`, `[demo]`, `[all]`, `[dev]`), enabling `pip install -e .`.
+- [x] **Lazy imports in `sorters/__init__.py`** — per-modality PEP 562 `__getattr__`; each extra is now self-sufficient.

@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Required gate: the splitters contribution must import and pass with ONLY
+  # core deps (numpy/scipy/scikit-learn). This also proves the lazy-import
+  # guarantee — `import sorters` works without any optional extra installed.
+  core:
+    name: core (no extras) · py${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install (core only)
+        run: pip install -e . pytest
+      - name: Import with no extras installed
+        run: python -c "import splitters, sorters; print('import ok:', len(splitters.__all__), 'symbols')"
+      - name: Core + interop + report tests
+        run: pytest tests/test_splitters.py tests/test_interop.py tests/test_report.py -q
+
+  # Lint with ruff.
+  lint:
+    name: lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff
+      - run: ruff check splitters
+
+  # Canary: full install on the latest releases of every optional dependency.
+  # Allowed to fail so upstream API drift in torch/librosa/transformers/etc.
+  # surfaces as a signal without blocking merges. Pin via a constraints file
+  # for reproducible paper runs (see CONTRIBUTING.md).
+  full:
+    name: full ([dev], latest deps · canary)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install with all extras
+        run: pip install -e ".[dev]"
+      - name: Full suite (excluding slow model-download tests)
+        run: pytest -m "not slow" -q

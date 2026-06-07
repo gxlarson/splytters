@@ -1,0 +1,45 @@
+cff-version: 1.2.0
+message: "If you use splytters in your research, please cite it as below."
+title: "splytters: Clustering-based data splits for model robustness testing"
+abstract: >-
+  splytters provides train/test splitting algorithms that operate on embeddings
+  with three objectives — adversarial (minimize train/test similarity, for hard
+  generalization tests), overlap (maximize similarity, for sanity checks), and
+  balanced (match distributions, for fair evaluation) — plus interpretable
+  per-modality "sorters" and a split-quality report. It integrates with the
+  scikit-learn cross-validation protocol, pandas, PyTorch, and HuggingFace
+  datasets.
+type: software
+authors:
+  - family-names: Larson
+    given-names: Stefan
+    email: stefan.larson@vanderbilt.edu
+    affiliation: Vanderbilt University
+version: 0.2.0
+license: MIT
+repository-code: "https://github.com/gxlarson/splytters"
+url: "https://github.com/gxlarson/splytters"
+keywords:
+  - train-test-split
+  - adversarial-splits
+  - dataset-partitioning
+  - model-evaluation
+  - robustness
+  - machine-learning
+# After archiving a release on Zenodo, add the DOI here and update README badge:
+# doi: 10.5281/zenodo.XXXXXXX
+references:
+  - type: conference-paper
+    title: "We Need to Talk About Random Splits"
+    authors:
+      - family-names: Søgaard
+        given-names: Anders
+      - family-names: Ebert
+        given-names: Sebastian
+      - family-names: Bastings
+        given-names: Jasmijn
+      - family-names: Filippova
+        given-names: Katja
+    year: 2021
+    url: "https://aclanthology.org/2021.eacl-main.156"
+    notes: "Motivates Wasserstein/dissimilarity-based adversarial splitting."

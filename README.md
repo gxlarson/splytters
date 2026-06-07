@@ -10,7 +10,9 @@ A random split tells you how a model performs on data that looks just like its t
 | **Overlap** | `splitters.overlap` | Maximize train/test similarity | Easy evaluation — sanity checks, debugging, upper-bound estimates |
 | **Balanced** | `splitters.balanced` | Match train/test distributions | Fair evaluation — avoid accidental distribution shift |
 
-All splitters operate on embeddings (any `(n_samples, dim)` array) and return index lists, so they work with any data you can embed: text, images, audio, tabular rows.
+All splitters operate on embeddings (any `(n_samples, dim)` array — numpy, lists,
+pandas, or torch tensors) and return integer index arrays, so they work with any
+data you can embed: text, images, audio, tabular rows.
 
 ## Quickstart
 
@@ -20,15 +22,15 @@ from splitters import cluster_split
 
 embeddings = np.random.rand(500, 384)  # your embeddings here
 
-train_idx, test_idx = cluster_split(embeddings, train_ratio=0.7)
+train_idx, test_idx = cluster_split(embeddings, train_size=0.7)
 ```
 
-Every splitter follows the same interface:
+Every splitter follows the same scikit-learn-style interface:
 
 ```python
 train_indices, test_indices = some_split(
     embeddings,        # (n_samples, embedding_dim) array-like
-    train_ratio=0.7,
+    train_size=0.7,    # fraction in (0, 1) OR an absolute count
     random_state=42,
 )
 ```
@@ -42,15 +44,57 @@ from splitters import centroid_adversarial_split
 texts = [...]  # your dataset
 embeddings = SentenceTransformer("all-MiniLM-L6-v2").encode(texts)
 
-train_idx, test_idx = centroid_adversarial_split(embeddings, train_ratio=0.7)
+train_idx, test_idx = centroid_adversarial_split(embeddings, train_size=0.7)
 train = [texts[i] for i in train_idx]
 test = [texts[i] for i in test_idx]
 ```
 
+## Works with scikit-learn, pandas, PyTorch & HF datasets
+
+Drop a splitter into any scikit-learn workflow — as a cross-validator or a
+`train_test_split` replacement:
+
+```python
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import cross_validate
+from splitters import SplytterSplit, adversarial_train_test_split, cluster_split
+
+# 1) as a CV object (single hard split) in cross_validate / GridSearchCV
+cv = SplytterSplit(cluster_split, embeddings=X, n_clusters=10)
+cross_validate(LogisticRegression(), X, y, cv=cv)
+
+# 2) as a train_test_split drop-in (splits every array the same way)
+X_tr, X_te, y_tr, y_te = adversarial_train_test_split(X, y, embeddings=X)
+```
+
+Native helpers for the rest of the ecosystem (heavy deps imported lazily):
+
+```python
+from splitters import split_dataframe, to_torch_subsets, split_dataset
+
+train_df, test_df   = split_dataframe(df, embeddings)              # pandas
+train_ds, test_ds   = to_torch_subsets(torch_dataset, embeddings)  # PyTorch
+dsdict              = split_dataset(hf_dataset, embeddings)        # → DatasetDict
+```
+
+## How hard is my split? — `split_report`
+
+```python
+from splitters import split_report, compare_splitters, random_split, cluster_split
+
+compare_splitters(embeddings, {"random": random_split, "adversarial": cluster_split})
+# {'random': {...}, 'adversarial': {'mmd_rbf': ..., 'energy_distance': ...,
+#                                   'wasserstein_mean': ..., 'coverage': ..., ...}}
+```
+
+`split_report` quantifies how adversarial/overlapping/balanced a split actually
+is (centroid & nearest-train distance, coverage, cluster leakage, MMD, energy
+distance, mean 1-D Wasserstein/KS, and optional label-distribution shift).
+
 ## Available splitters
 
 **Adversarial** (minimize train/test similarity):
-`cluster_split`, `centroid_adversarial_split`, `distance_adversarial_split`, `density_adversarial_split`, `outlier_adversarial_split`, `min_cut_split`, `normalized_cut_split`
+`cluster_split`, `centroid_adversarial_split`, `distance_adversarial_split`, `density_adversarial_split`, `outlier_adversarial_split`, `min_cut_split`, `normalized_cut_split`, `wasserstein_adversarial_split`
 
 ![Adversarial splitters on 2D distributions](docs/adv.png)
 
@@ -101,11 +145,14 @@ pip install -e ".[text]"     # text sorters (torch, transformers, py-readability
 pip install -e ".[audio]"    # audio sorters (librosa)
 pip install -e ".[image]"    # image sorters (Pillow)
 pip install -e ".[tabular]"  # tabular sorters (pandas)
+pip install -e ".[ann]"      # approximate-NN backend for large datasets (pynndescent)
 pip install -e ".[demo]"     # demos (sentence-transformers, datasets, matplotlib, umap-learn)
 pip install -e ".[all]"      # everything
 ```
 
-> **Note:** `sorters/__init__.py` currently imports all modalities eagerly, so importing anything from `sorters` requires `[all]`. The `splitters` package needs only the core install.
+> **Note:** sorter imports are **lazy per modality** — `import sorters` pulls in
+> no optional dependencies, and each extra is self-sufficient (e.g. `[image]`
+> alone powers the image sorters). The `splitters` package needs only the core install.
 
 ## Tests
 
