@@ -84,28 +84,33 @@ from sorters import distance_to_mean
 ranked = distance_to_mean(embeddings)  # most typical → most atypical
 ```
 
-See `demo.py` for sorters on a real dataset (TREC questions), and `demo/visualize_text_splits.py` for splitters on embedded text projected to 2D.
+See `demo.py` for sorters on a real dataset (TREC questions) and `im_demo.py` for an image example with CLIP embeddings.
 
 ## Installation
-
-Clone and install dependencies:
 
 ```bash
 git clone https://github.com/gxlarson/splytters
 cd splytters
-pip install numpy scipy scikit-learn
+pip install -e .             # core splitters (numpy, scipy, scikit-learn)
 ```
 
 Optional extras, depending on which sorters/demos you use:
 
-- text sorters: `torch`, `transformers`, `readability`, `wordfreq`, `pysbd`
-- audio sorters: `librosa`
-- image sorters: `Pillow`
-- demos: `sentence-transformers`, `datasets`, `matplotlib`, `umap-learn`
+```bash
+pip install -e ".[text]"     # text sorters (torch, transformers, py-readability-metrics, wordfreq, pysbd)
+pip install -e ".[audio]"    # audio sorters (librosa)
+pip install -e ".[image]"    # image sorters (Pillow)
+pip install -e ".[tabular]"  # tabular sorters (pandas)
+pip install -e ".[demo]"     # demos (sentence-transformers, datasets, matplotlib, umap-learn)
+pip install -e ".[all]"      # everything
+```
+
+> **Note:** `sorters/__init__.py` currently imports all modalities eagerly, so importing anything from `sorters` requires `[all]`. The `splitters` package needs only the core install.
 
 ## Tests
 
 ```bash
+pip install -e ".[dev]"
 pytest
 ```
 
@@ -117,7 +122,7 @@ sorters/          # ranking metrics (text, image, audio, embedding, tabular)
 tests/            # pytest suite
 test_data/        # sample audio/images/text used by tests
 demo.py           # sorters demo on TREC
-demo/             # splitter visualizations on embedded text
+im_demo.py        # image sorters demo (CLIP)
 docs/             # README figures
 visualize_splits.py   # generates the figures above
 ```

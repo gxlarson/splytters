@@ -56,7 +56,14 @@ embedders = [
     "openai",
 ]
 viz = ["matplotlib"]
-all = ["splytters[text,image,audio,tabular,embedders,viz]"]
+# Demo scripts (demo.py, im_demo.py, visualize_splits.py)
+demo = [
+    "sentence-transformers",
+    "datasets",
+    "matplotlib",
+    "umap-learn",
+]
+all = ["splytters[text,image,audio,tabular,embedders,viz,demo]"]
 dev = [
     "splytters[all]",
     "pytest",

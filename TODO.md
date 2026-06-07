@@ -22,9 +22,10 @@ Make the splytters API coalesce with scikit-learn so splitters can drop into exi
 
 ## Infra
 
-- [ ] **CI** — GitHub Actions workflow running the pytest suite (94 tests) on push/PR.
+- [ ] **CI** — GitHub Actions workflow running the pytest suite (~274 tests; install `[dev]` so the torch/librosa test files collect — without them only 94 tests collect) on push/PR.
 - [ ] **Split-quality report** — build on `compute_split_similarity` to expose a summary of how adversarial/overlapping/balanced a produced split actually is, to help users compare splitters.
 
 ## Packaging
 
-- [ ] Add `pyproject.toml` with core deps (`numpy`, `scipy`, `scikit-learn`) and optional extras (`[text]`, `[audio]`, `[image]`, `[demo]`), enabling `pip install -e .`; simplify the README install section accordingly.
+- [x] Add `pyproject.toml` with core deps (`numpy`, `scipy`, `scikit-learn`) and optional extras (`[text]`, `[audio]`, `[image]`, `[demo]`), enabling `pip install -e .`; simplify the README install section accordingly.
+- [ ] **Lazy imports in `sorters/__init__.py`** — importing any sorter currently pulls in every modality (torch, librosa, ...), so `[image]` alone isn't enough for image sorters. Make per-modality imports lazy so each extra is self-sufficient.
