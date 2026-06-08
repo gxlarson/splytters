@@ -25,14 +25,13 @@ Make the splytters API coalesce with scikit-learn so splitters can drop into exi
 - [x] **CI** — GitHub Actions: core-only matrix (3.10–3.12) + ruff lint + full-deps canary. `conftest.py` seeds RNG and skips heavy-modality test modules when their optional dep is absent.
 - [x] **Split-quality report** — `split_report` / `compare_splitters` (`splytters/report.py`): geometric + cluster-leakage + MMD/energy/Wasserstein/KS + label-shift metrics.
 - [x] **Heavy-modality test drift** — fixed for the latest librosa/transformers/NLTK; also fixed two broken data generators (loudness/frequency fixtures) and a swallowed `ValueError` in `readability_score`. Suite is green (307 passed incl. slow; 294 in the default `-m "not slow"` scope).
-- [ ] **Docs site** — mkdocs-material/Sphinx API reference + "reproduce the paper" page.
+- [ ] **Docs site** — mkdocs-material/Sphinx API reference + "reproduce the experiments" page.
 - [ ] **Zenodo DOI** — archive a tagged release; fill `doi:` in `CITATION.cff` + README badge.
 
-## Research / paper
+## Research
 
-- [x] **Illustrative experiment harness** — `experiments/run_experiment.py` (+ `make figures`): offline `digits` shows a **38-pt** accuracy drop under an adversarial split vs random (overlap inflates, balanced matches); MMD tracks difficulty.
-- [x] **Demo-paper draft** — `paper/splytters.md`.
-- [ ] **Multi-dataset / multi-model evaluation** (text + vision) for a fuller study.
+- [x] **Illustrative experiment harness** — `experiments/run_experiment.py` (+ `make figures`): offline `digits` shows a large accuracy drop under an adversarial split vs random (overlap inflates, balanced matches); MMD tracks difficulty.
+- [x] **Multi-dataset / multi-model evaluation** — `experiments/validate.py`: synthetic + vision + real text × 4 model families; adversarial splits harder everywhere (no class dropped); `split_report` energy predicts the drop (Spearman ρ≈0.65). (Paper write-up is kept outside this repo.)
 - [x] **Reconcile `wasserstein-splitting` branch** — ported as `wasserstein_adversarial_split` (Søgaard et al., EACL 2021).
 
 ## Packaging

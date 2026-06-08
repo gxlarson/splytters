@@ -48,7 +48,7 @@ jobs:
   # Canary: full install on the latest releases of every optional dependency.
   # Allowed to fail so upstream API drift in torch/librosa/transformers/etc.
   # surfaces as a signal without blocking merges. Pin via a constraints file
-  # for reproducible paper runs (see CONTRIBUTING.md).
+  # for reproducible experiment runs (see CONTRIBUTING.md).
   full:
     name: full ([dev], latest deps · canary)
     runs-on: ubuntu-latest

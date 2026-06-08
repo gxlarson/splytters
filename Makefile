@@ -14,7 +14,7 @@ test-core:
 lint:
 	ruff check splytters
 
-# Regenerate the paper's figures + CSVs (offline / cached embeddings, fixed seeds).
+# Regenerate the experiment figures + CSVs (offline / cached embeddings, fixed seeds).
 figures:
 	python experiments/run_experiment.py --dataset synth  --seeds 10 --out experiments/results_synth
 	python experiments/run_experiment.py --dataset digits --seeds 10 --out experiments/results

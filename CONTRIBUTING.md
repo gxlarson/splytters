@@ -59,8 +59,8 @@ ruff check splytters   # lint
 ## Reproducible environments
 
 CI's `full` job runs against the *latest* release of every optional dependency
-(a canary, allowed to fail on upstream API drift). For reproducing paper
-numbers, pin versions with a constraints file:
+(a canary, allowed to fail on upstream API drift). For reproducing the
+experiment numbers, pin versions with a constraints file:
 
 ```bash
 pip install -e ".[dev]" -c constraints.txt
