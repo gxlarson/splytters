@@ -4,12 +4,12 @@ import numpy as np
 import pytest
 
 from splytters import (
-    split_report,
-    compare_splitters,
-    random_split,
-    cluster_split,
     centroid_adversarial_split,
     cluster_leak_split,
+    cluster_split,
+    compare_splitters,
+    random_split,
+    split_report,
 )
 
 

@@ -119,7 +119,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
     fig, axes = plt.subplots(2, 5, figsize=(20, 8))
-    for ax, (name, gen) in zip(axes.flat, ALL_GENERATORS.items()):
+    for ax, (name, gen) in zip(axes.flat, ALL_GENERATORS.items(), strict=False):
         data = gen()
         ax.scatter(data[:, 0], data[:, 1], s=5, alpha=0.6)
         ax.set_title(name)

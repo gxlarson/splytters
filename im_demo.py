@@ -1,6 +1,6 @@
-import clip # see: https://github.com/openai/CLIP
-import torch
+import clip  # see: https://github.com/openai/CLIP
 import numpy as np
+import torch
 from PIL import Image
 
 from splytters.metrics import mean_dist

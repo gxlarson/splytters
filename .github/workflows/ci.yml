@@ -10,9 +10,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Required gate: the splitters contribution must import and pass with ONLY
-  # core deps (numpy/scipy/scikit-learn). This also proves the lazy-import
-  # guarantee — `import sorters` works without any optional extra installed.
+  # Required gate: the splytters package must import and pass with ONLY core
+  # deps (numpy/scipy/scikit-learn). This also proves the lazy-import guarantee
+  # — `import splytters.sorters` works without any optional extra installed.
   core:
     name: core (no extras) · py${{ matrix.python-version }}
     runs-on: ubuntu-latest
@@ -43,7 +43,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install ruff
-      - run: ruff check splytters
+      - run: ruff check .
 
   # Canary: full install on the latest releases of every optional dependency.
   # Allowed to fail so upstream API drift in torch/librosa/transformers/etc.

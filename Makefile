@@ -12,7 +12,7 @@ test-core:
 	pytest tests/test_splitters.py tests/test_interop.py tests/test_report.py
 
 lint:
-	ruff check splytters
+	ruff check .
 
 # Regenerate the experiment figures + CSVs (offline / cached embeddings, fixed seeds).
 figures:

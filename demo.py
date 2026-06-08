@@ -6,6 +6,7 @@ this script shows what we mean by sorting data samples
 # import the huggingface datasets library
 # pip install datasets
 from datasets import load_dataset
+
 # pip install sentence_transformers
 from sentence_transformers import SentenceTransformer
 
@@ -28,8 +29,8 @@ for item in all_data:
 new_train = []
 new_test = []
 for (label, texts) in data_map.items():
-    print('working on label #{}'.format(label))
-    print('\t({} samples)'.format(len(texts)))
+    print(f'working on label #{label}')
+    print(f'\t({len(texts)} samples)')
     embeddings = embedder.encode(texts)
     distances = distance_to_mean(embeddings)
     _texts = [{'text': texts[i], 'label-coarse': label} for (i, _) in distances]

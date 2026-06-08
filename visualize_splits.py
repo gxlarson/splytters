@@ -1,7 +1,7 @@
 """
 Visualize train/test splits produced by every splitter on every 2D distribution.
 
-Generates a grid: rows = distributions, columns = splitters.
+Generates a grid: rows = distributions, columns = splytters.
 Train points are blue, test points are orange.
 
 Usage:
@@ -12,42 +12,43 @@ Usage:
 """
 
 import argparse
-import numpy as np
-import matplotlib.pyplot as plt
 
-from generate_test_2d import ALL_GENERATORS
+import matplotlib.pyplot as plt
+import numpy as np
+
 import splytters
+from generate_test_2d import ALL_GENERATORS
 
 # Splitters grouped by category. Each entry is (name, callable).
 # stratified_random_split is excluded because it requires labels.
 SPLITTER_GROUPS = {
     "baseline": [
-        ("random", splitters.random_split),
+        ("random", splytters.random_split),
     ],
     "adversarial": [
-        ("cluster", splitters.cluster_split),
-        ("centroid_adv", splitters.centroid_adversarial_split),
-        ("distance_adv", splitters.distance_adversarial_split),
-        ("density_adv", splitters.density_adversarial_split),
-        ("outlier_adv", splitters.outlier_adversarial_split),
-        ("min_cut", splitters.min_cut_split),
-        ("normalized_cut", splitters.normalized_cut_split),
+        ("cluster", splytters.cluster_split),
+        ("centroid_adv", splytters.centroid_adversarial_split),
+        ("distance_adv", splytters.distance_adversarial_split),
+        ("density_adv", splytters.density_adversarial_split),
+        ("outlier_adv", splytters.outlier_adversarial_split),
+        ("min_cut", splytters.min_cut_split),
+        ("normalized_cut", splytters.normalized_cut_split),
     ],
     "overlap": [
-        ("cluster_leak", splitters.cluster_leak_split),
-        ("neighbor_cov", splitters.neighbor_coverage_split),
-        ("centroid_match", splitters.centroid_matched_split),
-        ("strat_sim", splitters.stratified_similarity_split),
-        ("nearest_nbr", splitters.nearest_neighbor_split),
-        ("dup_spread", splitters.duplicate_spread_split),
-        ("max_coverage", splitters.max_coverage_split),
+        ("cluster_leak", splytters.cluster_leak_split),
+        ("neighbor_cov", splytters.neighbor_coverage_split),
+        ("centroid_match", splytters.centroid_matched_split),
+        ("strat_sim", splytters.stratified_similarity_split),
+        ("nearest_nbr", splytters.nearest_neighbor_split),
+        ("dup_spread", splytters.duplicate_spread_split),
+        ("max_coverage", splytters.max_coverage_split),
     ],
     "balanced": [
-        ("dist_matched", splitters.distribution_matched_split),
-        ("moment_matched", splitters.moment_matched_split),
-        ("hist_matched", splitters.histogram_matched_split),
-        ("density_bal", splitters.density_balanced_split),
-        ("mmd_min", splitters.mmd_minimized_split),
+        ("dist_matched", splytters.distribution_matched_split),
+        ("moment_matched", splytters.moment_matched_split),
+        ("hist_matched", splytters.histogram_matched_split),
+        ("density_bal", splytters.density_balanced_split),
+        ("mmd_min", splytters.mmd_minimized_split),
     ],
 }
 

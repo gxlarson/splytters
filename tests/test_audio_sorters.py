@@ -1,32 +1,32 @@
 """Unit tests for audio_sorters.py"""
 
-import pytest
 from pathlib import Path
 
+import pytest
+
 from splytters.sorters.audio_sorters import (
+    beat_strength,
+    # Quality
+    compression_ratio,
+    dynamic_range,
+    fundamental_frequency,
+    harmonic_ratio,
     # Loudness / Energy
     mean_amplitude,
-    rms_energy,
-    dynamic_range,
-    peak_to_average_ratio,
-    # Frequency / Spectral
-    spectral_centroid,
-    spectral_bandwidth,
-    spectral_rolloff,
-    spectral_flatness,
-    zero_crossing_rate,
-    fundamental_frequency,
     # Timbre / MFCCs
     mfcc_mean,
     mfcc_variance,
+    peak_to_average_ratio,
+    rms_energy,
+    spectral_bandwidth,
+    # Frequency / Spectral
+    spectral_centroid,
+    spectral_flatness,
+    spectral_rolloff,
     # Rhythm / Music
     tempo,
-    beat_strength,
-    harmonic_ratio,
-    # Quality
-    compression_ratio,
+    zero_crossing_rate,
 )
-
 
 TEST_AUDIO_DIR = Path(__file__).parent.parent / "test_data" / "audio"
 

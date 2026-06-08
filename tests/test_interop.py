@@ -5,14 +5,14 @@ import pytest
 
 from splytters import (
     SplytterSplit,
-    splytter_train_test_split,
     adversarial_train_test_split,
-    overlap_train_test_split,
     balanced_train_test_split,
     cluster_split,
     distance_adversarial_split,
+    overlap_train_test_split,
+    splytter_train_test_split,
 )
-from splytters.interop import split_dataframe, to_torch_subsets, split_dataset
+from splytters.interop import split_dataframe, split_dataset, to_torch_subsets
 
 
 @pytest.fixture

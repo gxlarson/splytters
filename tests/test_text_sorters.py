@@ -3,14 +3,14 @@
 import pytest
 
 from splytters.sorters.text_sorters import (
-    simple_tokenizer,
     character_length,
-    tokens_length,
-    sentence_count,
     lexical_diversity,
-    vocabulary_rarity,
     perplexity_score,
     readability_score,
+    sentence_count,
+    simple_tokenizer,
+    tokens_length,
+    vocabulary_rarity,
 )
 
 

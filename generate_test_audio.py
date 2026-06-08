@@ -1,8 +1,9 @@
 """Generate test audio files for testing audio_sorters.py"""
 
+from pathlib import Path
+
 import numpy as np
 import soundfile as sf
-from pathlib import Path
 
 output_dir = Path("test_data/audio")
 output_dir.mkdir(parents=True, exist_ok=True)
@@ -168,7 +169,10 @@ slow_tempo = np.zeros_like(t)
 for beat_time in [0.0, 1.0]:
     beat_idx = int(beat_time * SR)
     if beat_idx < len(slow_tempo) - 100:
-        slow_tempo[beat_idx:beat_idx+100] = np.sin(2 * np.pi * 1000 * np.linspace(0, 0.005, 100)) * np.exp(-np.linspace(0, 5, 100))
+        slow_tempo[beat_idx:beat_idx+100] = (
+            np.sin(2 * np.pi * 1000 * np.linspace(0, 0.005, 100))
+            * np.exp(-np.linspace(0, 5, 100))
+        )
 save_audio(slow_tempo, "tempo_slow")
 
 # Fast tempo (~180 BPM) - clicks every 0.33 seconds
@@ -177,7 +181,10 @@ fast_tempo = np.zeros_like(t)
 for beat_time in np.arange(0, 2.0, 0.33):
     beat_idx = int(beat_time * SR)
     if beat_idx < len(fast_tempo) - 100:
-        fast_tempo[beat_idx:beat_idx+100] = np.sin(2 * np.pi * 1000 * np.linspace(0, 0.005, 100)) * np.exp(-np.linspace(0, 5, 100))
+        fast_tempo[beat_idx:beat_idx+100] = (
+            np.sin(2 * np.pi * 1000 * np.linspace(0, 0.005, 100))
+            * np.exp(-np.linspace(0, 5, 100))
+        )
 save_audio(fast_tempo, "tempo_fast")
 
 
@@ -192,7 +199,10 @@ for beat_time in np.arange(0, 2.0, 0.5):
     beat_idx = int(beat_time * SR)
     if beat_idx < len(strong_beats) - 200:
         # Loud, sharp click
-        strong_beats[beat_idx:beat_idx+200] = np.sin(2 * np.pi * 500 * np.linspace(0, 0.01, 200)) * np.exp(-np.linspace(0, 10, 200))
+        strong_beats[beat_idx:beat_idx+200] = (
+            np.sin(2 * np.pi * 500 * np.linspace(0, 0.01, 200))
+            * np.exp(-np.linspace(0, 10, 200))
+        )
 save_audio(strong_beats, "beats_strong")
 
 # Weak/no beats (ambient sine)

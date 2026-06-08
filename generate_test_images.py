@@ -1,8 +1,9 @@
 """Generate test images for testing image_sorters.py"""
 
+from pathlib import Path
+
 import numpy as np
 from PIL import Image
-from pathlib import Path
 
 output_dir = Path("test_data/images")
 output_dir.mkdir(parents=True, exist_ok=True)

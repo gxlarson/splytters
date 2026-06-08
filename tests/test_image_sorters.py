@@ -1,17 +1,17 @@
 """Unit tests for image_sorters.py"""
 
-import pytest
 from pathlib import Path
 
-from splytters.sorters.image_sorters import (
-    mean_brightness,
-    contrast,
-    color_variance,
-    dominant_color,
-    compression_ratio,
-    frequency_content,
-)
+import pytest
 
+from splytters.sorters.image_sorters import (
+    color_variance,
+    compression_ratio,
+    contrast,
+    dominant_color,
+    frequency_content,
+    mean_brightness,
+)
 
 TEST_IMAGES_DIR = Path(__file__).parent.parent / "test_data" / "images"
 

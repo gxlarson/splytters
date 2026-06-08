@@ -9,7 +9,9 @@ import pytest
 # so they are marked slow and excluded from the default `-m "not slow"` run.
 pytestmark = pytest.mark.slow
 
-DATA_PATH = os.path.join(os.path.dirname(__file__), "..", "test_data", "text", "bank_balance_queries.txt")
+DATA_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "test_data", "text", "bank_balance_queries.txt"
+)
 
 
 @pytest.fixture(scope="module")
@@ -52,7 +54,9 @@ class TestTextEmbedder:
         embs = text_embedder.embed(queries)
         assert not np.isnan(embs).any()
 
-    def test_similar_queries_closer_than_dissimilar(self, text_embedder, balance_queries, alt_queries):
+    def test_similar_queries_closer_than_dissimilar(
+        self, text_embedder, balance_queries, alt_queries
+    ):
         """Two balance-keyword queries should be closer to each other than to an alt query."""
         b_embs = text_embedder.embed(balance_queries[:2])
         a_embs = text_embedder.embed(alt_queries[:1])

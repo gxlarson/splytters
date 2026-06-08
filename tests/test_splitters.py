@@ -3,45 +3,44 @@
 import numpy as np
 import pytest
 
-from splytters.utils import (
-    compute_pairwise_distances,
-    compute_centroid,
-    compute_split_centroids,
-    cluster_embeddings,
-    random_split,
-    compute_split_similarity,
-    greedy_assign_to_target,
-    validate_split_inputs,
-)
 from splytters.adversarial import (
-    cluster_split,
     centroid_adversarial_split,
-    distance_adversarial_split,
+    cluster_split,
     density_adversarial_split,
-    outlier_adversarial_split,
+    distance_adversarial_split,
+    get_cluster_info,
     min_cut_split,
     normalized_cut_split,
+    outlier_adversarial_split,
     wasserstein_adversarial_split,
-    get_cluster_info,
 )
 from splytters.balanced import (
-    distribution_matched_split,
-    moment_matched_split,
-    histogram_matched_split,
-    stratified_random_split,
     density_balanced_split,
+    distribution_matched_split,
+    histogram_matched_split,
     mmd_minimized_split,
+    moment_matched_split,
+    stratified_random_split,
 )
 from splytters.overlap import (
-    cluster_leak_split,
-    neighbor_coverage_split,
     centroid_matched_split,
-    stratified_similarity_split,
-    nearest_neighbor_split,
+    cluster_leak_split,
     duplicate_spread_split,
     max_coverage_split,
+    nearest_neighbor_split,
+    neighbor_coverage_split,
+    stratified_similarity_split,
 )
-
+from splytters.utils import (
+    cluster_embeddings,
+    compute_centroid,
+    compute_pairwise_distances,
+    compute_split_centroids,
+    compute_split_similarity,
+    greedy_assign_to_target,
+    random_split,
+    validate_split_inputs,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures

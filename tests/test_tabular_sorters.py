@@ -1,22 +1,22 @@
 """Unit tests for tabular_sorters.py"""
 
-import pytest
-import pandas as pd
 import numpy as np
+import pandas as pd
+import pytest
 
 from splytters.sorters.tabular_sorters import (
-    column_value,
-    column_rank,
-    column_zscore,
-    column_absolute_zscore,
-    missing_value_ratio,
-    row_sparsity,
-    outlier_score,
-    numerical_range_score,
     categorical_rarity,
+    column_absolute_zscore,
+    column_rank,
+    column_value,
+    column_zscore,
     feature_entropy,
-    row_distance_to_mean,
+    missing_value_ratio,
     multi_column_sort,
+    numerical_range_score,
+    outlier_score,
+    row_distance_to_mean,
+    row_sparsity,
 )
 
 
