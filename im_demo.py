@@ -9,14 +9,14 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 model, preprocess = clip.load("ViT-B/32", device=device)
 
 filenames = [
-    "data/barcode_1.jpg",
-    "data/barcode_2.jpg",
-    "data/barcode_3.jpg",
-    "data/barcode_4.jpg",
-    "data/barcode_5.jpg",
-    "data/barcode_6.jpg",
-    "data/barcode_7.jpg",
-    "data/barcode_8.jpg",
+    "test_data/barcodes/barcode_1.jpg",
+    "test_data/barcodes/barcode_2.jpg",
+    "test_data/barcodes/barcode_3.jpg",
+    "test_data/barcodes/barcode_4.jpg",
+    "test_data/barcodes/barcode_5.jpg",
+    "test_data/barcodes/barcode_6.jpg",
+    "test_data/barcodes/barcode_7.jpg",
+    "test_data/barcodes/barcode_8.jpg",
 ]
 
 images = [Image.open(fname) for fname in filenames]
