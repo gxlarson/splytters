@@ -25,7 +25,7 @@ Make the splytters API coalesce with scikit-learn so splitters can drop into exi
 - [x] **CI** — GitHub Actions: core-only matrix (3.10–3.12) + ruff lint + full-deps canary. `conftest.py` seeds RNG and skips heavy-modality test modules when their optional dep is absent.
 - [x] **Split-quality report** — `split_report` / `compare_splitters` (`splytters/report.py`): geometric + cluster-leakage + MMD/energy/Wasserstein/KS + label-shift metrics.
 - [x] **Heavy-modality test drift** — fixed for the latest librosa/transformers/NLTK; also fixed two broken data generators (loudness/frequency fixtures) and a swallowed `ValueError` in `readability_score`. Suite is green (307 passed incl. slow; 294 in the default `-m "not slow"` scope).
-- [ ] **Docs site** — mkdocs-material/Sphinx API reference + "reproduce the experiments" page.
+- [x] **Docs site** — Material for MkDocs (`mkdocs.yml`, `docs/`) with a docstring-driven API reference via `mkdocstrings`; deployed to GitHub Pages by `.github/workflows/docs.yml` on push to `main`. Build with `pip install -e ".[docs]" && mkdocs serve`.
 - [ ] **Zenodo DOI** — archive a tagged release; fill `doi:` in `CITATION.cff` + README badge.
 
 ## Research

@@ -65,9 +65,14 @@ demo = [
     "matplotlib",
     "umap-learn",
 ]
+# Documentation site (Material for MkDocs + docstring-driven API reference)
+docs = [
+    "mkdocs-material",
+    "mkdocstrings[python]",
+]
 all = ["splytters[text,image,audio,tabular,embedders,viz,demo,ann]"]
 dev = [
-    "splytters[all]",
+    "splytters[all,docs]",
     "pytest",
     "ruff",
 ]
