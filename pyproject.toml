@@ -58,7 +58,7 @@ embedders = [
 viz = ["matplotlib"]
 # Approximate-nearest-neighbor backend for large-n splits (scalability)
 ann = ["pynndescent"]
-# Demo scripts (demo.py, im_demo.py, visualize_splits.py)
+# Demo scripts (demos/demo.py, demos/im_demo.py, demos/visualize_splits.py)
 demo = [
     "sentence-transformers",
     "datasets",

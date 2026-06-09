@@ -4,20 +4,26 @@ Visualize train/test splits produced by every splitter on every 2D distribution.
 Generates a grid: rows = distributions, columns = splytters.
 Train points are blue, test points are orange.
 
-Usage:
-    python visualize_splits.py                  # show interactive plot
-    python visualize_splits.py --save out.png   # save to file
-    python visualize_splits.py --category adversarial   # only adversarial splitters
-    python visualize_splits.py --distribution moons     # only moons data
+Usage (run from the repo root):
+    python demos/visualize_splits.py                  # show interactive plot
+    python demos/visualize_splits.py --save out.png   # save to file
+    python demos/visualize_splits.py --category adversarial   # only adversarial splitters
+    python demos/visualize_splits.py --distribution moons     # only moons data
 """
 
 import argparse
+import sys
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 import splytters
-from generate_test_2d import ALL_GENERATORS
+
+# The 2D distribution generators live in ../scripts; make them importable
+# regardless of the current working directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+from generate_test_2d import ALL_GENERATORS  # noqa: E402
 
 # Splitters grouped by category. Each entry is (name, callable).
 # stratified_random_split is excluded because it requires labels.
