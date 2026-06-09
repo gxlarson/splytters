@@ -3,6 +3,8 @@ name: docs
 on:
   push:
     branches: [main]
+  # Manual "Run workflow" button in the Actions tab.
+  workflow_dispatch:
 
 # Allow the workflow to deploy to GitHub Pages.
 permissions:
