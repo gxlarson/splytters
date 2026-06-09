@@ -46,12 +46,12 @@ deliberately before the API has downstream users.
 - **`wasserstein_adversarial_split`** — Wasserstein nearest-neighbor adversarial
   split (Søgaard et al., EACL 2021), ported from the `wasserstein-splitting`
   branch and adapted to real-valued embeddings.
-- **Validation harnesses** (`experiments/run_experiment.py`,
-  `experiments/validate.py`): the latter sweeps 3 datasets (synthetic, vision,
-  real text) × 4 model families, reports *balanced* accuracy + label-coverage
-  diagnostics (so covariate shift is distinguished from class-dropping), and
-  shows `split_report`'s energy distance predicts realized difficulty
-  (Spearman ρ ≈ 0.65). Confirms the thesis is real and model-agnostic.
+- **Validation harnesses** (`run_experiment.py`, `validate.py`, kept in the
+  companion `splytters-paper` repo): the latter sweeps 3 datasets (synthetic,
+  vision, real text) × 4 model families, reports *balanced* accuracy +
+  label-coverage diagnostics (so covariate shift is distinguished from
+  class-dropping), and shows `split_report`'s energy distance predicts realized
+  difficulty (Spearman ρ ≈ 0.65). Confirms the thesis is real and model-agnostic.
 - `[ann]` extra (`pynndescent`) for approximate-nearest-neighbor backends.
 
 ### Fixed

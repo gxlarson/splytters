@@ -173,7 +173,6 @@ splytters/                # the installable package
   embedders.py            # text / image embedders (TextEmbedder, CLIP, OpenAI)
   sorters/                # ranking metrics (text, image, audio, embedding, tabular)
 tests/                    # pytest suite
-experiments/              # validation harness + result figures
 test_data/                # sample audio/images/text used by tests
 demo.py / im_demo.py      # sorter demos (TREC text, CLIP images)
 visualize_splits.py       # generates the README figures

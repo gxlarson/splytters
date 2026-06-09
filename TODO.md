@@ -30,8 +30,8 @@ Make the splytters API coalesce with scikit-learn so splitters can drop into exi
 
 ## Research
 
-- [x] **Illustrative experiment harness** — `experiments/run_experiment.py` (+ `make figures`): offline `digits` shows a large accuracy drop under an adversarial split vs random (overlap inflates, balanced matches); MMD tracks difficulty.
-- [x] **Multi-dataset / multi-model evaluation** — `experiments/validate.py`: synthetic + vision + real text × 4 model families; adversarial splits harder everywhere (no class dropped); `split_report` energy predicts the drop (Spearman ρ≈0.65). (Paper write-up is kept outside this repo.)
+- [x] **Illustrative experiment harness** — `run_experiment.py` (in the companion [`splytters-paper`](../splytters-paper) repo): offline `digits` shows a large accuracy drop under an adversarial split vs random (overlap inflates, balanced matches); MMD tracks difficulty.
+- [x] **Multi-dataset / multi-model evaluation** — `validate.py` (in [`splytters-paper`](../splytters-paper)): synthetic + vision + real text × 4 model families; adversarial splits harder everywhere (no class dropped); `split_report` energy predicts the drop (Spearman ρ≈0.65). (Experiments + paper write-up are kept outside this repo.)
 - [x] **Reconcile `wasserstein-splitting` branch** — ported as `wasserstein_adversarial_split` (Søgaard et al., EACL 2021).
 
 ## Packaging
