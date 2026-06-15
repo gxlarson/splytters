@@ -19,27 +19,31 @@ directly from the top-level `splytters` namespace (e.g.
 ## scikit-learn compatibility
 
 ::: splytters.sklearn_api
-    options:
-      docstring_style: numpy
 
 ## Framework interop
 
 ::: splytters.interop
-    options:
-      docstring_style: numpy
 
 ## Split-quality reporting
 
 ::: splytters.report
-    options:
-      docstring_style: numpy
 
 ## Utilities
 
 ::: splytters.utils
+
+## Embedders
+
+::: splytters.embedders
 
 ## Introspection
 
 ::: splytters.list_splitters
 
 ::: splytters.sorters.list_sorters
+
+::: splytters.embedders.list_embedders
+
+## Types
+
+::: splytters.Splitter

@@ -15,7 +15,7 @@ wrappers are purely additive.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from functools import partial
 from typing import Any
 
@@ -23,11 +23,10 @@ import numpy as np
 from sklearn.model_selection import BaseCrossValidator
 from sklearn.utils import _safe_indexing
 
+from splytters._types import Splitter
 from splytters.adversarial import cluster_split
 from splytters.balanced import distribution_matched_split
 from splytters.overlap import cluster_leak_split
-
-Splitter = Callable[..., tuple[np.ndarray, np.ndarray]]
 
 
 def _derive_seed(random_state: int | None, i: int) -> int | None:
@@ -44,29 +43,27 @@ class SplytterSplit(BaseCrossValidator):
     :class:`~sklearn.model_selection.PredefinedSplit`). Each partition is the
     output of ``splitter(embeddings, train_size=..., random_state=...)``.
 
-    Parameters
-    ----------
-    splitter : callable, default=:func:`~splytters.adversarial.cluster_split`
-        Any splytter splitter taking ``(embeddings, train_size=, random_state=)``
-        and returning ``(train_idx, test_idx)`` integer ndarrays.
-    embeddings : array-like of shape (n_samples, n_features), optional
-        Embeddings to split on. If ``None``, the ``X`` passed to :meth:`split`
-        is used (i.e. the estimator is assumed to consume the embeddings).
-    train_size : float or int, default=0.7
-        Fraction in (0, 1) or absolute count for the training set.
-    random_state : int, RandomState or None, default=42
-        Base seed; the i-th repeat uses ``random_state + i``.
-    n_splits : int, default=1
-        Number of (repeated) partitions to yield.
-    **splitter_kwargs
-        Extra keyword arguments forwarded to ``splitter``.
+    Args:
+        splitter: any splytter splitter taking
+            ``(embeddings, train_size=, random_state=)`` and returning
+            ``(train_idx, test_idx)`` integer ndarrays. Defaults to
+            :func:`~splytters.adversarial.cluster_split`.
+        embeddings: array-like of shape (n_samples, n_features), optional.
+            Embeddings to split on. If ``None``, the ``X`` passed to
+            :meth:`split` is used (i.e. the estimator is assumed to consume the
+            embeddings).
+        train_size: fraction in (0, 1) or absolute count for the training set
+            (default 0.7).
+        random_state: base seed (default 42); the i-th repeat uses
+            ``random_state + i``.
+        n_splits: number of (repeated) partitions to yield (default 1).
+        **splitter_kwargs: extra keyword arguments forwarded to ``splitter``.
 
-    Examples
-    --------
-    >>> from sklearn.linear_model import LogisticRegression
-    >>> from sklearn.model_selection import cross_validate
-    >>> cv = SplytterSplit(embeddings=X)            # doctest: +SKIP
-    >>> cross_validate(LogisticRegression(), X, y, cv=cv)   # doctest: +SKIP
+    Examples:
+        >>> from sklearn.linear_model import LogisticRegression
+        >>> from sklearn.model_selection import cross_validate
+        >>> cv = SplytterSplit(embeddings=X)            # doctest: +SKIP
+        >>> cross_validate(LogisticRegression(), X, y, cv=cv)   # doctest: +SKIP
     """
 
     def __init__(
@@ -123,19 +120,18 @@ def splytter_train_test_split(
     Mirrors :func:`sklearn.model_selection.train_test_split`: for inputs
     ``a, b`` returns ``[a_train, a_test, b_train, b_test]``.
 
-    Parameters
-    ----------
-    *arrays : sequence of array-likes (numpy, list, pandas, etc.)
-        Objects to split, all of the same length (n_samples).
-    splitter : callable, default=:func:`~splytters.adversarial.cluster_split`
-    embeddings : array-like, optional
-        Embeddings to compute the split on. Defaults to the first array.
-    train_size, random_state, **splitter_kwargs
-        Forwarded to ``splitter``.
+    Args:
+        *arrays: array-likes (numpy, list, pandas, etc.) to split, all of the
+            same length (n_samples).
+        splitter: splytter splitting function. Defaults to
+            :func:`~splytters.adversarial.cluster_split`.
+        embeddings: array-like to compute the split on, optional. Defaults to
+            the first array.
+        train_size: fraction in (0, 1) or absolute count for the training set.
+        random_state: seed forwarded to ``splitter``.
+        **splitter_kwargs: extra keyword arguments forwarded to ``splitter``.
 
-    Returns
-    -------
-    splitting : list
+    Returns:
         ``len(arrays) * 2`` outputs (train/test pairs in order). If no arrays
         are passed, returns ``(train_idx, test_idx)``.
     """

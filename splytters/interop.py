@@ -9,14 +9,10 @@ them — only calling the relevant helper does.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
 
-import numpy as np
-
+from splytters._types import Splitter
 from splytters.adversarial import cluster_split
-
-Splitter = Callable[..., tuple[np.ndarray, np.ndarray]]
 
 
 def split_dataframe(
@@ -28,19 +24,19 @@ def split_dataframe(
     random_state: int | None = 42,
     **splitter_kwargs: Any,
 ) -> tuple[Any, Any]:
-    """Split a pandas DataFrame into (train_df, test_df) by position.
+    """Split a pandas DataFrame into ``(train_df, test_df)`` by position.
 
-    Parameters
-    ----------
-    df : pandas.DataFrame of n_samples rows.
-    embeddings : array-like of shape (n_samples, n_features).
-    splitter : splytter splitting function.
-    train_size, random_state, **splitter_kwargs : forwarded to ``splitter``.
+    Args:
+        df: pandas ``DataFrame`` of n_samples rows.
+        embeddings: array-like of shape (n_samples, n_features).
+        splitter: splytter splitting function.
+        train_size: fraction in (0, 1) or absolute count for the training set.
+        random_state: seed forwarded to ``splitter``.
+        **splitter_kwargs: extra keyword arguments forwarded to ``splitter``.
 
-    Returns
-    -------
-    (train_df, test_df) : selected via positional ``.iloc`` (original index
-    labels are preserved).
+    Returns:
+        ``(train_df, test_df)`` selected via positional ``.iloc`` (original
+        index labels are preserved).
     """
     if len(df) != len(embeddings):
         raise ValueError(

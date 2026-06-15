@@ -30,6 +30,21 @@ class Embedder(ABC):
         """Embed a list of inputs. Returns np.ndarray of shape (n, dim)."""
 
 
+def list_embedders() -> list[str]:
+    """Return the names of the available concrete embedder classes.
+
+    These live in :mod:`splytters.embedders` (the ``[embedders]`` extra). The
+    underlying model libraries (sentence-transformers, transformers, openai)
+    are imported lazily only when an embedder is constructed, so listing pulls
+    in no optional dependency.
+
+    Returns:
+        Embedder class names, e.g. ``["TextEmbedder", "CLIPTextEmbedder",
+        "CLIPImageEmbedder", "OpenAIEmbedder"]``.
+    """
+    return [cls.__name__ for cls in Embedder.__subclasses__()]
+
+
 class TextEmbedder(Embedder):
     """Embed text using a SentenceTransformer model."""
 

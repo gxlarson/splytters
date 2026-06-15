@@ -40,25 +40,21 @@ def validate_split_inputs(
     Accepts any array-like (numpy, list, pandas, torch tensor), converts it to
     a finite 2-D float ``ndarray``, and validates ``train_size``.
 
-    Parameters
-    ----------
-    embeddings : array-like of shape (n_samples, n_features)
-    train_size : float or int
-        Fraction in the open interval (0, 1), or an absolute count in
-        ``[1, n_samples)``. Mirrors ``sklearn.model_selection.train_test_split``.
-    min_samples : int, default=2
-        Minimum number of samples required to form a split.
+    Args:
+        embeddings: array-like of shape (n_samples, n_features).
+        train_size: fraction in the open interval (0, 1), or an absolute count
+            in ``[1, n_samples)``. Mirrors
+            ``sklearn.model_selection.train_test_split``.
+        min_samples: minimum number of samples required to form a split
+            (default 2).
 
-    Returns
-    -------
-    X : ndarray of shape (n_samples, n_features)
-        The validated, finite, float embeddings.
+    Returns:
+        The validated, finite, float embeddings as an ndarray of shape
+        (n_samples, n_features).
 
-    Raises
-    ------
-    ValueError
-        If ``train_size`` is out of range, there are too few samples, or the
-        embeddings contain NaN/inf or are not 2-D.
+    Raises:
+        ValueError: if ``train_size`` is out of range, there are too few
+            samples, or the embeddings contain NaN/inf or are not 2-D.
     """
     # Validate train_size first so its message takes priority (matches the
     # historical "between 0 and 1" contract for fractional sizes).

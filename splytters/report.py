@@ -10,7 +10,6 @@ metrics (MMD, energy distance, mean 1-D Wasserstein / KS) and label balance.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -19,6 +18,7 @@ from scipy.spatial.distance import cdist
 from scipy.stats import ks_2samp, wasserstein_distance
 from sklearn.utils import check_random_state
 
+from splytters._types import Splitter
 from splytters.adversarial import get_cluster_info
 from splytters.utils import compute_split_similarity, validate_split_inputs
 
@@ -69,25 +69,22 @@ def split_report(
     *more adversarial* (harder) split; values near a random split indicate a
     *balanced* split; near-zero indicates *overlap*.
 
-    Parameters
-    ----------
-    embeddings : array-like of shape (n_samples, n_features)
-    train_indices, test_indices : integer index arrays forming the split.
-    y : array-like of labels, optional
-        If given, adds ``label_distribution_shift`` (total-variation distance
-        between train/test class proportions; 0 = identical balance).
-    metric : str, default="euclidean"
-    n_clusters : int, default=10
-        Clusters used for the leakage statistic.
-    max_samples : int or None, default=2000
-        Cap per side for the O(n²) distribution metrics (subsampled for speed);
-        ``None`` uses all samples.
-    random_state : int, RandomState or None, default=42
+    Args:
+        embeddings: array-like of shape (n_samples, n_features).
+        train_indices: integer index array for the training split.
+        test_indices: integer index array for the test split.
+        y: array-like of labels, optional. If given, adds
+            ``label_distribution_shift`` (total-variation distance between
+            train/test class proportions; 0 = identical balance).
+        metric: distance metric (default ``"euclidean"``).
+        n_clusters: clusters used for the leakage statistic (default 10).
+        max_samples: cap per side for the O(n²) distribution metrics
+            (subsampled for speed); ``None`` uses all samples (default 2000).
+        random_state: seed for subsampling (default 42).
 
-    Returns
-    -------
-    report : dict[str, float]
-        Structural, geometric, distributional, and (optional) label metrics.
+    Returns:
+        A dict of structural, geometric, distributional, and (optional) label
+        metrics.
     """
     X = validate_split_inputs(embeddings, 0.5)  # reuse finite/2-D validation
     train_indices = np.asarray(train_indices, dtype=np.intp)
@@ -140,7 +137,7 @@ def split_report(
 
 def compare_splitters(
     embeddings: ArrayLike,
-    splitters: dict[str, Callable[..., tuple[np.ndarray, np.ndarray]]],
+    splitters: dict[str, Splitter],
     y: ArrayLike | None = None,
     *,
     train_size: float | int = 0.7,

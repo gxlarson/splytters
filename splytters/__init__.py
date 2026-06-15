@@ -11,6 +11,8 @@ Modules:
     utils: Shared utilities
 """
 
+# Public type alias for custom splitters (see SplytterSplit / train_test_split).
+from splytters._types import Splitter
 from splytters.adversarial import (
     centroid_adversarial_split,
     cluster_split,
@@ -30,6 +32,9 @@ from splytters.balanced import (
     moment_matched_split,
     stratified_random_split,
 )
+
+# Embedder discovery (heavy model libs stay lazy; listing needs no extra).
+from splytters.embedders import list_embedders
 
 # Framework interop (pandas / torch / HuggingFace datasets). Heavy deps are
 # imported lazily inside each helper, so this import stays dependency-light.
@@ -125,6 +130,9 @@ __all__ = [
     # Introspection
     "list_splitters",
     "list_sorters",
+    "list_embedders",
+    # Types
+    "Splitter",
 ]
 
 

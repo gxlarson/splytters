@@ -86,6 +86,12 @@ Issues = "https://github.com/gxlarson/splytters/issues"
 # Single top-level namespace: `splytters` and its `splytters.sorters` subpackage.
 packages = ["splytters", "splytters.sorters"]
 
+[tool.setuptools.package-data]
+# Ship the PEP 561 marker so the package's type hints reach downstream
+# type checkers (mypy/pyright). One marker at the package root covers
+# splytters and its subpackages.
+splytters = ["py.typed"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [

@@ -95,3 +95,42 @@ def test_list_sorters_does_not_import_optional_deps():
     sorters.list_sorters(by_modality=True)
     for heavy in ("librosa", "transformers", "PIL", "pandas"):
         assert heavy not in sys.modules, f"listing should not import {heavy}"
+
+
+# --- list_embedders ---------------------------------------------------------
+
+
+def test_list_embedders_lists_concrete_classes():
+    import splytters.embedders as embedders
+
+    names = splytters.list_embedders()
+    assert names == embedders.list_embedders()
+    # The abstract base must not appear; the concrete embedders must.
+    assert "Embedder" not in names
+    assert {"TextEmbedder", "CLIPTextEmbedder", "CLIPImageEmbedder", "OpenAIEmbedder"} <= set(
+        names
+    )
+    for name in names:
+        assert issubclass(getattr(embedders, name), embedders.Embedder)
+
+
+def test_list_embedders_does_not_import_optional_deps():
+    import sys
+
+    for heavy in ("sentence_transformers", "transformers", "openai"):
+        sys.modules.pop(heavy, None)
+    splytters.list_embedders()
+    for heavy in ("sentence_transformers", "transformers", "openai"):
+        assert heavy not in sys.modules, f"listing should not import {heavy}"
+
+
+# --- Splitter type ----------------------------------------------------------
+
+
+def test_splitter_type_is_exported_and_shared():
+    """The Splitter alias is a single object re-used everywhere."""
+    from splytters import Splitter, interop, report, sklearn_api
+
+    assert Splitter is interop.Splitter
+    assert Splitter is sklearn_api.Splitter
+    assert Splitter is report.Splitter

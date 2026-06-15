@@ -21,10 +21,31 @@ splytters.list_splitters(by_family=True)   # {"adversarial": [...], "overlap": [
 
 splytters.list_sorters()                   # flat list of every sorter
 splytters.list_sorters(by_modality=True)   # {"embedding": [...], "text": [...], ...}
+
+splytters.list_embedders()                  # ["TextEmbedder", "CLIPTextEmbedder", ...]
 ```
 
-`list_sorters` pulls in no optional dependency — it returns just the names, so
-the modality sorters stay lazily imported until you actually call one.
+`list_sorters` and `list_embedders` pull in no optional dependency — they
+return just the names, so the modality sorters and embedder models stay lazily
+imported until you actually use one.
+
+## Writing a custom splitter
+
+Anything matching the `splytters.Splitter` type — a callable taking an
+embeddings array (plus `train_size` / `random_state`) and returning a
+`(train_indices, test_indices)` pair of integer arrays — works anywhere a
+splitter is accepted (`SplytterSplit`, `splytter_train_test_split`, the interop
+helpers):
+
+```python
+from splytters import Splitter, splytter_train_test_split
+
+def my_split(embeddings, *, train_size=0.7, random_state=42):
+    ...
+    return train_idx, test_idx
+
+X_train, X_test = splytter_train_test_split(X, splitter=my_split)
+```
 
 ## Choosing a split family
 

@@ -42,9 +42,7 @@ plugins:
       handlers:
         python:
           options:
-            # Most of the codebase uses Google-style docstrings; the
-            # scikit-learn / interop / report modules use NumPy style and
-            # override this per-block in api.md.
+            # The codebase uses Google-style docstrings throughout.
             docstring_style: google
             show_root_heading: true
             show_root_full_path: false
