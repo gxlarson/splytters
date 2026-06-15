@@ -59,6 +59,9 @@ from splytters.sklearn_api import (
     overlap_train_test_split,
     splytter_train_test_split,
 )
+
+# Sorter introspection (lazily imported; listing pulls in no optional deps).
+from splytters.sorters import list_sorters
 from splytters.utils import (
     cluster_embeddings,
     compute_centroid,
@@ -119,4 +122,61 @@ __all__ = [
     # Split-quality reporting
     "split_report",
     "compare_splitters",
+    # Introspection
+    "list_splitters",
+    "list_sorters",
 ]
+
+
+# Splitter families — the grouping returned by ``list_splitters(by_family=True)``.
+# Excludes helpers (e.g. ``get_cluster_info``), the sklearn wrappers, interop
+# adapters, reporting, and utilities; see ``__all__`` for the full surface.
+_SPLITTER_FAMILIES: dict[str, list[str]] = {
+    "adversarial": [
+        "cluster_split",
+        "centroid_adversarial_split",
+        "distance_adversarial_split",
+        "density_adversarial_split",
+        "outlier_adversarial_split",
+        "min_cut_split",
+        "normalized_cut_split",
+        "wasserstein_adversarial_split",
+    ],
+    "overlap": [
+        "cluster_leak_split",
+        "neighbor_coverage_split",
+        "centroid_matched_split",
+        "stratified_similarity_split",
+        "nearest_neighbor_split",
+        "duplicate_spread_split",
+        "max_coverage_split",
+    ],
+    "balanced": [
+        "distribution_matched_split",
+        "moment_matched_split",
+        "histogram_matched_split",
+        "stratified_random_split",
+        "density_balanced_split",
+        "mmd_minimized_split",
+    ],
+    "baseline": [
+        "random_split",
+    ],
+}
+
+
+def list_splitters(by_family: bool = False) -> list[str] | dict[str, list[str]]:
+    """Return the names of all available splitter functions.
+
+    Args:
+        by_family: if True, return a dict mapping each family
+            ("adversarial", "overlap", "balanced", "baseline") to its list of
+            splitter names. If False (default), return a flat list of every
+            splitter name, in family order.
+
+    Returns:
+        A flat list of names, or a dict of family -> names.
+    """
+    if by_family:
+        return {family: list(names) for family, names in _SPLITTER_FAMILIES.items()}
+    return [name for names in _SPLITTER_FAMILIES.values() for name in names]

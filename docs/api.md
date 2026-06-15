@@ -37,3 +37,9 @@ directly from the top-level `splytters` namespace (e.g.
 ## Utilities
 
 ::: splytters.utils
+
+## Introspection
+
+::: splytters.list_splitters
+
+::: splytters.sorters.list_sorters

@@ -80,7 +80,31 @@ _LAZY: dict[str, tuple[str, str]] = {
     "multi_column_sort": ("tabular_sorters", "multi_column_sort"),
 }
 
-__all__ = list(_LAZY.keys())
+__all__ = [*_LAZY.keys(), "list_sorters"]
+
+
+def list_sorters(by_modality: bool = False) -> list[str] | dict[str, list[str]]:
+    """Return the names of all available sorters.
+
+    Listing pulls in no optional dependency — only the names are returned;
+    the sorters themselves stay lazily imported until first accessed.
+
+    Args:
+        by_modality: if True, return a dict mapping each modality
+            ("embedding", "text", "image", "audio", "tabular") to its sorted
+            list of sorter names. If False (default), return a flat sorted
+            list of every sorter name.
+
+    Returns:
+        A sorted list of names, or a dict of modality -> sorted names.
+    """
+    if by_modality:
+        groups: dict[str, list[str]] = {}
+        for name, (module_suffix, _attr) in _LAZY.items():
+            modality = module_suffix.removesuffix("_sorters")
+            groups.setdefault(modality, []).append(name)
+        return {modality: sorted(names) for modality, names in groups.items()}
+    return sorted(_LAZY)
 
 
 def __getattr__(name: str) -> Any:

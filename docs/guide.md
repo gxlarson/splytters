@@ -9,6 +9,23 @@ and returns a pair of integer index arrays `(train_indices, test_indices)`.
 train_idx, test_idx = cluster_split(X, train_size=0.7, random_state=42)
 ```
 
+## Discovering what's available
+
+To see every splitter or sorter without reading the source:
+
+```python
+import splytters
+
+splytters.list_splitters()                 # flat list of every splitter
+splytters.list_splitters(by_family=True)   # {"adversarial": [...], "overlap": [...], ...}
+
+splytters.list_sorters()                   # flat list of every sorter
+splytters.list_sorters(by_modality=True)   # {"embedding": [...], "text": [...], ...}
+```
+
+`list_sorters` pulls in no optional dependency — it returns just the names, so
+the modality sorters stay lazily imported until you actually call one.
+
 ## Choosing a split family
 
 ### Adversarial — minimize train↔test similarity
