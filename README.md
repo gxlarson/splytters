@@ -175,7 +175,7 @@ splytters/                # the installable package
 tests/                    # pytest suite
 test_data/                # sample audio/images/text used by tests
 demos/                    # demo.py, im_demo.py (sorter demos: TREC text, CLIP images)
-                          # visualize_splits.py (generates the README figures)
+                          # visualize_splits.py (README figures), visualize_text_splits.py
 scripts/                  # generate_test_*.py (regenerate the test_data/ fixtures)
 docs/                     # README figures
 ```
