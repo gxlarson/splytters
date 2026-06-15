@@ -38,3 +38,4 @@ Make the splytters API coalesce with scikit-learn so splitters can drop into exi
 
 - [x] Add `pyproject.toml` with core deps and optional extras (`[text]`, `[audio]`, `[image]`, `[tabular]`, `[embedders]`, `[viz]`, `[ann]`, `[demo]`, `[all]`, `[dev]`), enabling `pip install -e .`.
 - [x] **Lazy imports in `splytters/sorters/__init__.py`** — per-modality PEP 562 `__getattr__`; each extra is now self-sufficient.
+- [ ] **Bump torch for transformers 5.x** — `transformers>=5` requires `torch>=2.4`. The PyTorch-backed features (`perplexity_score` sorter, CLIP embedders) and their tests are disabled on environments with older torch (e.g. a dev box on torch 2.1). Action: upgrade local/dev torch to `>=2.4`, and consider adding `torch>=2.4` lower bounds to the `[text]`/`[embedders]` extras so installs stay consistent with `transformers>=5`.
