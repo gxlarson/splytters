@@ -73,3 +73,23 @@ def test_absolute_count_is_per_class():
 def test_invalid_inputs_raise(order, y, train_size):
     with pytest.raises(ValueError):
         sorted_stratified_split(order, y, train_size=train_size)
+
+
+def test_empty_input_returns_two_empty_arrays():
+    train, test = sorted_stratified_split([], [], train_size=0.7)
+    assert train.tolist() == []
+    assert test.tolist() == []
+    assert train.dtype == np.intp and test.dtype == np.intp
+
+
+def test_class_too_small_for_fraction_goes_entirely_to_test():
+    # A singleton class at train_size=0.7 resolves to 0 train (floor) -> all test;
+    # a larger class still splits normally. Pins this intentional behaviour.
+    y = np.array([0, 1, 1, 1, 1])  # class 0 has a single sample
+    order = list(range(5))
+    train, test = sorted_stratified_split(order, y, train_size=0.7)
+
+    assert 0 not in train.tolist()          # singleton class -> no train sample
+    assert 0 in test.tolist()
+    assert set(train.tolist()) == {1, 2}     # class 1: first int(4*0.7)=2 of 4
+    assert set(train.tolist()) | set(test.tolist()) == set(range(5))
