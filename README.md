@@ -128,7 +128,23 @@ from splytters.sorters import distance_to_mean
 ranked = distance_to_mean(embeddings)  # most typical → most atypical
 ```
 
-See `demos/demo.py` for sorters on a real dataset (TREC questions) and `demos/im_demo.py` for an image example with CLIP embeddings.
+Pair a sorter with `sorted_stratified_split` to turn that ranking into an actual
+curriculum split — within each class, the first `train_size` fraction (by the
+sort order) becomes train, the rest test:
+
+```python
+from splytters.sorters import readability_score
+from splytters import sorted_stratified_split
+
+ranking = readability_score(texts)                 # easy → hard
+train_idx, test_idx = sorted_stratified_split(ranking, y, train_size=0.7)
+# largest_first=True flips it to "train on hard, test on easy"
+```
+
+See `demos/demo.py` for sorters on a real dataset (TREC questions), `demos/im_demo.py`
+for an image example with CLIP embeddings, and `demos/trec_sorter_experiment.py`
+for a TREC curriculum-split benchmark (text sorters + linear SVM) that quantifies
+which sorters capture a real difficulty axis.
 
 ## Installation
 
