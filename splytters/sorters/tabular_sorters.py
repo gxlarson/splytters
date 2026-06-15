@@ -14,10 +14,15 @@ from collections.abc import Hashable
 from typing import Any
 
 import numpy as np
-import pandas as pd
 from scipy import stats
 from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import LocalOutlierFactor
+
+from splytters.sorters._lazy import LazyModule
+
+# pandas is imported on first use (see _lazy), so importing this module needs no
+# [tabular] extra — only calling a sorter does.
+pd = LazyModule("pandas")
 
 
 def column_value(

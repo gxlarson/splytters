@@ -32,6 +32,34 @@ directly from the top-level `splytters` namespace (e.g.
 
 ::: splytters.report
 
+## Sorters
+
+Ranking functions that order samples by interpretable difficulty/quality
+metrics, grouped by modality. Pair a ranking with
+[`sorted_stratified_split`](#curriculum-splits) for a curriculum split. Each
+modality imports its heavy dependency lazily, so importing a sorter module needs
+no optional extra.
+
+### Embedding sorters
+
+::: splytters.sorters.embedding_sorters
+
+### Text sorters
+
+::: splytters.sorters.text_sorters
+
+### Image sorters
+
+::: splytters.sorters.image_sorters
+
+### Audio sorters
+
+::: splytters.sorters.audio_sorters
+
+### Tabular sorters
+
+::: splytters.sorters.tabular_sorters
+
 ## Utilities
 
 ::: splytters.utils

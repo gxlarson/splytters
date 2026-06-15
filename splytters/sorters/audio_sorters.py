@@ -13,8 +13,13 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
-import librosa
 import numpy as np
+
+from splytters.sorters._lazy import LazyModule
+
+# librosa is imported on first use (see _lazy), so importing this module needs
+# no [audio] extra — only calling a sorter does.
+librosa = LazyModule("librosa")
 
 AudioInput = str | Path | tuple[np.ndarray, int] | np.ndarray
 

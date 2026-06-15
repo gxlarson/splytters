@@ -1,36 +1,48 @@
-"""Regression tests: modality sorters must not eagerly import heavy deps.
+"""Regression tests: modality sorters must not *require* their heavy deps to import.
 
-Importing a sorter module (or a lightweight sorter) must work even when the
-heavy/optional libraries are missing or broken — they are imported lazily
-inside the functions that need them. Run in a fresh interpreter so the check
-is unaffected by whatever the rest of the suite has already imported.
+The heavy/optional libraries (torch, transformers, readability, pysbd, wordfreq,
+Pillow, librosa, pandas) are imported lazily — inside the functions that use
+them, or via the LazyModule proxy — so a sorter module imports (and the
+dependency-free sorters run) even when the extra isn't installed.
+
+Each check blocks the dep(s) in a fresh interpreter (``sys.modules[dep] = None``
+makes ``import dep`` raise ImportError) and confirms the module still imports.
+This is immune to transitive imports (e.g. scikit-learn pulls in pandas when it
+happens to be installed).
 """
 
 import subprocess
 import sys
 
-HEAVY = ("torch", "transformers", "readability", "pysbd", "wordfreq")
+import pytest
+
+# module -> the heavy/optional deps it must not REQUIRE in order to import.
+MODALITY_DEPS = {
+    "splytters.sorters.text_sorters": (
+        "torch", "transformers", "readability", "pysbd", "wordfreq",
+    ),
+    "splytters.sorters.image_sorters": ("PIL",),
+    "splytters.sorters.audio_sorters": ("librosa",),
+    "splytters.sorters.tabular_sorters": ("pandas",),
+}
 
 
-def _heavy_modules_after(import_stmt: str) -> str:
-    code = (
-        f"import sys; {import_stmt}; "
-        f"print(','.join(m for m in {HEAVY!r} if m in sys.modules))"
-    )
-    out = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True
-    )
-    assert out.returncode == 0, out.stderr
-    return out.stdout.strip()
+def _run_with_deps_blocked(heavy: tuple[str, ...], body: str) -> subprocess.CompletedProcess:
+    blocks = "; ".join(f"sys.modules[{d!r}] = None" for d in heavy)
+    code = f"import sys; {blocks}; {body}; print('ok')"
+    return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
 
 
-def test_text_sorters_module_imports_without_heavy_deps():
-    assert _heavy_modules_after("import splytters.sorters.text_sorters") == ""
+@pytest.mark.parametrize("module, heavy", MODALITY_DEPS.items())
+def test_sorter_module_imports_with_heavy_deps_blocked(module, heavy):
+    out = _run_with_deps_blocked(heavy, f"import importlib; importlib.import_module({module!r})")
+    assert out.returncode == 0 and out.stdout.strip() == "ok", out.stderr
 
 
-def test_light_text_sorter_runs_without_heavy_deps():
-    stmt = (
+def test_light_text_sorter_runs_with_heavy_deps_blocked():
+    out = _run_with_deps_blocked(
+        MODALITY_DEPS["splytters.sorters.text_sorters"],
         "from splytters.sorters import character_length; "
-        "character_length(['a question', 'another one here'])"
+        "character_length(['a question', 'another one here'])",
     )
-    assert _heavy_modules_after(stmt) == ""
+    assert out.returncode == 0 and out.stdout.strip() == "ok", out.stderr

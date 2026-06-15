@@ -11,13 +11,22 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
-from PIL import Image
 from scipy import fft
 from sklearn.cluster import KMeans
 
-ImageInput = str | Path | Image.Image
+from splytters.sorters._lazy import LazyModule
+
+# Pillow is imported on first use (see _lazy), so importing this module needs no
+# [image] extra — only calling a sorter does.
+Image = LazyModule("PIL.Image")
+
+if TYPE_CHECKING:
+    from PIL import Image as _PILImage
+
+    ImageInput = str | Path | _PILImage.Image
 
 
 def _load_image(img: ImageInput) -> Image.Image:
