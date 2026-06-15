@@ -9,12 +9,15 @@ maximize dissimilarity.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
-import pysbd
-import torch
-from readability import Readability
-from transformers import GPT2LMHeadModel, GPT2TokenizerFast
-from wordfreq import word_frequency
+if TYPE_CHECKING:  # only for annotations (PEP 563 keeps them un-evaluated)
+    from transformers import GPT2LMHeadModel, GPT2TokenizerFast
+
+# Heavy / optional dependencies (pysbd, torch, transformers, readability,
+# wordfreq) are imported lazily inside the functions that use them, so the
+# lightweight sorters (length, tokens, lexical diversity) work with no extras
+# and a single broken/missing heavy dep can't block the whole module.
 
 
 def simple_tokenizer(s: str) -> list[str]:
@@ -78,6 +81,8 @@ def sentence_count(
     Returns:
         List of (index, sentence_count) tuples sorted by sentence count.
     """
+    import pysbd
+
     segmenter = pysbd.Segmenter(language=language, clean=False)
 
     scores = []
@@ -151,6 +156,8 @@ def vocabulary_rarity(
         List of (index, avg_rarity) tuples sorted by average word rarity.
         Texts with no tokens receive a score of 0.
     """
+    from wordfreq import word_frequency
+
     scores = []
     for i, text in enumerate(texts):
         tokens = tokenizer(text.lower())
@@ -194,6 +201,9 @@ def perplexity_score(
         List of (index, perplexity) tuples sorted by perplexity.
         Texts too short to score receive perplexity of infinity.
     """
+    import torch
+    from transformers import GPT2LMHeadModel, GPT2TokenizerFast
+
     if model is None or tokenizer is None:
         tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
         model = GPT2LMHeadModel.from_pretrained("gpt2")
@@ -258,6 +268,8 @@ def readability_score(
     # by the per-text "too short -> inf" exception handler below.
     if metric not in valid_metrics:
         raise ValueError(f"Unknown readability metric: {metric}")
+
+    from readability import Readability
 
     scores = []
 
