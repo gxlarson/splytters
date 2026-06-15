@@ -16,6 +16,10 @@ directly from the top-level `splytters` namespace (e.g.
 
 ::: splytters.balanced
 
+## Curriculum splits
+
+::: splytters.curriculum
+
 ## scikit-learn compatibility
 
 ::: splytters.sklearn_api

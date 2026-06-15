@@ -33,6 +33,9 @@ from splytters.balanced import (
     stratified_random_split,
 )
 
+# Curriculum / ordering-driven split (pair with a splytters.sorters ranking).
+from splytters.curriculum import sorted_stratified_split
+
 # Embedder discovery (heavy model libs stay lazy; listing needs no extra).
 from splytters.embedders import list_embedders
 
@@ -106,6 +109,8 @@ __all__ = [
     "mmd_minimized_split",
     # Baseline
     "random_split",
+    # Curriculum (ordering-driven; pair with a splytters.sorters ranking)
+    "sorted_stratified_split",
     # Utilities
     "compute_pairwise_distances",
     "compute_centroid",

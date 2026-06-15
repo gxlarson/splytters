@@ -79,6 +79,26 @@ Fair, like-for-like evaluation where both sides look statistically similar.
 
 A plain `random_split` baseline is also provided.
 
+### Curriculum — split along a sorted order
+
+`sorted_stratified_split` takes an explicit ordering (typically a
+[sorter](#sorters) ranking) plus class labels, and within each class assigns the
+first `train_size` fraction to train and the rest to test — a "train on easy,
+test on hard" curriculum split:
+
+```python
+from splytters.sorters import readability_score
+from splytters import sorted_stratified_split
+
+ranking = readability_score(texts)        # [(index, score), ...] easy -> hard
+train_idx, test_idx = sorted_stratified_split(ranking, y, train_size=0.7)
+# largest_first=True flips it to "train on hard, test on easy"
+```
+
+Unlike the embedding-based families above, this one is driven by the ordering
+you give it rather than by the embeddings, so it isn't listed by
+`list_splitters()`.
+
 ## Scoring a split
 
 `split_report` quantifies how adversarial/overlapping/balanced a split actually
