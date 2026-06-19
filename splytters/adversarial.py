@@ -140,7 +140,7 @@ def _assign_subset_sum(
     for cid, idxs in cluster_to_indices.items():
         v = np.zeros(len(classes))
         labels_here, counts = np.unique(y[idxs], return_counts=True)
-        for c, cnt in zip(labels_here, counts):
+        for c, cnt in zip(labels_here, counts, strict=True):
             v[class_idx[c]] = cnt
         vecs[cid] = v
 
@@ -427,7 +427,7 @@ def cluster_kfold(
     for idxs in cluster_to_indices.values():
         vec = np.zeros(len(classes))
         labs, counts = np.unique(y[idxs], return_counts=True)
-        for c, cnt in zip(labs, counts):
+        for c, cnt in zip(labs, counts, strict=True):
             vec[class_idx[c]] = cnt
         clusters.append((idxs, vec))
 
