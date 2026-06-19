@@ -49,6 +49,7 @@ _LAZY: dict[str, tuple[str, str]] = {
     "image_compression_ratio": ("image_sorters", "compression_ratio"),
     "frequency_content": ("image_sorters", "frequency_content"),
     # Audio sorters (deps: [audio])
+    "duration": ("audio_sorters", "duration"),
     "mean_amplitude": ("audio_sorters", "mean_amplitude"),
     "rms_energy": ("audio_sorters", "rms_energy"),
     "dynamic_range": ("audio_sorters", "dynamic_range"),

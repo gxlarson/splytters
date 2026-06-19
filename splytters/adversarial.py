@@ -21,11 +21,155 @@ from sklearn.utils import check_random_state
 
 from splytters.utils import (
     as_index_array,
-    cluster_embeddings,
     compute_centroid,
+    optimized_split,
     resolve_n_train,
     validate_split_inputs,
 )
+
+
+def _cluster_centroids(
+    embeddings: np.ndarray, cluster_to_indices: dict[int, list[int]]
+) -> dict[int, np.ndarray]:
+    """Mean embedding (centroid) of each cluster's members."""
+    return {cid: embeddings[idxs].mean(axis=0) for cid, idxs in cluster_to_indices.items()}
+
+
+def _assign_by_size(
+    cluster_to_indices: dict[int, list[int]], target_train: int
+) -> tuple[list[int], list[int]]:
+    """Greedily fill train with the largest clusters first (DBSCAN noise -> test)."""
+    clusters_by_size = sorted(
+        cluster_to_indices.items(), key=lambda kv: len(kv[1]), reverse=True
+    )
+    train: list[int] = []
+    test: list[int] = []
+    for cluster_id, indices in clusters_by_size:
+        if cluster_id == -1:  # DBSCAN noise points -> test
+            test.extend(indices)
+        elif len(train) + len(indices) <= target_train:
+            train.extend(indices)
+        else:
+            test.extend(indices)
+    return train, test
+
+
+def _assign_by_centroid(
+    embeddings: np.ndarray, cluster_to_indices: dict[int, list[int]], target_train: int
+) -> tuple[list[int], list[int]]:
+    """Rank clusters by distance from the global centroid; near -> train, far -> test."""
+    global_centroid = compute_centroid(embeddings)
+    centroids = _cluster_centroids(embeddings, cluster_to_indices)
+    ranked = sorted(
+        cluster_to_indices, key=lambda cid: np.linalg.norm(centroids[cid] - global_centroid)
+    )
+    train: list[int] = []
+    test: list[int] = []
+    for cid in ranked:
+        indices = cluster_to_indices[cid]
+        if len(train) + len(indices) <= target_train:
+            train.extend(indices)
+        else:
+            test.extend(indices)
+    return train, test
+
+
+def _assign_closest(
+    embeddings: np.ndarray, cluster_to_indices: dict[int, list[int]], target_test: int
+) -> tuple[list[int], list[int]]:
+    """CLOSEST-SPLIT: build one coherent, isolated test pocket in latent space.
+
+    Seed with the most isolated cluster (largest mean cosine distance to the
+    other cluster centroids), then grow the test set by repeatedly adding the
+    remaining cluster nearest (cosine) to the current test pocket, stopping
+    before the target test size is exceeded.
+    """
+    cids = list(cluster_to_indices)
+    centroids = _cluster_centroids(embeddings, cluster_to_indices)
+    sizes = [len(cluster_to_indices[cid]) for cid in cids]
+
+    # Pairwise cosine distances between cluster centroids (rows/cols aligned to cids).
+    C = np.vstack([centroids[cid] for cid in cids])
+    cos = cdist(C, C, metric="cosine")
+    isolation = cos.mean(axis=1)  # mean distance from each cluster to all others
+
+    # Seed: most isolated cluster that fits the target (else just the most isolated).
+    order = sorted(range(len(cids)), key=lambda j: isolation[j], reverse=True)
+    seed = next((j for j in order if sizes[j] <= target_test), order[0])
+
+    test_pos = {seed}
+    test_size = sizes[seed]
+    while test_size < target_test:
+        remaining = [j for j in range(len(cids)) if j not in test_pos]
+        if not remaining:
+            break
+        members = list(test_pos)
+        nearest = min(remaining, key=lambda j: cos[j, members].mean())
+        if test_size + sizes[nearest] > target_test:
+            break
+        test_pos.add(nearest)
+        test_size += sizes[nearest]
+
+    test_cids = {cids[j] for j in test_pos}
+    train: list[int] = []
+    test: list[int] = []
+    for cid, indices in cluster_to_indices.items():
+        (test if cid in test_cids else train).extend(indices)
+    return train, test
+
+
+def _assign_subset_sum(
+    cluster_to_indices: dict[int, list[int]],
+    y: np.ndarray,
+    target_test: int,
+    n_samples: int,
+) -> tuple[list[int], list[int]]:
+    """SUBSET-SUM-SPLIT: pick clusters whose pooled per-class counts best match a
+    class-balanced target test set.
+
+    Each cluster contributes a per-class count vector; we greedily select the
+    subset of clusters whose summed vector is closest (L1) to the target vector
+    ``target_test * class_proportions`` -- an approximate multidimensional
+    subset-sum keeping the test set's label distribution close to the whole.
+    """
+    classes = np.unique(y)
+    class_idx = {c: k for k, c in enumerate(classes)}
+
+    cids = list(cluster_to_indices)
+    vecs: dict[int, np.ndarray] = {}
+    for cid, idxs in cluster_to_indices.items():
+        v = np.zeros(len(classes))
+        labels_here, counts = np.unique(y[idxs], return_counts=True)
+        for c, cnt in zip(labels_here, counts):
+            v[class_idx[c]] = cnt
+        vecs[cid] = v
+
+    global_counts = np.array([np.sum(y == c) for c in classes], dtype=float)
+    target = target_test * global_counts / n_samples
+
+    selected: list[int] = []
+    current = np.zeros(len(classes))
+    remaining = set(cids)
+    best_dist = float(np.abs(current - target).sum())
+    while remaining:
+        cid = min(remaining, key=lambda c: float(np.abs(current + vecs[c] - target).sum()))
+        new_dist = float(np.abs(current + vecs[cid] - target).sum())
+        if new_dist >= best_dist:
+            break
+        selected.append(cid)
+        current = current + vecs[cid]
+        best_dist = new_dist
+        remaining.discard(cid)
+
+    if not selected:  # fall back to the single best-matching cluster
+        selected = [min(cids, key=lambda c: float(np.abs(vecs[c] - target).sum()))]
+
+    test_cids = set(selected)
+    train: list[int] = []
+    test: list[int] = []
+    for cid, indices in cluster_to_indices.items():
+        (test if cid in test_cids else train).extend(indices)
+    return train, test
 
 
 def cluster_split(
@@ -34,33 +178,98 @@ def cluster_split(
     method: str = "kmeans",
     n_clusters: int = 10,
     random_state: int = 42,
+    *,
+    strategy: str = "size",
+    y: ArrayLike | None = None,
     **cluster_kwargs: Any,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Split dataset by assigning entire clusters to train or test.
 
-    Prevents 'cluster leakage' where similar samples end up on both sides.
+    Prevents 'cluster leakage' where similar samples end up on both sides. The
+    embeddings are clustered (``method``), then whole clusters are assigned to
+    train/test according to ``strategy``.
 
     Args:
         embeddings: array-like of shape (n_samples, embedding_dim)
         train_size: fraction in (0, 1) or absolute count for the training set
-        method: 'kmeans' or 'dbscan'
+        method: clustering algorithm, 'kmeans' or 'dbscan'
         n_clusters: number of clusters (kmeans only)
         random_state: for reproducibility
-        **cluster_kwargs: passed to clustering algorithm
+        strategy: cluster -> train/test assignment policy:
+            - ``"size"`` (default): greedily fill train with the largest clusters
+              until the target ratio is met. The original, target-ratio-driven
+              behavior; DBSCAN noise points go to test.
+            - ``"centroid"``: rank clusters by distance from the global centroid,
+              nearest -> train, farthest -> test (adversarial). This is what
+              :func:`centroid_adversarial_split` delegates to.
+            - ``"subset_sum"``: select a subset of clusters whose pooled per-class
+              counts best match a class-balanced target test set. Requires ``y``.
+            - ``"closest"``: seed the most isolated cluster and grow it by
+              nearest-neighbor into a single coherent test "pocket" (adversarial).
+        y: class labels of shape (n_samples,). Required for ``strategy="subset_sum"``;
+            ignored by the other strategies.
+        **cluster_kwargs: passed to the clustering algorithm
 
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Raises:
+        ValueError: on an unknown ``method`` or ``strategy``, or if
+            ``strategy="subset_sum"`` is used without a valid ``y``.
+
+    References:
+        The ``"subset_sum"`` and ``"closest"`` strategies implement SUBSET-SUM-SPLIT
+        and CLOSEST-SPLIT from Züfle, Dankers & Titov (2023), "Latent Feature-based
+        Data Splits to Improve Generalisation Evaluation," GenBench Workshop @ EMNLP,
+        pp. 112-129. https://aclanthology.org/2023.genbench-1.9 . They cluster a
+        model's hidden representations and assign whole clusters to test to expose
+        latent-space "blind spots"; their analysis finds that the resulting
+        difficulty does not correlate with surface-level properties (e.g. length),
+        complementing the surface-based :mod:`splytters.sorters`.
+
+        The label-balanced idea behind ``"subset_sum"`` traces to the earlier
+        ClusterDataSplit of Wecker, Friedrich & Adel (2020), "ClusterDataSplit:
+        Exploring Challenging Clustering-Based Data Splits for Model Performance
+        Evaluation," Eval4NLP @ COLING, which clusters data into splits that
+        differ lexically from train while keeping the label distribution fixed.
+        https://aclanthology.org/2020.eval4nlp-1.15 . See :func:`cluster_kfold`
+        for their cross-validation variant.
+
+        Napoli & White (2025), "Clustering-Based Validation Splits for Model
+        Selection under Domain Shift," TMLR, ground this family theoretically:
+        maximizing the MMD between the two sets is equivalent to kernel k-means
+        clustering (k=2), and they replace ClusterDataSplit's greedy
+        class-balancing with a linear program (with convergence guarantees).
+        https://openreview.net/forum?id=Q692C0WtiD . See
+        :func:`mmd_maximized_split` for the MMD-maximizing objective.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
+
+    valid_strategies = {"size", "centroid", "subset_sum", "closest"}
+    if strategy not in valid_strategies:
+        raise ValueError(
+            f"Unknown strategy: {strategy!r}. Choose from {sorted(valid_strategies)}"
+        )
+
+    n_samples = len(embeddings)
+
+    if strategy == "subset_sum":
+        if y is None:
+            raise ValueError("strategy='subset_sum' requires class labels `y`")
+        y = np.asarray(y)
+        if len(y) != n_samples:
+            raise ValueError(
+                f"y has length {len(y)} but embeddings has {n_samples} rows"
+            )
 
     if method == "kmeans":
         clusterer = KMeans(
             n_clusters=n_clusters,
             random_state=random_state,
             n_init="auto",
-            **cluster_kwargs
+            **cluster_kwargs,
         )
     elif method == "dbscan":
         clusterer = DBSCAN(**cluster_kwargs)
@@ -68,38 +277,23 @@ def cluster_split(
         raise ValueError(f"Unknown clustering method: {method}")
 
     labels = clusterer.fit_predict(embeddings)
-
-    # Group indices by cluster
-    cluster_to_indices = defaultdict(list)
+    cluster_to_indices: dict[int, list[int]] = defaultdict(list)
     for idx, label in enumerate(labels):
-        cluster_to_indices[label].append(idx)
+        cluster_to_indices[int(label)].append(idx)
 
-    # Sort clusters by size (larger clusters assigned first for better ratio)
-    clusters_by_size = sorted(
-        cluster_to_indices.items(),
-        key=lambda x: len(x[1]),
-        reverse=True
-    )
-
-    # Greedily assign clusters to train until we hit target ratio
-    n_samples = len(embeddings)
     target_train = resolve_n_train(n_samples, train_size)
+    target_test = n_samples - target_train
 
-    train_indices = []
-    test_indices = []
+    if strategy == "size":
+        train, test = _assign_by_size(cluster_to_indices, target_train)
+    elif strategy == "centroid":
+        train, test = _assign_by_centroid(embeddings, cluster_to_indices, target_train)
+    elif strategy == "closest":
+        train, test = _assign_closest(embeddings, cluster_to_indices, target_test)
+    else:  # subset_sum
+        train, test = _assign_subset_sum(cluster_to_indices, y, target_test, n_samples)
 
-    for cluster_id, indices in clusters_by_size:
-        # DBSCAN noise points (label=-1) go to test set
-        if cluster_id == -1:
-            test_indices.extend(indices)
-            continue
-
-        if len(train_indices) + len(indices) <= target_train:
-            train_indices.extend(indices)
-        else:
-            test_indices.extend(indices)
-
-    return as_index_array(train_indices), as_index_array(test_indices)
+    return as_index_array(train), as_index_array(test)
 
 
 def centroid_adversarial_split(
@@ -116,6 +310,8 @@ def centroid_adversarial_split(
     Combines centroid-distance ranking with cluster-based splitting to
     maximize train-test dissimilarity while keeping similar samples together.
 
+    Thin wrapper over ``cluster_split(strategy="centroid")``.
+
     Args:
         embeddings: array-like of shape (n_samples, embedding_dim)
         train_size: fraction in (0, 1) or absolute count for the training set
@@ -127,39 +323,228 @@ def centroid_adversarial_split(
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
     """
-    embeddings = validate_split_inputs(embeddings, train_size)
-
-    labels, cluster_to_indices, cluster_centers = cluster_embeddings(
-        embeddings, n_clusters, "kmeans", random_state, **cluster_kwargs
+    return cluster_split(
+        embeddings,
+        train_size=train_size,
+        method="kmeans",
+        n_clusters=n_clusters,
+        random_state=random_state,
+        strategy="centroid",
+        **cluster_kwargs,
     )
 
-    # Compute global centroid
-    global_centroid = compute_centroid(embeddings)
 
-    # Rank clusters by distance from global centroid
-    cluster_distances = []
-    for i, center in enumerate(cluster_centers):
-        dist = np.linalg.norm(center - global_centroid)
-        cluster_distances.append((i, dist))
+def cluster_kfold(
+    embeddings: ArrayLike,
+    y: ArrayLike,
+    n_folds: int = 5,
+    method: str = "kmeans",
+    n_clusters: int | None = None,
+    random_state: int = 42,
+    **cluster_kwargs: Any,
+) -> np.ndarray:
+    """Partition data into challenging, label-balanced cross-validation folds.
 
-    # Sort by distance (closest first -> train, furthest -> test)
-    cluster_distances.sort(key=lambda x: x[1])
+    Clusters the embeddings, then assigns whole clusters to ``n_folds`` folds so
+    that each fold is lexically coherent -- similar samples share a fold, making
+    every fold differ from the data trained on for it -- while its label
+    distribution stays close to the global one. This yields a "challenging" CV:
+    each held-out fold is a cluster-based blind spot rather than a random sample.
 
-    # Assign clusters to train/test based on distance ranking
+    The result is a per-sample fold id, usable directly with
+    :class:`sklearn.model_selection.PredefinedSplit`::
+
+        from sklearn.model_selection import PredefinedSplit, cross_validate
+        folds = cluster_kfold(embeddings, y, n_folds=5)
+        cross_validate(model, X, y, cv=PredefinedSplit(folds))
+
+    Args:
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        y: class labels of shape (n_samples,); used to balance folds by label
+        n_folds: number of cross-validation folds (default 5)
+        method: clustering algorithm, 'kmeans' or 'dbscan'
+        n_clusters: number of clusters (kmeans only). Defaults to
+            ``max(10, n_folds * 3)`` -- comfortably above ``n_folds`` so every
+            fold can receive whole clusters.
+        random_state: for reproducibility
+        **cluster_kwargs: passed to the clustering algorithm
+
+    Returns:
+        fold_ids: integer ndarray of shape (n_samples,), values in
+        ``[0, n_folds)``. For fold ``k`` the CV test set is ``fold_ids == k``
+        and the training set is the rest.
+
+    Raises:
+        ValueError: on an unknown ``method``, an ``y``/embeddings length
+            mismatch, an out-of-range ``n_folds``, or fewer clusters than folds.
+
+    References:
+        Implements the challenging clustering-based cross-validation of Wecker,
+        Friedrich & Adel (2020), "ClusterDataSplit: Exploring Challenging
+        Clustering-Based Data Splits for Model Performance Evaluation," Eval4NLP
+        @ COLING -- folds that are lexically distinct from train while preserving
+        label balance. https://aclanthology.org/2020.eval4nlp-1.15
+    """
+    embeddings = validate_split_inputs(embeddings, 0.5)  # 0.5: unused placeholder
+    y = np.asarray(y)
     n_samples = len(embeddings)
-    target_train = resolve_n_train(n_samples, train_size)
 
-    train_indices = []
-    test_indices = []
+    if len(y) != n_samples:
+        raise ValueError(f"y has length {len(y)} but embeddings has {n_samples} rows")
+    if not 2 <= n_folds <= n_samples:
+        raise ValueError(f"n_folds must be in [2, {n_samples}], got {n_folds}")
 
-    for cluster_id, _ in cluster_distances:
-        indices = cluster_to_indices[cluster_id]
-        if len(train_indices) + len(indices) <= target_train:
-            train_indices.extend(indices)
-        else:
-            test_indices.extend(indices)
+    if n_clusters is None:
+        n_clusters = max(10, n_folds * 3)
+    n_clusters = min(n_clusters, n_samples)
+    if n_clusters < n_folds:
+        raise ValueError(
+            f"need at least n_folds={n_folds} clusters, got n_clusters={n_clusters}"
+        )
 
-    return as_index_array(train_indices), as_index_array(test_indices)
+    if method == "kmeans":
+        clusterer = KMeans(
+            n_clusters=n_clusters,
+            random_state=random_state,
+            n_init="auto",
+            **cluster_kwargs,
+        )
+    elif method == "dbscan":
+        clusterer = DBSCAN(**cluster_kwargs)
+    else:
+        raise ValueError(f"Unknown clustering method: {method}")
+
+    labels = clusterer.fit_predict(embeddings)
+    cluster_to_indices: dict[int, list[int]] = defaultdict(list)
+    for idx, label in enumerate(labels):
+        cluster_to_indices[int(label)].append(idx)
+
+    classes = np.unique(y)
+    class_idx = {c: k for k, c in enumerate(classes)}
+
+    # Per-cluster class-count vectors.
+    clusters = []
+    for idxs in cluster_to_indices.values():
+        vec = np.zeros(len(classes))
+        labs, counts = np.unique(y[idxs], return_counts=True)
+        for c, cnt in zip(labs, counts):
+            vec[class_idx[c]] = cnt
+        clusters.append((idxs, vec))
+
+    # Target per-fold class counts: the global label distribution, split n_folds ways.
+    global_counts = np.array([np.sum(y == c) for c in classes], dtype=float)
+    target = global_counts / n_folds
+
+    # Place the largest clusters first into the fold that overshoots the per-fold
+    # target least (so under-filled and empty folds are preferred, keeping labels
+    # balanced); ties go to the currently-smallest fold to balance fold sizes.
+    fold_counts = [np.zeros(len(classes)) for _ in range(n_folds)]
+    fold_ids = np.empty(n_samples, dtype=np.intp)
+    clusters.sort(key=lambda t: len(t[0]), reverse=True)
+    for idxs, vec in clusters:
+        k = min(
+            range(n_folds),
+            key=lambda f: (
+                float(np.maximum(fold_counts[f] + vec - target, 0).sum()),
+                float(fold_counts[f].sum()),
+            ),
+        )
+        fold_counts[k] = fold_counts[k] + vec
+        fold_ids[idxs] = k
+
+    return fold_ids
+
+
+def minority_split(
+    embeddings: ArrayLike,
+    y: ArrayLike,
+    n_clusters: int = 10,
+    method: str = "kmeans",
+    random_state: int = 42,
+    **cluster_kwargs: Any,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Bias-amplified split via per-cluster minority labels.
+
+    Clusters the embeddings, then for each cluster routes instances whose label
+    is the cluster's *majority* label to train (the "biased" majority a
+    shortcut-learning model would exploit) and instances with any *minority*
+    label to test (the "anti-biased" examples that defy the local pattern),
+    yielding a hard, bias-amplified evaluation set.
+
+    Unlike the size-driven splitters, the train/test sizes are determined by the
+    data's bias structure (test = the minority-label instances), so this function
+    takes no ``train_size``. It inspects per-cluster label counts only; it never
+    references global class frequencies.
+
+    Args:
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        y: class labels of shape (n_samples,)
+        n_clusters: number of clusters (kmeans only)
+        method: clustering algorithm, 'kmeans' or 'dbscan'
+        random_state: for reproducibility
+        **cluster_kwargs: passed to the clustering algorithm
+
+    Returns:
+        train_indices: majority-label ("biased") instances, pooled over clusters
+        test_indices: minority-label ("anti-biased") instances, pooled over clusters
+
+    Raises:
+        ValueError: on an unknown ``method``, a ``y``/embeddings length mismatch,
+            or if no minority examples exist (every cluster is label-pure -- try
+            a different ``n_clusters`` or embeddings).
+
+    References:
+        Implements the "minority examples" notion of bias from Reif & Schwartz
+        (2023), "Fighting Bias with Bias: Promoting Model Robustness by Amplifying
+        Dataset Biases," Findings of ACL, pp. 13169-13189
+        (https://aclanthology.org/2023.findings-acl.833): cluster the data, treat
+        each cluster's majority label as biased (train) and its minority labels as
+        anti-biased (test). Their other two notions -- dataset cartography
+        (training dynamics) and partial-input models -- are model-in-the-loop /
+        task-specific and out of scope for a static splitter.
+    """
+    embeddings = validate_split_inputs(embeddings, 0.5)  # 0.5: unused placeholder
+    y = np.asarray(y)
+    n_samples = len(embeddings)
+    if len(y) != n_samples:
+        raise ValueError(f"y has length {len(y)} but embeddings has {n_samples} rows")
+
+    if method == "kmeans":
+        clusterer = KMeans(
+            n_clusters=n_clusters,
+            random_state=random_state,
+            n_init="auto",
+            **cluster_kwargs,
+        )
+    elif method == "dbscan":
+        clusterer = DBSCAN(**cluster_kwargs)
+    else:
+        raise ValueError(f"Unknown clustering method: {method}")
+
+    labels = clusterer.fit_predict(embeddings)
+    cluster_to_indices: dict[int, list[int]] = defaultdict(list)
+    for idx, label in enumerate(labels):
+        cluster_to_indices[int(label)].append(idx)
+
+    train: list[int] = []
+    test: list[int] = []
+    for idxs in cluster_to_indices.values():
+        idx_arr = np.asarray(idxs)
+        cls_labels = y[idx_arr]
+        vals, counts = np.unique(cls_labels, return_counts=True)
+        majority = vals[np.argmax(counts)]  # ties -> lowest label (deterministic)
+        is_majority = cls_labels == majority
+        train.extend(idx_arr[is_majority].tolist())
+        test.extend(idx_arr[~is_majority].tolist())
+
+    if not test:
+        raise ValueError(
+            "no minority examples found (every cluster is label-pure); "
+            "try a different n_clusters or embeddings"
+        )
+
+    return as_index_array(sorted(train)), as_index_array(sorted(test))
 
 
 def distance_adversarial_split(
@@ -513,8 +898,7 @@ def wasserstein_adversarial_split(
     Treats each embedding row as a 1-D distribution and selects, as the test
     set, the ``n_test`` points nearest (in 1-D Wasserstein / earth-mover
     distance) to a random anchor — yielding a tight, hard-to-generalize-to test
-    neighborhood. Adapted from Søgaard et al., "We Need to Talk About Random
-    Splits" (EACL 2021), https://aclanthology.org/2021.eacl-main.156 .
+    neighborhood.
 
     Args:
         embeddings: array-like of shape (n_samples, embedding_dim)
@@ -525,6 +909,12 @@ def wasserstein_adversarial_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    References:
+        Adapted from the adversarial split of Søgaard, Ebert, Bastings &
+        Filippova (2021), "We Need to Talk About Random Splits," EACL, which
+        constructs hard splits by (approximately) maximizing the Wasserstein
+        distance between train and test. https://aclanthology.org/2021.eacl-main.156
     """
     from scipy.stats import wasserstein_distance
     from sklearn.neighbors import NearestNeighbors
@@ -553,6 +943,76 @@ def wasserstein_adversarial_split(
     test_set = {int(i) for i in test_indices}
     train_indices = [i for i in range(n_samples) if i not in test_set]
     return as_index_array(train_indices), as_index_array(test_indices)
+
+
+def mmd_maximized_split(
+    embeddings: ArrayLike,
+    train_size: float | int = 0.7,
+    n_iterations: int = 500,
+    kernel: str = "rbf",
+    gamma: float | None = None,
+    random_state: int = 42,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Maximize Maximum Mean Discrepancy (MMD) between train and test.
+
+    The adversarial dual of :func:`splytters.mmd_minimized_split`: instead of
+    matching the two distributions, it pushes them as far apart as possible in
+    kernel/MMD terms, yielding a hard, domain-shifted held-out set. Motivated by
+    model selection under domain shift -- a maximally-shifted validation set
+    tends to select more robust hyperparameters.
+
+    Args:
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        train_size: fraction in (0, 1) or absolute count for the training set
+        n_iterations: number of optimization iterations
+        kernel: kernel type ('rbf' or 'linear')
+        gamma: RBF kernel parameter (default: 1/n_features)
+        random_state: for reproducibility
+
+    Returns:
+        train_indices: ndarray of indices for training set
+        test_indices: ndarray of indices for test set
+
+    References:
+        Implements the *objective* of Napoli & White (2025), "Clustering-Based
+        Validation Splits for Model Selection under Domain Shift," TMLR
+        (https://openreview.net/forum?id=Q692C0WtiD): the train/validation split
+        should maximize the MMD between the two sets. NOTE: this captures that
+        objective via swap optimization (like ``mmd_minimized_split``); it does
+        not implement their full method -- a constrained kernel k-means (max-MMD
+        is shown equivalent to kernel k-means with k=2) solved by linear
+        programming to preserve class/group balance, with convergence guarantees
+        and Nyström scaling. For class-balanced clustering splits, see
+        ``cluster_split(strategy="subset_sum")`` and :func:`cluster_kfold`.
+    """
+    embeddings = validate_split_inputs(embeddings, train_size)
+    n_dims = embeddings.shape[1]
+
+    _gamma = gamma if gamma is not None else 1.0 / n_dims
+
+    def _rbf_kernel(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
+        return np.exp(-_gamma * cdist(X, Y, metric="sqeuclidean"))
+
+    def _linear_kernel(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
+        return X @ Y.T
+
+    kernel_fn = _rbf_kernel if kernel == "rbf" else _linear_kernel
+
+    def score_fn(X: np.ndarray, train: list[int], test: list[int]) -> float:
+        train_data, test_data = X[train], X[test]
+        K_tt = kernel_fn(train_data, train_data)
+        K_ss = kernel_fn(test_data, test_data)
+        K_ts = kernel_fn(train_data, test_data)
+        m, n = len(train_data), len(test_data)
+        return (K_tt.sum() / (m * m) +
+                K_ss.sum() / (n * n) -
+                2 * K_ts.sum() / (m * n))
+
+    # minimize=False -> push the two distributions apart (adversarial dual).
+    return optimized_split(
+        embeddings, train_size, n_iterations, score_fn, random_state, minimize=False
+    )
 
 
 def get_cluster_info(

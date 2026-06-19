@@ -48,6 +48,50 @@ def _load_audio(audio: AudioInput, sr: int = 22050) -> tuple[np.ndarray, int]:
 
 
 # =============================================================================
+# Duration / Length
+# =============================================================================
+
+def duration(
+    audios: list[AudioInput], sr: int = 22050, low_first: bool = True
+) -> list[tuple[int, float]]:
+    """
+    Sort audio by total duration in seconds.
+
+    Useful for adversarial / curriculum splits: train on short utterances,
+    test on long ones (or vice versa). Pair with
+    :func:`splytters.sorted_stratified_split` for a length-based curriculum.
+
+    Args:
+        audios: list of file paths or (samples, sr) tuples
+        sr: sample rate for loading files (default 22050)
+        low_first: if True, shortest audio first; if False, longest first
+
+    Returns:
+        List of (index, seconds) tuples sorted by duration.
+
+    References:
+        Liu, Spence & Prud'hommeaux (2023), "Investigating data partitioning
+        strategies for crosslinguistic low-resource ASR evaluation," EACL,
+        pp. 123-131. https://aclanthology.org/2023.eacl-main.10 . They build
+        heuristic test sets from per-utterance features -- utterance duration,
+        average intensity, average pitch, transcript token count and perplexity
+        -- and find utterance duration and intensity to be the most predictive
+        factors of word-error-rate variability across data splits. Caveat: in
+        their very low-resource setting, heuristic and adversarial splits behaved
+        much like random splits, which were the more reliable choice under data
+        sparsity -- so prefer random/averaged splits when data is scarce.
+    """
+    scores = []
+    for i, audio in enumerate(audios):
+        y, sample_rate = _load_audio(audio, sr)
+        seconds = len(y) / sample_rate if sample_rate else 0.0
+        scores.append((i, seconds))
+
+    scores.sort(key=lambda p: p[1], reverse=not low_first)
+    return [(idx, float(value)) for idx, value in scores]
+
+
+# =============================================================================
 # Loudness / Energy
 # =============================================================================
 
@@ -67,6 +111,11 @@ def mean_amplitude(
 
     Returns:
         List of (index, amplitude) tuples sorted by mean amplitude.
+
+    References:
+        A loudness/intensity feature; see :func:`duration` for the
+        Liu, Spence & Prud'hommeaux (2023) ASR data-partitioning study, which
+        uses average intensity as a heuristic split feature.
     """
     scores = []
     for i, audio in enumerate(audios):
@@ -97,6 +146,11 @@ def rms_energy(
 
     Returns:
         List of (index, rms) tuples sorted by RMS energy.
+
+    References:
+        RMS energy is an "average intensity" measure; see :func:`duration` for
+        the Liu, Spence & Prud'hommeaux (2023) ASR data-partitioning study, which
+        found intensity among the most predictive features of WER variability.
     """
     scores = []
     for i, audio in enumerate(audios):
@@ -357,6 +411,11 @@ def fundamental_frequency(
     Returns:
         List of (index, f0_hz) tuples sorted by fundamental frequency.
         Audio with no detectable pitch receives f0 of 0.
+
+    References:
+        Pitch is one of the per-utterance heuristic split features in
+        Liu, Spence & Prud'hommeaux (2023); see :func:`duration` for the full
+        citation.
     """
     scores = []
     for i, audio in enumerate(audios):

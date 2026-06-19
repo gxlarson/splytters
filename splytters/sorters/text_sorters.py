@@ -35,6 +35,23 @@ def character_length(texts: list[str], low_first: bool = True) -> list[tuple[int
 
     Returns:
         List of (index, character_count) tuples sorted by length.
+
+    References:
+        Splitting by length to test generalization (put long texts in test):
+          - Søgaard, Ebert, Bastings & Filippova (2021), "We Need to Talk
+            About Random Splits," EACL. Heuristic splits via a sentence-length
+            threshold. https://aclanthology.org/2021.eacl-main.156
+          - Varis & Bojar (2021), "Sequence Length is a Domain: Length-based
+            Overfitting in Transformer Models," EMNLP.
+            https://aclanthology.org/2021.emnlp-main.650
+          - Lake & Baroni (2018), "Generalization without Systematicity," ICML,
+            introduced the SCAN length split (train short, test long) -- a
+            canonical length-generalization test (on output sequence length,
+            synthetic data). https://arxiv.org/abs/1711.00350
+          - Søgaard et al. trace the idea of testing generalization to longer
+            sequences back to Siegelmann & Sontag (1992), "On the Computational
+            Power of Neural Nets," COLT, pp. 440-449.
+            https://doi.org/10.1145/130385.130432
     """
     scores = [(i, len(text)) for i, text in enumerate(texts)]
     scores.sort(key=lambda p: p[1], reverse=not low_first)
@@ -56,6 +73,12 @@ def tokens_length(
 
     Returns:
         List of (index, token_count) tuples sorted by token count.
+
+    References:
+        A token-count variant of length-based splitting; see ``character_length``
+        for the motivation and references (Søgaard et al. 2021, EACL; Varis &
+        Bojar 2021, EMNLP; Lake & Baroni 2018, ICML; Siegelmann & Sontag 1992,
+        COLT).
     """
     scores = [(i, len(tokenizer(text))) for i, text in enumerate(texts)]
     scores.sort(key=lambda p: p[1], reverse=not low_first)
@@ -180,27 +203,58 @@ def perplexity_score(
     model: GPT2LMHeadModel | None = None,
     tokenizer: GPT2TokenizerFast | None = None,
     low_first: bool = True,
+    scoring: str = "perplexity",
 ) -> list[tuple[int, float]]:
     """
-    Sort texts by language model perplexity.
+    Sort texts by how typical a language model finds them.
 
-    Perplexity measures how "surprised" a language model is by the text.
-    Lower perplexity indicates more typical/predictable text, higher
-    perplexity indicates unusual or difficult text.
+    A causal LM is run over each text to measure how "surprised" it is. Two
+    scoring modes are offered (see ``scoring``); both rank the same way — typical
+    text is ordered before unusual text — but they put different things in the
+    difficult tail, so the returned score values differ.
 
-    Useful for adversarial splits: train on typical text, test on unusual text.
+    Useful for adversarial / curriculum splits: train on typical text, test on
+    unusual text. Pair with :func:`splytters.sorted_stratified_split` to build
+    "Likelihood Splits" (train on the high-likelihood head, test on the tail).
 
     Args:
         texts: list of strings to score
         model: HuggingFace causal LM (defaults to GPT-2 if None)
         tokenizer: HuggingFace tokenizer (defaults to GPT-2 if None)
-        low_first: if True, typical/predictable texts first;
-                   if False, unusual/surprising texts first
+        low_first: if True, typical/predictable texts first; if False,
+            unusual/surprising texts first. The ordering is by *typicality*, so
+            this holds for both scoring modes despite their opposite raw-value
+            directions.
+        scoring: how to score each text.
+            - ``"perplexity"`` (default): ``exp`` of the mean per-token negative
+              log-likelihood. Length-normalized; *lower* is more typical.
+            - ``"log_likelihood"``: total (un-normalized) log-likelihood summed
+              over the predicted tokens; *higher* is more typical. This is the
+              score used by Likelihood Splits (Godbole & Jia, 2023).
 
     Returns:
-        List of (index, perplexity) tuples sorted by perplexity.
-        Texts too short to score receive perplexity of infinity.
+        List of ``(index, score)`` tuples in the chosen metric's natural units,
+        ordered by typicality per ``low_first``. Texts too short to score receive
+        the most-difficult sentinel (``+inf`` perplexity / ``-inf``
+        log-likelihood), so they always land in the tail.
+
+    Raises:
+        ValueError: if ``scoring`` is not ``"perplexity"`` or ``"log_likelihood"``.
+
+    References:
+        Godbole & Jia (2023), "Benchmarking Long-tail Generalization with
+        Likelihood Splits," Findings of the ACL: EACL, pp. 963-983 —
+        https://aclanthology.org/2023.findings-eacl.71 . They split datasets by
+        LM likelihood (head -> train, tail -> test). Note they deliberately use
+        *total log-likelihood* rather than perplexity: perplexity normalizes for
+        length and over-corrects toward short examples in the tail (their fn. 3).
+        Use ``scoring="log_likelihood"`` to reproduce their choice.
     """
+    if scoring not in ("perplexity", "log_likelihood"):
+        raise ValueError(
+            f"scoring must be 'perplexity' or 'log_likelihood', got {scoring!r}"
+        )
+
     import torch
     from transformers import GPT2LMHeadModel, GPT2TokenizerFast
 
@@ -210,24 +264,38 @@ def perplexity_score(
         model.eval()
 
     device = next(model.parameters()).device
-    scores = []
 
+    # Texts too short to score sort into the difficult tail regardless of mode:
+    # maximal perplexity (+inf) or minimal log-likelihood (-inf).
+    unscorable = float("inf") if scoring == "perplexity" else float("-inf")
+
+    scores = []
     with torch.no_grad():
         for i, text in enumerate(texts):
             encodings = tokenizer(text, return_tensors="pt").to(device)
             input_ids = encodings.input_ids
 
             if input_ids.size(1) < 2:
-                # Too short to compute perplexity
-                scores.append((i, float("inf")))
+                # Too short to compute a per-token loss
+                scores.append((i, unscorable))
                 continue
 
             outputs = model(input_ids, labels=input_ids)
-            loss = outputs.loss.item()
-            perplexity = torch.exp(torch.tensor(loss)).item()
-            scores.append((i, perplexity))
+            loss = outputs.loss.item()  # mean per-token negative log-likelihood
+            if scoring == "perplexity":
+                score = torch.exp(torch.tensor(loss)).item()
+            else:
+                n_tokens = input_ids.size(1) - 1  # number of predicted tokens
+                score = -loss * n_tokens  # total log-likelihood
+            scores.append((i, score))
 
-    scores.sort(key=lambda p: p[1], reverse=not low_first)
+    # Sort by difficulty (higher == more atypical/tail) so that low_first means
+    # typical-first in both modes: high perplexity == low log-likelihood == hard.
+    def difficulty(pair: tuple[int, float]) -> float:
+        score = pair[1]
+        return score if scoring == "perplexity" else -score
+
+    scores.sort(key=difficulty, reverse=not low_first)
     return scores
 
 

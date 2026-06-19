@@ -5,11 +5,14 @@ import pytest
 
 from splytters.adversarial import (
     centroid_adversarial_split,
+    cluster_kfold,
     cluster_split,
     density_adversarial_split,
     distance_adversarial_split,
     get_cluster_info,
     min_cut_split,
+    minority_split,
+    mmd_maximized_split,
     normalized_cut_split,
     outlier_adversarial_split,
     wasserstein_adversarial_split,
@@ -205,6 +208,190 @@ class TestClusterSplit:
     def test_invalid_method(self, embeddings_small):
         with pytest.raises(ValueError, match="Unknown clustering method"):
             cluster_split(embeddings_small, method="invalid")
+
+
+class TestClusterSplitStrategies:
+    """The strategy= assignment policies on cluster_split."""
+
+    @pytest.fixture
+    def labels(self):
+        # Two classes, evenly interleaved across the 100 points.
+        return np.array([0, 1] * 50)
+
+    def test_unknown_strategy_raises(self, embeddings_2d):
+        with pytest.raises(ValueError, match="Unknown strategy"):
+            cluster_split(embeddings_2d, strategy="bogus")
+
+    def test_centroid_strategy_matches_wrapper(self, embeddings_2d):
+        """strategy='centroid' must equal the centroid_adversarial_split wrapper."""
+        a_tr, a_te = cluster_split(embeddings_2d, n_clusters=5, strategy="centroid")
+        b_tr, b_te = centroid_adversarial_split(embeddings_2d, n_clusters=5)
+        assert np.array_equal(a_tr, b_tr)
+        assert np.array_equal(a_te, b_te)
+
+    def test_closest_strategy_valid(self, embeddings_2d):
+        train, test = cluster_split(embeddings_2d, n_clusters=8, strategy="closest")
+        assert_valid_split(train, test, len(embeddings_2d), ratio_tol=0.25)
+
+    def test_subset_sum_requires_y(self, embeddings_2d):
+        with pytest.raises(ValueError, match="requires class labels"):
+            cluster_split(embeddings_2d, strategy="subset_sum")
+
+    def test_subset_sum_y_length_mismatch(self, embeddings_2d):
+        with pytest.raises(ValueError, match="length"):
+            cluster_split(
+                embeddings_2d, strategy="subset_sum", y=np.array([0, 1, 0])
+            )
+
+    def test_subset_sum_valid_and_class_balanced(self, embeddings_2d, labels):
+        train, test = cluster_split(
+            embeddings_2d, n_clusters=8, strategy="subset_sum", y=labels
+        )
+        assert_valid_split(train, test, len(embeddings_2d), ratio_tol=0.4)
+        # Test-set class proportions should track the global proportions.
+        global_p = labels.mean()
+        test_p = labels[test].mean()
+        assert abs(test_p - global_p) < 0.2
+
+
+class TestClusterKFold:
+    """Challenging clustering-based cross-validation folds."""
+
+    @pytest.fixture
+    def labels(self):
+        return np.array([0, 1] * 50)
+
+    def test_returns_valid_fold_ids(self, embeddings_2d, labels):
+        folds = cluster_kfold(embeddings_2d, labels, n_folds=5)
+        assert folds.shape == (len(embeddings_2d),)
+        assert set(folds.tolist()) <= set(range(5))
+
+    def test_all_folds_nonempty(self, embeddings_2d, labels):
+        folds = cluster_kfold(embeddings_2d, labels, n_folds=5)
+        assert set(folds.tolist()) == set(range(5))
+
+    def test_folds_partition_via_predefined_split(self, embeddings_2d, labels):
+        from sklearn.model_selection import PredefinedSplit
+
+        folds = cluster_kfold(embeddings_2d, labels, n_folds=5)
+        ps = PredefinedSplit(folds)
+        assert ps.get_n_splits() == 5
+        seen: set[int] = set()
+        for _, test_idx in ps.split():
+            assert not (seen & set(test_idx.tolist())), "test folds overlap"
+            seen |= set(test_idx.tolist())
+        assert seen == set(range(len(embeddings_2d))), "folds don't cover all samples"
+
+    def test_folds_are_label_balanced(self, embeddings_2d, labels):
+        folds = cluster_kfold(embeddings_2d, labels, n_folds=5)
+        global_p = labels.mean()
+        for k in range(5):
+            fold_p = labels[folds == k].mean()
+            assert abs(fold_p - global_p) < 0.2
+
+    def test_deterministic(self, embeddings_2d, labels):
+        a = cluster_kfold(embeddings_2d, labels, n_folds=4, random_state=1)
+        b = cluster_kfold(embeddings_2d, labels, n_folds=4, random_state=1)
+        assert np.array_equal(a, b)
+
+    def test_y_length_mismatch_raises(self, embeddings_2d):
+        with pytest.raises(ValueError, match="length"):
+            cluster_kfold(embeddings_2d, np.array([0, 1, 0]), n_folds=3)
+
+    def test_bad_n_folds_raises(self, embeddings_2d, labels):
+        with pytest.raises(ValueError, match="n_folds"):
+            cluster_kfold(embeddings_2d, labels, n_folds=1)
+
+    def test_too_few_clusters_raises(self, embeddings_2d, labels):
+        with pytest.raises(ValueError, match="at least"):
+            cluster_kfold(embeddings_2d, labels, n_folds=5, n_clusters=3)
+
+    def test_unknown_method_raises(self, embeddings_2d, labels):
+        with pytest.raises(ValueError, match="Unknown clustering method"):
+            cluster_kfold(embeddings_2d, labels, method="nope")
+
+
+class TestMinoritySplit:
+    """Bias-amplified split via per-cluster minority labels (Reif & Schwartz, 2023)."""
+
+    @pytest.fixture
+    def biased_data(self):
+        """Two well-separated blobs, each dominated by one label with a few
+        minority-label instances planted in."""
+        rng = np.random.RandomState(0)
+        a = rng.randn(20, 2) * 0.2 + np.array([5, 5])
+        ya = np.array([0] * 18 + [1] * 2)  # blob A: majority 0, minority {18,19}
+        b = rng.randn(20, 2) * 0.2 + np.array([-5, -5])
+        yb = np.array([1] * 18 + [0] * 2)  # blob B: majority 1, minority {38,39}
+        X = np.vstack([a, b])
+        y = np.concatenate([ya, yb])
+        return X, y
+
+    def test_routes_cluster_minority_labels_to_test(self, biased_data):
+        X, y = biased_data
+        train, test = minority_split(X, y, n_clusters=2, random_state=0)
+        assert set(test.tolist()) == {18, 19, 38, 39}
+        # A full partition of all samples (no overlap, full cover).
+        assert set(train.tolist()) | set(test.tolist()) == set(range(40))
+        assert not (set(train.tolist()) & set(test.tolist()))
+
+    def test_deterministic(self, biased_data):
+        X, y = biased_data
+        a = minority_split(X, y, n_clusters=2, random_state=0)
+        b = minority_split(X, y, n_clusters=2, random_state=0)
+        assert _splits_equal(a, b)
+
+    def test_label_pure_clusters_raise(self):
+        rng = np.random.RandomState(1)
+        X = np.vstack([rng.randn(20, 2) + [5, 5], rng.randn(20, 2) + [-5, -5]])
+        y = np.zeros(40, dtype=int)  # single label everywhere -> no minority
+        with pytest.raises(ValueError, match="no minority examples"):
+            minority_split(X, y, n_clusters=2)
+
+    def test_y_length_mismatch_raises(self, embeddings_2d):
+        with pytest.raises(ValueError, match="length"):
+            minority_split(embeddings_2d, np.array([0, 1, 0]))
+
+    def test_unknown_method_raises(self, embeddings_2d):
+        y = np.array([0, 1] * 50)
+        with pytest.raises(ValueError, match="Unknown clustering method"):
+            minority_split(embeddings_2d, y, method="nope")
+
+
+class TestMMDMaximizedSplit:
+    """Adversarial dual of mmd_minimized_split (Napoli & White, 2025)."""
+
+    @staticmethod
+    def _mmd(emb, train, test):
+        gamma = 1.0 / emb.shape[1]
+        from scipy.spatial.distance import cdist
+
+        def k(a, b):
+            return np.exp(-gamma * cdist(a, b, "sqeuclidean"))
+
+        T, S = emb[train], emb[test]
+        m, n = len(T), len(S)
+        return (
+            k(T, T).sum() / (m * m)
+            + k(S, S).sum() / (n * n)
+            - 2 * k(T, S).sum() / (m * n)
+        )
+
+    def test_valid_split(self, embeddings_2d):
+        train, test = mmd_maximized_split(embeddings_2d)
+        assert_valid_split(train, test, len(embeddings_2d))
+
+    def test_higher_mmd_than_minimized(self, embeddings_2d):
+        tr_max, te_max = mmd_maximized_split(embeddings_2d, n_iterations=500)
+        tr_min, te_min = mmd_minimized_split(embeddings_2d, n_iterations=500)
+        assert self._mmd(embeddings_2d, tr_max, te_max) > self._mmd(
+            embeddings_2d, tr_min, te_min
+        )
+
+    def test_deterministic(self, embeddings_2d):
+        a = mmd_maximized_split(embeddings_2d, random_state=3)
+        b = mmd_maximized_split(embeddings_2d, random_state=3)
+        assert _splits_equal(a, b)
 
 
 class TestCentroidAdversarialSplit:
