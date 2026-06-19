@@ -2,12 +2,15 @@
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from splytters.sorters.audio_sorters import (
     beat_strength,
     # Quality
     compression_ratio,
+    # Duration / Length
+    duration,
     dynamic_range,
     fundamental_frequency,
     harmonic_ratio,
@@ -39,6 +42,39 @@ def get_audio_path(name):
 def get_sorted_names(results, audios):
     """Extract audio names from sorted results."""
     return [audios[idx].stem for idx, *_ in results]
+
+
+class TestDuration:
+    """Tests for duration function (uses synthetic arrays, no librosa needed)."""
+
+    def test_orders_short_before_long(self):
+        sr = 22050
+        audios = [
+            (np.zeros(sr * 3), sr),  # 3s
+            (np.zeros(sr * 1), sr),  # 1s
+            (np.zeros(sr * 2), sr),  # 2s
+        ]
+        order = [idx for idx, _ in duration(audios, low_first=True)]
+        assert order == [1, 2, 0]
+
+    def test_orders_long_before_short(self):
+        sr = 22050
+        audios = [(np.zeros(sr), sr), (np.zeros(sr * 2), sr)]
+        order = [idx for idx, _ in duration(audios, low_first=False)]
+        assert order == [1, 0]
+
+    def test_reports_seconds(self):
+        sr = 16000
+        results = duration([(np.zeros(sr * 2), sr)])
+        assert results[0][1] == pytest.approx(2.0)
+
+    def test_returns_correct_structure(self):
+        sr = 22050
+        results = duration([(np.zeros(sr), sr), (np.zeros(sr * 2), sr)])
+        assert len(results) == 2
+        for idx, value in results:
+            assert isinstance(idx, int)
+            assert isinstance(value, float)
 
 
 class TestMeanAmplitude:

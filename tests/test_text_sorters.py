@@ -282,6 +282,36 @@ class TestPerplexityScore:
         # Normal sentence should be first
         assert indices[0] == 0
 
+    def test_invalid_scoring_raises(self, texts):
+        """An unknown scoring mode should raise ValueError (no model load)."""
+        with pytest.raises(ValueError, match="scoring must be"):
+            perplexity_score(texts, scoring="bogus")
+
+    @pytest.mark.slow
+    def test_log_likelihood_orders_typical_first(self, texts):
+        """log_likelihood mode ranks by typicality too: normal text first."""
+        result = perplexity_score(texts, low_first=True, scoring="log_likelihood")
+        indices = [idx for idx, _ in result]
+        assert indices[0] == 0
+
+    @pytest.mark.slow
+    def test_log_likelihood_normal_text_more_likely(self, texts):
+        """Normal text should have higher total log-likelihood than nonsense."""
+        result = perplexity_score(texts, scoring="log_likelihood")
+        scores = {idx: ll for idx, ll in result}
+        assert scores[0] > scores[2]
+
+    @pytest.mark.slow
+    def test_log_likelihood_short_text_gets_neg_infinity(self):
+        """Unscorable text gets -inf (tail) under log_likelihood scoring."""
+        result = perplexity_score(
+            ["a", "The cat sat on the mat."], scoring="log_likelihood"
+        )
+        scores = {idx: ll for idx, ll in result}
+        assert scores[0] == float("-inf")
+        # ...and -inf sorts to the difficult tail, not the typical head.
+        assert result[-1][0] == 0
+
 
 class TestReadabilityScore:
     """Tests for readability_score function."""

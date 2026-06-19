@@ -15,11 +15,14 @@ Modules:
 from splytters._types import Splitter
 from splytters.adversarial import (
     centroid_adversarial_split,
+    cluster_kfold,
     cluster_split,
     density_adversarial_split,
     distance_adversarial_split,
     get_cluster_info,
     min_cut_split,
+    minority_split,
+    mmd_maximized_split,
     normalized_cut_split,
     outlier_adversarial_split,
     wasserstein_adversarial_split,
@@ -91,7 +94,11 @@ __all__ = [
     "min_cut_split",
     "normalized_cut_split",
     "wasserstein_adversarial_split",
+    "mmd_maximized_split",
+    "minority_split",
     "get_cluster_info",
+    # Clustering-based challenging cross-validation (returns per-sample fold ids)
+    "cluster_kfold",
     # Overlap (maximize similarity)
     "cluster_leak_split",
     "neighbor_coverage_split",
@@ -154,6 +161,8 @@ _SPLITTER_FAMILIES: dict[str, list[str]] = {
         "min_cut_split",
         "normalized_cut_split",
         "wasserstein_adversarial_split",
+        "mmd_maximized_split",
+        "minority_split",
     ],
     "overlap": [
         "cluster_leak_split",

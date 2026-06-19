@@ -259,6 +259,13 @@ def mmd_minimized_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    References:
+        The adversarial dual -- *maximizing* train/validation MMD for robust
+        model selection under domain shift -- is studied by Napoli & White
+        (2025), "Clustering-Based Validation Splits for Model Selection under
+        Domain Shift," TMLR (https://openreview.net/forum?id=Q692C0WtiD). See
+        :func:`splytters.mmd_maximized_split`.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     n_dims = embeddings.shape[1]
