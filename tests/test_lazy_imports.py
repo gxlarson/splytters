@@ -5,10 +5,16 @@ Pillow, librosa, pandas) are imported lazily — inside the functions that use
 them, or via the LazyModule proxy — so a sorter module imports (and the
 dependency-free sorters run) even when the extra isn't installed.
 
-Each check blocks the dep(s) in a fresh interpreter (``sys.modules[dep] = None``
-makes ``import dep`` raise ImportError) and confirms the module still imports.
-This is immune to transitive imports (e.g. scikit-learn pulls in pandas when it
-happens to be installed).
+Each check blocks the dep(s) in a fresh interpreter (a ``sys.meta_path`` finder
+makes ``import dep`` raise ``ModuleNotFoundError``) and confirms the module still
+imports. This is immune to transitive imports (e.g. scikit-learn pulls in pandas
+when it happens to be installed).
+
+Blocking via a meta-path finder rather than ``sys.modules[dep] = None`` matters:
+the ``None`` sentinel leaves the name *present* in ``sys.modules``, so libraries
+that probe ``"torch" in sys.modules`` (e.g. scipy.stats via array_api_compat at
+import time) mistake it for an imported module and crash on ``getattr(None, ...)``.
+The finder leaves ``sys.modules`` untouched, faithfully simulating "not installed".
 """
 
 import subprocess
@@ -28,8 +34,20 @@ MODALITY_DEPS = {
 
 
 def _run_with_deps_blocked(heavy: tuple[str, ...], body: str) -> subprocess.CompletedProcess:
-    blocks = "; ".join(f"sys.modules[{d!r}] = None" for d in heavy)
-    code = f"import sys; {blocks}; {body}; print('ok')"
+    # Install a meta-path finder that raises on import of any blocked top-level
+    # package, without touching sys.modules (see module docstring).
+    code = (
+        "import sys, importlib.abc\n"
+        "class _Block(importlib.abc.MetaPathFinder):\n"
+        f"    _names = set({list(heavy)!r})\n"
+        "    def find_spec(self, name, path=None, target=None):\n"
+        "        if name.split('.')[0] in self._names:\n"
+        "            raise ModuleNotFoundError('blocked for test: ' + name)\n"
+        "        return None\n"
+        "sys.meta_path.insert(0, _Block())\n"
+        f"{body}\n"
+        "print('ok')\n"
+    )
     return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
 
 
