@@ -122,13 +122,19 @@ def _labeled_blobs(centers, n, std, seed):
     return np.concatenate(parts), np.array(labels)
 
 
-def make_bimodal_labeled(n=500, centers=((-3, 0), (3, 0)), std=0.8, seed=42):
-    """Two separated Gaussian blobs, labeled by blob."""
+def make_bimodal_labeled(n=500, centers=((-1.8, 0), (1.8, 0)), std=1.4, seed=42):
+    """Two overlapping Gaussian blobs, labeled by blob.
+
+    Deliberately overlapping (unlike the unlabeled ``make_bimodal``) so the
+    classes share a contested boundary region -- which is what makes the
+    label-aware splitters interesting, and lets cluster-based ones like
+    ``minority_split`` find label-mixed clusters instead of failing.
+    """
     return _labeled_blobs(centers, n, std, seed)
 
 
-def make_multimodal_labeled(n=600, n_clusters=4, radius=4.0, std=0.6, seed=42):
-    """Gaussian blobs arranged in a circle, labeled by blob."""
+def make_multimodal_labeled(n=600, n_clusters=4, radius=2.5, std=0.9, seed=42):
+    """Overlapping Gaussian blobs arranged in a circle, labeled by blob."""
     angles = np.linspace(0, 2 * np.pi, n_clusters, endpoint=False)
     centers = [(radius * np.cos(a), radius * np.sin(a)) for a in angles]
     return _labeled_blobs(centers, n, std, seed)
