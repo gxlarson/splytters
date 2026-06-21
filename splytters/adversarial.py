@@ -570,6 +570,99 @@ def minority_split(
     return as_index_array(sorted(train)), as_index_array(sorted(test))
 
 
+def minority_grow_split(
+    embeddings: ArrayLike,
+    y: ArrayLike,
+    train_size: float | int = 0.7,
+    n_clusters: int = 10,
+    method: str = "kmeans",
+    metric: str = "euclidean",
+    random_state: int = 42,
+    **cluster_kwargs: Any,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Region-grown variant of :func:`minority_split` with a target test size.
+
+    Seeds the test set with the per-cluster minority-label ("anti-biased")
+    instances found by :func:`minority_split`, then greedily grows it: at each
+    step the not-yet-test sample *closest* to the current test set (single-link
+    distance to its nearest test member) is moved to test, until the test set
+    reaches the ``train_size``-implied target. This keeps the hard, bias-defying
+    flavor of the minority seed while letting you dial the test fraction --
+    unlike :func:`minority_split`, whose size is dictated by the data and is
+    often degenerately small.
+
+    Args:
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        y: class labels of shape (n_samples,)
+        train_size: fraction in (0, 1) or absolute count for the training set;
+            sets the target test size (``n_samples - n_train``).
+        n_clusters: number of clusters for the minority seed (kmeans only)
+        method: clustering algorithm for the seed, 'kmeans' or 'dbscan'
+        metric: distance metric (``scipy.spatial.distance.cdist``) for growing
+        random_state: for reproducibility of the clustering seed
+        **cluster_kwargs: passed to the seed clustering algorithm
+
+    Returns:
+        train_indices: ndarray of indices for the training set
+        test_indices: ndarray of indices for the test set (the minority seed plus
+            its grown neighborhood). If the seed already meets or exceeds the
+            target size, it is returned as-is (test may exceed the target).
+
+    Raises:
+        ValueError: on an unknown ``method``, a ``y``/embeddings length mismatch,
+            or if the seed is empty (every cluster is label-pure -- see
+            :func:`minority_split`).
+
+    References:
+        Extends the bias-amplified minority seed of Reif & Schwartz (2023); see
+        :func:`minority_split`. The proximity growth is the single-linkage region
+        growth also used by ``cluster_split(strategy="closest")``.
+    """
+    embeddings = validate_split_inputs(embeddings, train_size)
+    y = np.asarray(y)
+    n_samples = len(embeddings)
+    if len(y) != n_samples:
+        raise ValueError(f"y has length {len(y)} but embeddings has {n_samples} rows")
+
+    # Seed with minority_split; suppress its degenerate-size warning since the
+    # whole point here is to grow that seed to a usable size.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        _, seed = minority_split(
+            embeddings,
+            y,
+            n_clusters=n_clusters,
+            method=method,
+            random_state=random_state,
+            **cluster_kwargs,
+        )
+
+    test_mask = np.zeros(n_samples, dtype=bool)
+    test_mask[seed] = True
+
+    target_n_test = n_samples - resolve_n_train(n_samples, train_size)
+    target_n_test = max(1, min(target_n_test, n_samples - 1))
+
+    if test_mask.sum() < target_n_test:
+        # min_dist[i] = distance from sample i to its nearest current test member.
+        min_dist = cdist(embeddings, embeddings[test_mask], metric=metric).min(axis=1)
+        min_dist[test_mask] = np.inf  # already in test
+        while test_mask.sum() < target_n_test:
+            cand = int(np.argmin(min_dist))  # nearest non-test sample to the test set
+            test_mask[cand] = True
+            d_new = cdist(embeddings, embeddings[cand : cand + 1], metric=metric)[:, 0]
+            min_dist = np.minimum(min_dist, d_new)
+            # Re-mask *all* test members: np.minimum above can revive a previously
+            # selected point whose distance to the new pick is small (near-duplicate),
+            # which would make argmin keep re-picking it and spin forever.
+            min_dist[test_mask] = np.inf
+
+    test_idx = np.flatnonzero(test_mask)
+    train_idx = np.flatnonzero(~test_mask)
+    return as_index_array(train_idx), as_index_array(test_idx)
+
+
 def _other_class_distance(
     embeddings: np.ndarray,
     members: np.ndarray,

@@ -12,6 +12,7 @@ from splytters.adversarial import (
     distance_adversarial_split,
     get_cluster_info,
     min_cut_split,
+    minority_grow_split,
     minority_split,
     mmd_maximized_split,
     normalized_cut_split,
@@ -368,6 +369,44 @@ class TestMinoritySplit:
         y = np.array([0, 1] * 50)
         with pytest.raises(ValueError, match="Unknown clustering method"):
             minority_split(embeddings_2d, y, method="nope")
+
+
+class TestMinorityGrowSplit:
+    """minority_split seed grown to a target test size by proximity."""
+
+    @pytest.fixture
+    def biased_data(self):
+        rng = np.random.RandomState(0)
+        a = rng.randn(20, 2) * 0.2 + np.array([5, 5])
+        ya = np.array([0] * 18 + [1] * 2)  # blob A: minorities {18,19}
+        b = rng.randn(20, 2) * 0.2 + np.array([-5, -5])
+        yb = np.array([1] * 18 + [0] * 2)  # blob B: minorities {38,39}
+        return np.vstack([a, b]), np.concatenate([ya, yb])
+
+    def test_grows_to_target_size(self, biased_data):
+        X, y = biased_data
+        train, test = minority_grow_split(X, y, train_size=0.7, n_clusters=2,
+                                          random_state=0)
+        assert_valid_split(train, test, len(X))
+        # target test = n - int(n * 0.7) = 40 - 28 = 12 (seed of 4 grown to 12).
+        assert len(test) == 12
+
+    def test_seed_is_subset_of_test(self, biased_data):
+        X, y = biased_data
+        # The 4 minority seeds must survive into the grown test set.
+        train, test = minority_grow_split(X, y, train_size=0.7, n_clusters=2,
+                                          random_state=0)
+        assert {18, 19, 38, 39}.issubset(set(test.tolist()))
+
+    def test_deterministic(self, biased_data):
+        X, y = biased_data
+        a = minority_grow_split(X, y, n_clusters=2, random_state=0)
+        b = minority_grow_split(X, y, n_clusters=2, random_state=0)
+        assert _splits_equal(a, b)
+
+    def test_y_length_mismatch_raises(self, embeddings_2d):
+        with pytest.raises(ValueError, match="length"):
+            minority_grow_split(embeddings_2d, np.array([0, 1, 0]))
 
 
 class TestClassBoundarySplit:
