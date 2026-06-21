@@ -74,6 +74,9 @@ from splytters.sklearn_api import (
 
 # Sorter introspection (lazily imported; listing pulls in no optional deps).
 from splytters.sorters import list_sorters
+
+# Stratified application of any embedding splitter / sorter (per-class).
+from splytters.stratify import per_class_sort, per_class_split
 from splytters.utils import (
     cluster_embeddings,
     compute_centroid,
@@ -120,6 +123,9 @@ __all__ = [
     "random_split",
     # Curriculum (ordering-driven; pair with a splytters.sorters ranking)
     "sorted_stratified_split",
+    # Stratify any embedding splitter / sorter by class (coverage-safe wrappers)
+    "per_class_split",
+    "per_class_sort",
     # Utilities
     "compute_pairwise_distances",
     "compute_centroid",
