@@ -63,9 +63,6 @@ from splytters.overlap import (
 # Split-quality reporting (how adversarial/overlapping/balanced is a split?).
 from splytters.report import compare_splitters, split_report
 
-# Stratified application of any embedding splitter / sorter (per-class).
-from splytters.stratify import per_class_sort, per_class_split
-
 # scikit-learn compatibility layer (CV protocol + train_test_split convenience).
 from splytters.sklearn_api import (
     SplytterSplit,
@@ -77,6 +74,9 @@ from splytters.sklearn_api import (
 
 # Sorter introspection (lazily imported; listing pulls in no optional deps).
 from splytters.sorters import list_sorters
+
+# Stratified application of any embedding splitter / sorter (per-class).
+from splytters.stratify import per_class_sort, per_class_split
 from splytters.utils import (
     cluster_embeddings,
     compute_centroid,

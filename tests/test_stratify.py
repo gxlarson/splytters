@@ -69,8 +69,8 @@ class TestPerClassSplit:
         rng = np.random.RandomState(1)
         X = np.vstack([rng.randn(40, 6), rng.randn(4, 6) + 20])
         y = np.array([0] * 40 + [1] * 4)
-        # on_error='raise' surfaces the KMeans failure...
-        with pytest.raises(Exception):
+        # on_error='raise' surfaces the KMeans failure (n_clusters > n_samples)...
+        with pytest.raises(ValueError):
             per_class_split(cluster_split, X, y, 0.7, on_error="raise", n_clusters=10)
         # ...while the default fallback keeps both classes covered.
         train, test = per_class_split(cluster_split, X, y, 0.7, n_clusters=10)
