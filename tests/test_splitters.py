@@ -5,6 +5,7 @@ import pytest
 
 from splytters.adversarial import (
     centroid_adversarial_split,
+    class_boundary_split,
     cluster_kfold,
     cluster_split,
     density_adversarial_split,
@@ -356,6 +357,65 @@ class TestMinoritySplit:
         y = np.array([0, 1] * 50)
         with pytest.raises(ValueError, match="Unknown clustering method"):
             minority_split(embeddings_2d, y, method="nope")
+
+
+class TestClassBoundarySplit:
+    """Class-stratified boundary split: per-class confusable samples -> test."""
+
+    @pytest.fixture
+    def two_lines(self):
+        """Two classes on a line; within each, the samples nearest the *other*
+        class are the boundary samples that should land in test.
+
+        class 0: x = 0..9   (indices 0-9; large x = near class 1)
+        class 1: x = 11..20 (indices 10-19; small x = near class 0)
+        With train_size=0.7 each class sends its 3 nearest-the-boundary samples
+        to test: {7,8,9} from class 0 and {10,11,12} from class 1.
+        """
+        x = np.concatenate([np.arange(0, 10), np.arange(11, 21)]).astype(float)
+        X = np.column_stack([x, np.zeros_like(x)])
+        y = np.array([0] * 10 + [1] * 10)
+        return X, y
+
+    def test_routes_boundary_samples_to_test(self, two_lines):
+        X, y = two_lines
+        train, test = class_boundary_split(X, y, train_size=0.7, reference="centroids")
+        assert_valid_split(train, test, len(X))
+        assert set(test.tolist()) == {7, 8, 9, 10, 11, 12}
+
+    def test_test_set_is_stratified(self, two_lines):
+        X, y = two_lines
+        _, test = class_boundary_split(X, y, train_size=0.7)
+        # Each class contributes the same number of samples to test.
+        per_class = [int((y[test] == k).sum()) for k in (0, 1)]
+        assert per_class == [3, 3]
+
+    def test_samples_reference_valid(self, two_lines):
+        X, y = two_lines
+        train, test = class_boundary_split(X, y, train_size=0.7, reference="samples")
+        assert_valid_split(train, test, len(X))
+        # Same geometry -> same boundary samples as the centroid reference.
+        assert set(test.tolist()) == {7, 8, 9, 10, 11, 12}
+
+    def test_deterministic(self, two_lines):
+        X, y = two_lines
+        a = class_boundary_split(X, y, random_state=0)
+        b = class_boundary_split(X, y, random_state=7)  # ignored; deterministic
+        assert _splits_equal(a, b)
+
+    def test_single_class_raises(self, two_lines):
+        X, _ = two_lines
+        with pytest.raises(ValueError, match="at least 2 distinct classes"):
+            class_boundary_split(X, np.zeros(len(X), dtype=int))
+
+    def test_y_length_mismatch_raises(self, embeddings_2d):
+        with pytest.raises(ValueError, match="length"):
+            class_boundary_split(embeddings_2d, np.array([0, 1, 0]))
+
+    def test_unknown_reference_raises(self, two_lines):
+        X, y = two_lines
+        with pytest.raises(ValueError, match="reference must be"):
+            class_boundary_split(X, y, reference="nope")
 
 
 class TestMMDMaximizedSplit:

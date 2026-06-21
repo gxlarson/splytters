@@ -101,6 +101,79 @@ def make_clustered_outliers(n=500, n_outliers=30, seed=42):
     return np.concatenate([main, outliers])
 
 
+# ---------------------------------------------------------------------------
+# Labeled variants: return (X, y) for distributions with a natural class
+# structure, so supervised splitters (which need labels) can be visualized.
+# See demos/visualize_supervised_splits.py.
+# ---------------------------------------------------------------------------
+
+
+def _labeled_blobs(centers, n, std, seed):
+    """Gaussian blobs with one class label per center."""
+    rng = np.random.default_rng(seed)
+    k = len(centers)
+    counts = [n // k] * k
+    for i in range(n - sum(counts)):  # distribute any remainder
+        counts[i] += 1
+    parts, labels = [], []
+    for cls, (center, count) in enumerate(zip(centers, counts, strict=True)):
+        parts.append(rng.normal(loc=center, scale=std, size=(count, 2)))
+        labels.extend([cls] * count)
+    return np.concatenate(parts), np.array(labels)
+
+
+def make_bimodal_labeled(n=500, centers=((-3, 0), (3, 0)), std=0.8, seed=42):
+    """Two separated Gaussian blobs, labeled by blob."""
+    return _labeled_blobs(centers, n, std, seed)
+
+
+def make_multimodal_labeled(n=600, n_clusters=4, radius=4.0, std=0.6, seed=42):
+    """Gaussian blobs arranged in a circle, labeled by blob."""
+    angles = np.linspace(0, 2 * np.pi, n_clusters, endpoint=False)
+    centers = [(radius * np.cos(a), radius * np.sin(a)) for a in angles]
+    return _labeled_blobs(centers, n, std, seed)
+
+
+def make_moons_labeled(n=500, noise=0.1, seed=42):
+    """Two interleaving half-circles, labeled by moon."""
+    rng = np.random.default_rng(seed)
+    per = n // 2
+    theta1 = np.linspace(0, np.pi, per)
+    theta2 = np.linspace(0, np.pi, n - per)
+    x1 = np.column_stack([np.cos(theta1), np.sin(theta1)])
+    x2 = np.column_stack([np.cos(theta2) + 0.5, -np.sin(theta2) + 0.5])
+    data = np.concatenate([x1, x2])
+    data += rng.normal(0, noise, data.shape)
+    y = np.array([0] * per + [1] * (n - per))
+    return data, y
+
+
+def make_spiral_labeled(n=500, noise=0.3, seed=42):
+    """Two interleaving spirals, labeled by spiral arm."""
+    rng = np.random.default_rng(seed)
+    per = n // 2
+    t = np.linspace(0, 3 * np.pi, per)
+    x1 = np.column_stack([t * np.cos(t), t * np.sin(t)])
+    x2 = np.column_stack([t * np.cos(t + np.pi), t * np.sin(t + np.pi)])
+    data = np.concatenate([x1, x2])
+    data += rng.normal(0, noise, data.shape)
+    y = np.array([0] * per + [1] * per)
+    return data, y
+
+
+def make_rings_labeled(n=600, radii=(1.0, 3.0), noise=0.2, seed=42):
+    """Concentric rings, labeled by ring."""
+    rng = np.random.default_rng(seed)
+    per = n // len(radii)
+    parts, labels = [], []
+    for cls, r in enumerate(radii):
+        theta = rng.uniform(0, 2 * np.pi, per)
+        rr = r + rng.normal(0, noise, per)
+        parts.append(np.column_stack([rr * np.cos(theta), rr * np.sin(theta)]))
+        labels.extend([cls] * per)
+    return np.concatenate(parts), np.array(labels)
+
+
 ALL_GENERATORS = {
     "unimodal": make_unimodal,
     "bimodal": make_bimodal,
@@ -112,6 +185,16 @@ ALL_GENERATORS = {
     "uniform_square": make_uniform_square,
     "density_gradient": make_density_gradient,
     "clustered_outliers": make_clustered_outliers,
+}
+
+
+# Labeled distributions -> (X, y). Only those with a natural class structure.
+LABELED_GENERATORS = {
+    "bimodal": make_bimodal_labeled,
+    "multimodal": make_multimodal_labeled,
+    "moons": make_moons_labeled,
+    "spiral": make_spiral_labeled,
+    "concentric_rings": make_rings_labeled,
 }
 
 

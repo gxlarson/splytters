@@ -547,6 +547,116 @@ def minority_split(
     return as_index_array(sorted(train)), as_index_array(sorted(test))
 
 
+def _other_class_distance(
+    embeddings: np.ndarray,
+    members: np.ndarray,
+    others: np.ndarray,
+    y: np.ndarray,
+    reference: str,
+    metric: str,
+) -> np.ndarray:
+    """Min distance from each class-``k`` member to a *different* class.
+
+    With ``reference="samples"`` this is the nearest-enemy distance (distance to
+    the closest sample of any other class); with ``reference="centroids"`` it is
+    the distance to the nearest other-class centroid (cheaper, O(n*K) vs O(n^2)).
+    """
+    if reference == "samples":
+        return cdist(embeddings[members], embeddings[others], metric=metric).min(axis=1)
+    # "centroids": one centroid per other class, then nearest among them.
+    other_labels = np.unique(y[others])
+    centroids = np.vstack(
+        [embeddings[others][y[others] == c].mean(axis=0) for c in other_labels]
+    )
+    return cdist(embeddings[members], centroids, metric=metric).min(axis=1)
+
+
+def class_boundary_split(
+    embeddings: ArrayLike,
+    y: ArrayLike,
+    train_size: float | int = 0.7,
+    metric: str = "euclidean",
+    reference: str = "centroids",
+    random_state: int = 42,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Class-stratified adversarial split on per-class decision boundaries.
+
+    Within each class, ranks samples by how close they sit to *other* classes
+    and routes the closest (most confusable, near-boundary) ones to the test set
+    until that class's test quota is filled. The remaining, more class-typical
+    samples go to train. Because the quota is applied per class, the test set
+    stays label-balanced (stratified) while still being hard: it concentrates the
+    examples a model is most likely to confuse across categories.
+
+    "Closeness to other classes" is measured by ``reference``:
+
+    - ``"centroids"`` (default): distance to the nearest *other* class centroid.
+      Cheap -- O(n*K) for K classes.
+    - ``"samples"``: nearest-enemy distance, i.e. distance to the single closest
+      sample belonging to any other class. Sharper boundaries, but O(n^2).
+
+    Args:
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        y: class labels of shape (n_samples,)
+        train_size: fraction in (0, 1) or absolute count, applied *per class* to
+            size each class's train portion. A fraction is recommended; an
+            absolute count is clamped to each class's size.
+        metric: distance metric passed to ``scipy.spatial.distance.cdist``
+        reference: ``"centroids"`` or ``"samples"`` (see above)
+        random_state: accepted for API consistency; this split is deterministic
+
+    Returns:
+        train_indices: ndarray of class-typical (interior) sample indices
+        test_indices: ndarray of near-boundary, cross-class-confusable indices
+
+    Raises:
+        ValueError: on a ``y``/embeddings length mismatch, an unknown
+            ``reference``, or fewer than two distinct classes (no "other class"
+            to measure distance to).
+
+    References:
+        A label-stratified, per-class variant of the adversarial-distance idea of
+        Søgaard, Ebert, Bastings & Filippova (2021), "We Need to Talk About
+        Random Splits," EACL (https://aclanthology.org/2021.eacl-main.156): hard
+        splits push dissimilar samples into test. Here "dissimilar" is measured
+        toward *other classes* rather than toward the training set, yielding a
+        boundary-focused test set; contrast :func:`distance_adversarial_split`
+        (unsupervised, distance from the global centroid).
+    """
+    embeddings = validate_split_inputs(embeddings, train_size)
+    y = np.asarray(y)
+    n_samples = len(embeddings)
+    if len(y) != n_samples:
+        raise ValueError(f"y has length {len(y)} but embeddings has {n_samples} rows")
+    if reference not in ("centroids", "samples"):
+        raise ValueError(f"reference must be 'centroids' or 'samples', got {reference!r}")
+
+    classes = np.unique(y)
+    if len(classes) < 2:
+        raise ValueError(
+            f"need at least 2 distinct classes for a boundary split, got {len(classes)}"
+        )
+
+    train: list[int] = []
+    test: list[int] = []
+    for k in classes:
+        members = np.flatnonzero(y == k)
+        others = np.flatnonzero(y != k)
+        n_train_k = min(resolve_n_train(len(members), train_size), len(members))
+        n_test_k = len(members) - n_train_k
+        if n_test_k <= 0:
+            train.extend(members.tolist())
+            continue
+        dist = _other_class_distance(embeddings, members, others, y, reference, metric)
+        # Closest to other classes first -> test; stable sort keeps ties deterministic.
+        order = np.argsort(dist, kind="stable")
+        test.extend(members[order[:n_test_k]].tolist())
+        train.extend(members[order[n_test_k:]].tolist())
+
+    return as_index_array(sorted(train)), as_index_array(sorted(test))
+
+
 def distance_adversarial_split(
     embeddings: ArrayLike,
     train_size: float | int = 0.7,
