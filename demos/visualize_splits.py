@@ -26,7 +26,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from generate_test_2d import ALL_GENERATORS  # noqa: E402
 
 # Splitters grouped by category. Each entry is (name, callable).
-# stratified_random_split is excluded because it requires labels.
+# Supervised splitters that require labels (minority_split, class_boundary_split,
+# stratified_random_split, ...) are excluded here -- see
+# visualize_supervised_splits.py for those.
 SPLITTER_GROUPS = {
     "baseline": [
         ("random", splytters.random_split),
@@ -39,6 +41,8 @@ SPLITTER_GROUPS = {
         ("outlier_adv", splytters.outlier_adversarial_split),
         ("min_cut", splytters.min_cut_split),
         ("normalized_cut", splytters.normalized_cut_split),
+        ("wasserstein_adv", splytters.wasserstein_adversarial_split),
+        ("mmd_max", splytters.mmd_maximized_split),
     ],
     "overlap": [
         ("cluster_leak", splytters.cluster_leak_split),
