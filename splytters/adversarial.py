@@ -7,6 +7,7 @@ dissimilar from training samples, testing model generalization.
 
 from __future__ import annotations
 
+import warnings
 from collections import defaultdict
 from typing import Any
 
@@ -26,6 +27,10 @@ from splytters.utils import (
     resolve_n_train,
     validate_split_inputs,
 )
+
+# Below this test-set fraction, minority_split's result is effectively
+# degenerate (clusters are nearly label-pure): warn rather than fail silently.
+_MINORITY_DEGENERATE_FRACTION = 0.05
 
 
 def _cluster_centroids(
@@ -494,6 +499,13 @@ def minority_split(
             or if no minority examples exist (every cluster is label-pure -- try
             a different ``n_clusters`` or embeddings).
 
+    Warns:
+        UserWarning: if the test set is degenerately small (under 5% of the
+            samples). The clusters are then nearly label-pure, so the split has
+            too few minority examples to be informative -- prefer a different
+            ``n_clusters`` or a ``train_size``-driven splitter such as
+            :func:`class_boundary_split`.
+
     References:
         Implements the "minority examples" notion of bias from Reif & Schwartz
         (2023), "Fighting Bias with Bias: Promoting Model Robustness by Amplifying
@@ -542,6 +554,17 @@ def minority_split(
         raise ValueError(
             "no minority examples found (every cluster is label-pure); "
             "try a different n_clusters or embeddings"
+        )
+
+    test_fraction = len(test) / n_samples
+    if test_fraction < _MINORITY_DEGENERATE_FRACTION:
+        warnings.warn(
+            f"minority_split produced a degenerate test set: {len(test)} of "
+            f"{n_samples} samples ({test_fraction:.1%}). The clusters are nearly "
+            "label-pure, so almost no 'minority' examples exist and this split is "
+            "likely uninformative. Try a different n_clusters, or a splitter with "
+            "an explicit train_size such as class_boundary_split.",
+            stacklevel=2,
         )
 
     return as_index_array(sorted(train)), as_index_array(sorted(test))
