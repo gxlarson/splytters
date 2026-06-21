@@ -1,30 +1,12 @@
-"""Per-class application of any embedding splitter or sorter.
+"""Apply any embedding splitter or sorter independently within each class.
 
-The adversarial / overlap / balanced splitters and the embedding sorters operate
-on the *whole* dataset: they cluster, rank, or measure each sample against all
-the others. For a labeled classification task that has a side effect you usually
-don't want:
-
-* a global **splitter** can send every sample of some classes to test, leaving
-  those classes *unseen at training time* -- so an accuracy drop conflates
-  genuine distribution shift with trivially-unlearnable missing classes;
-* a global **sorter** scores each sample against the *whole* dataset (e.g.
-  distance to the global centroid), so "easy" means typical-overall rather than
-  typical-for-its-class.
-
-Both are fixed the same way: apply the operation independently *within each
-class*. The grouping/remapping core is shared; the two public wrappers differ
-only in what their callable returns:
-
-* :func:`per_class_split` takes a splitter ``fn(X, train_size) -> (train, test)``
-  and returns a ``(train_idx, test_idx)`` partition.
-* :func:`per_class_sort` takes a sorter ``fn(data) -> [(idx, score), ...]`` and
-  returns a combined ranking of the same shape -- meaningful within each class,
-  ready to hand to :func:`splytters.sorted_stratified_split`.
-
-Either way every class with >= 1 sample stays in train (coverage 1.0), and every
-class with >= 2 samples is in both splits, so what's left is pure within-class
-structure along whatever axis the splitter/sorter targets.
+Global splitters/sorters measure each sample against the whole dataset, which on
+a labeled task can wipe whole classes out of train (a splitter) or rank by
+typical-overall rather than typical-for-its-class (a sorter). Both are fixed by
+operating per class: :func:`per_class_split` returns a ``(train_idx, test_idx)``
+partition, :func:`per_class_sort` a within-class ``[(idx, score), ...]`` ranking
+for :func:`splytters.sorted_stratified_split`. Every class with >= 1 sample stays
+in train (coverage 1.0), so only pure within-class structure is left.
 """
 
 from __future__ import annotations
