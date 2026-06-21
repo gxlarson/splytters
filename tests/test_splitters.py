@@ -349,6 +349,17 @@ class TestMinoritySplit:
         with pytest.raises(ValueError, match="no minority examples"):
             minority_split(X, y, n_clusters=2)
 
+    def test_degenerate_tiny_test_warns(self):
+        # Two well-separated, nearly label-pure blobs with a single planted
+        # minority -> a non-empty but degenerate (1-sample) test set.
+        rng = np.random.RandomState(0)
+        X = np.vstack([rng.randn(50, 2) * 0.1, rng.randn(50, 2) * 0.1 + [10, 0]])
+        y = np.array([0] * 50 + [1] * 50)
+        y[0] = 1  # one minority-label point inside the label-0 blob
+        with pytest.warns(UserWarning, match="degenerate test set"):
+            _, test = minority_split(X, y, n_clusters=2)
+        assert len(test) == 1
+
     def test_y_length_mismatch_raises(self, embeddings_2d):
         with pytest.raises(ValueError, match="length"):
             minority_split(embeddings_2d, np.array([0, 1, 0]))
