@@ -20,6 +20,7 @@ from sklearn.utils import check_random_state
 
 from splytters._types import Splitter
 from splytters.adversarial import get_cluster_info
+from splytters.metrics import diversity_text, mean_dist
 from splytters.utils import compute_split_similarity, validate_split_inputs
 
 
@@ -57,6 +58,7 @@ def split_report(
     test_indices: ArrayLike,
     y: ArrayLike | None = None,
     *,
+    texts: list[str] | None = None,
     metric: str = "euclidean",
     n_clusters: int = 10,
     max_samples: int | None = 2000,
@@ -69,6 +71,11 @@ def split_report(
     *more adversarial* (harder) split; values near a random split indicate a
     *balanced* split; near-zero indicates *overlap*.
 
+    Alongside these train↔test *distance* metrics, ``train_diversity`` and
+    ``test_diversity`` report the within-split *spread* (mean distance to each
+    side's own centroid) — useful for spotting when a split concentrates one
+    side (e.g. an adversarial test drawn from a single outlier cluster).
+
     Args:
         embeddings: array-like of shape (n_samples, n_features).
         train_indices: integer index array for the training split.
@@ -76,6 +83,10 @@ def split_report(
         y: array-like of labels, optional. If given, adds
             ``label_distribution_shift`` (total-variation distance between
             train/test class proportions; 0 = identical balance).
+        texts: per-sample raw strings, optional and aligned with ``embeddings``.
+            If given, adds ``train_text_diversity`` / ``test_text_diversity``
+            (mean pairwise n-gram distance within each side), subsampled to
+            ``max_samples`` for the O(n²) pairwise computation.
         metric: distance metric (default ``"euclidean"``).
         n_clusters: clusters used for the leakage statistic (default 10).
         max_samples: cap per side for the O(n²) distribution metrics
@@ -83,8 +94,8 @@ def split_report(
         random_state: seed for subsampling (default 42).
 
     Returns:
-        A dict of structural, geometric, distributional, and (optional) label
-        metrics.
+        A dict of structural, geometric, distributional, diversity, and
+        (optional) label metrics.
     """
     X = validate_split_inputs(embeddings, 0.5)  # reuse finite/2-D validation
     train_indices = np.asarray(train_indices, dtype=np.intp)
@@ -120,6 +131,23 @@ def split_report(
     report["ks_mean"] = float(
         np.mean([ks_2samp(A[:, d], B[:, d]).statistic for d in range(X.shape[1])])
     )
+
+    # Within-split diversity (spread): how varied is each side on its own.
+    report["train_diversity"] = mean_dist(X[train_indices])
+    report["test_diversity"] = mean_dist(X[test_indices])
+
+    # Optional text diversity: mean pairwise n-gram distance within each side.
+    if texts is not None:
+        texts = list(texts)
+        seed = random_state if isinstance(random_state, int) else 42
+        report["train_text_diversity"] = diversity_text(
+            [texts[i] for i in train_indices],
+            sample_size=max_samples, random_state=seed,
+        )
+        report["test_text_diversity"] = diversity_text(
+            [texts[i] for i in test_indices],
+            sample_size=max_samples, random_state=seed,
+        )
 
     # Label balance: total-variation distance between class proportions.
     if y is not None:

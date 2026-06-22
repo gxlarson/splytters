@@ -1,34 +1,49 @@
+"""
+Diversity metrics for split comparison.
+
+These quantify the *spread* of a set of samples — how varied train or test is
+on its own — complementing the train/test *distance* metrics in
+:mod:`splytters.report`. Used to compare split strategies (e.g. random vs
+adversarial) on coverage/diversity, not just separation.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
-from statistics import mean
 
 import numpy as np
 
-from splytters.distances import (
-    dist_euclidean,
-    ngram_jaccard_distance,
-)
+from splytters.distances import ngram_jaccard_distance
 
-
-def simple_tokenizer(s: str) -> list[str]:
-    return s.split()
 
 def mean_dist(
     embeddings: np.ndarray,
-    distance: Callable[[np.ndarray, np.ndarray], float] = dist_euclidean,
+    distance: Callable[[np.ndarray, np.ndarray], float] | None = None,
 ) -> float:
-    """
-    computes mean distance from all samples to the centroid
+    """Mean distance from each sample to the centroid — a spread/diversity score.
 
-    this is sample variance when euclidean distance is used
+    With the default (Euclidean) distance this is the mean L2 distance of points
+    to their centroid: larger means the set is more spread out. Pass a custom
+    symmetric ``distance(u, v)`` to override; the default path is vectorized.
+
+    Args:
+        embeddings: array of shape (n_samples, n_features).
+        distance: optional callable ``d(u, v) -> float``. If ``None`` (default),
+            uses a vectorized Euclidean distance.
+
+    Returns:
+        Mean distance to the centroid (``0.0`` for an empty set).
     """
-    (n, d) = embeddings.shape
-    centroid = embeddings.mean(0)
-    distances = []
-    for i in range(n):
-        distances.append(distance(centroid, embeddings[i]))
-    return mean(distances)
+    X = np.asarray(embeddings, dtype=float)
+    if X.ndim != 2:
+        raise ValueError("embeddings must be 2-D (n_samples, n_features)")
+    if len(X) == 0:
+        return 0.0
+    centroid = X.mean(axis=0)
+    if distance is None:
+        return float(np.linalg.norm(X - centroid, axis=1).mean())
+    return float(np.mean([distance(centroid, row) for row in X]))
+
 
 def diversity_text(
         data: list[str],
@@ -68,8 +83,3 @@ def diversity_text(
         for j in range(i + 1, n):
             tally += distance_function(X[i], X[j])
     return tally / (n * (n - 1) / 2)
-
-if __name__ == "__main__":
-    texts = ["how much money do i have", "my balance is what", "balance is my what"]
-    d = diversity_text(texts)
-    print(d)
