@@ -10,6 +10,7 @@ from splytters.adversarial import (
     class_boundary_split,
     cluster_kfold,
     cluster_split,
+    decision_boundary_split,
     density_adversarial_split,
     distance_adversarial_split,
     get_cluster_info,
@@ -542,6 +543,99 @@ class TestClassBoundarySplit:
         X, y = two_lines
         with pytest.raises(ValueError, match="reference must be"):
             class_boundary_split(X, y, reference="nope")
+
+
+class TestDecisionBoundarySplit:
+    """Supervised learned-boundary split: lowest-margin samples -> test."""
+
+    @pytest.fixture
+    def two_lines(self):
+        """Binary, separable along x; samples nearest x=10 are hardest."""
+        x = np.concatenate([np.arange(0, 10), np.arange(11, 21)]).astype(float)
+        X = np.column_stack([x, np.zeros_like(x)])
+        y = np.array([0] * 10 + [1] * 10)
+        return X, y
+
+    @pytest.fixture
+    def three_blobs(self):
+        rng = np.random.RandomState(0)
+        X = np.vstack([
+            rng.randn(30, 5) + np.array([4, 0, 0, 0, 0]),
+            rng.randn(30, 5) + np.array([0, 4, 0, 0, 0]),
+            rng.randn(30, 5) + np.array([0, 0, 4, 0, 0]),
+        ])
+        y = np.array([0] * 30 + [1] * 30 + [2] * 30)
+        return X, y
+
+    @pytest.mark.parametrize("model", ["linear_svc", "logistic"])
+    @pytest.mark.parametrize("stratify", ["per_class", "global"])
+    def test_valid_split_binary(self, two_lines, model, stratify):
+        X, y = two_lines
+        train, test = decision_boundary_split(
+            X, y, model=model, stratify=stratify, random_state=0
+        )
+        assert_valid_split(train, test, len(X), ratio_tol=0.1)
+
+    @pytest.mark.parametrize("model", ["linear_svc", "logistic"])
+    def test_valid_split_multiclass(self, three_blobs, model):
+        X, y = three_blobs
+        train, test = decision_boundary_split(X, y, model=model, random_state=0)
+        assert_valid_split(train, test, len(X), ratio_tol=0.1)
+
+    @pytest.mark.parametrize("model", ["linear_svc", "logistic"])
+    def test_boundary_samples_go_to_test(self, two_lines, model):
+        """The samples nearest the learned boundary (x=10) are the hardest."""
+        X, y = two_lines
+        _, test = decision_boundary_split(X, y, train_size=0.7, model=model)
+        assert set(test.tolist()) == {7, 8, 9, 10, 11, 12}
+
+    def test_per_class_is_label_balanced(self, three_blobs):
+        X, y = three_blobs
+        _, test = decision_boundary_split(X, y, train_size=0.7, stratify="per_class")
+        assert [int((y[test] == k).sum()) for k in (0, 1, 2)] == [9, 9, 9]
+
+    def test_entropy_score_with_logistic(self, three_blobs):
+        X, y = three_blobs
+        train, test = decision_boundary_split(
+            X, y, model="logistic", score="entropy", random_state=0
+        )
+        assert_valid_split(train, test, len(X), ratio_tol=0.1)
+
+    def test_deterministic(self, three_blobs):
+        X, y = three_blobs
+        assert _splits_equal(
+            decision_boundary_split(X, y, random_state=1),
+            decision_boundary_split(X, y, random_state=1),
+        )
+
+    def test_entropy_requires_logistic(self, two_lines):
+        X, y = two_lines
+        with pytest.raises(ValueError, match="entropy"):
+            decision_boundary_split(X, y, model="linear_svc", score="entropy")
+
+    def test_single_class_raises(self, two_lines):
+        X, _ = two_lines
+        with pytest.raises(ValueError, match="at least 2"):
+            decision_boundary_split(X, np.zeros(len(X), dtype=int))
+
+    def test_y_length_mismatch_raises(self, two_lines):
+        X, y = two_lines
+        with pytest.raises(ValueError, match="length"):
+            decision_boundary_split(X, y[:-1])
+
+    def test_class_too_small_to_hold_out_raises(self):
+        X = np.random.RandomState(0).randn(11, 3)
+        y = np.array([0] * 10 + [1])  # class 1 has a single sample
+        with pytest.raises(ValueError, match="2 samples"):
+            decision_boundary_split(X, y)
+
+    @pytest.mark.parametrize("kw", [
+        {"model": "x"}, {"score": "x"}, {"stratify": "x"},
+    ])
+    def test_unknown_options_raise(self, two_lines, kw):
+        X, y = two_lines
+        with pytest.raises(ValueError):
+            decision_boundary_split(X, y, **kw)
 
 
 class TestMMDMaximizedSplit:
