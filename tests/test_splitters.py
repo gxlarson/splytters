@@ -627,6 +627,63 @@ class TestMinCutSplit:
         with pytest.raises(ValueError, match="Unknown method"):
             min_cut_split(embeddings_small, method="invalid")
 
+    def test_spectral_eigsh_failure_falls_back_to_random(
+        self, embeddings_small, monkeypatch
+    ):
+        """If eigendecomposition raises, the split falls back to a random one."""
+        def boom(*args, **kwargs):
+            raise RuntimeError("eigsh failed")
+        monkeypatch.setattr("splytters.adversarial.eigsh", boom)
+        train, test = min_cut_split(embeddings_small, method="spectral")
+        assert_valid_split(train, test, len(embeddings_small), ratio_tol=0.3)
+
+    def test_stoer_wagner_connected_graph(self, embeddings_small):
+        """A zero threshold keeps all edges -> one connected component, so the
+        exact Stoer-Wagner partition path runs."""
+        pytest.importorskip("networkx")
+        train, test = min_cut_split(
+            embeddings_small, method="stoer_wagner", similarity_threshold=0.0
+        )
+        assert_valid_split(train, test, len(embeddings_small), ratio_tol=0.4)
+
+    def test_stoer_wagner_connected_small_train(self, embeddings_small):
+        """A small train_size makes the cut's first partition large enough to
+        fill train directly (the `len(set1) >= n_train` branch)."""
+        pytest.importorskip("networkx")
+        train, test = min_cut_split(
+            embeddings_small, train_size=0.1,
+            method="stoer_wagner", similarity_threshold=0.0,
+        )
+        assert_valid_split(
+            train, test, len(embeddings_small), train_size=0.1, ratio_tol=0.5,
+        )
+
+    def test_stoer_wagner_disconnected_graph(self):
+        """Two tight, far-apart clusters with a high similarity threshold yield
+        a disconnected graph, exercising the connected-components branch."""
+        pytest.importorskip("networkx")
+        rng = np.random.RandomState(0)
+        a = rng.randn(10, 2) * 0.1 + np.array([0, 0])
+        b = rng.randn(10, 2) * 0.1 + np.array([100, 100])
+        X = np.vstack([a, b])
+        train, test = min_cut_split(
+            X, method="stoer_wagner", similarity_threshold=0.9
+        )
+        assert_valid_split(train, test, len(X), ratio_tol=0.5)
+
+    def test_stoer_wagner_missing_networkx_raises(self, embeddings_small, monkeypatch):
+        """Without networkx, the stoer_wagner method raises a clear ImportError."""
+        import builtins
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "networkx":
+                raise ImportError("no networkx")
+            return real_import(name, *args, **kwargs)
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        with pytest.raises(ImportError, match="networkx is required"):
+            min_cut_split(embeddings_small, method="stoer_wagner")
+
 
 class TestNormalizedCutSplit:
 

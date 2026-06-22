@@ -478,6 +478,85 @@ class TestEdgeCases:
         assert scores[1] == 0.0
         assert scores[2] == 0.0
 
+    # --- NaN handling in z-score sorters ---
+
+    def test_column_zscore_nan_goes_to_inf(self):
+        """A NaN cell scores +inf and sorts to the end (low_first)."""
+        df = pd.DataFrame({'a': [10.0, 20.0, 30.0, np.nan]})
+        results = column_zscore(df, 'a')
+        assert results[-1][0] == 3 and results[-1][1] == float('inf')
+
+    def test_column_absolute_zscore_constant_column(self):
+        """std == 0 returns all-zero scores."""
+        df = pd.DataFrame({'a': [7.0, 7.0, 7.0]})
+        results = column_absolute_zscore(df, 'a')
+        assert all(score == 0.0 for _, score in results)
+
+    def test_column_absolute_zscore_nan_goes_to_inf(self):
+        df = pd.DataFrame({'a': [10.0, 20.0, 30.0, np.nan]})
+        results = column_absolute_zscore(df, 'a')
+        assert results[-1][1] == float('inf')
+
+    # --- no-numeric-column fallbacks (return all-zero) ---
+
+    @pytest.fixture
+    def text_only_df(self):
+        return pd.DataFrame({'x': ['a', 'b', 'c'], 'y': ['p', 'q', 'r']})
+
+    def test_row_sparsity_no_numeric(self, text_only_df):
+        assert all(s == 0.0 for _, s in row_sparsity(text_only_df))
+
+    def test_outlier_score_no_numeric(self, text_only_df):
+        assert all(s == 0.0 for _, s in outlier_score(text_only_df))
+
+    def test_numerical_range_score_no_numeric(self, text_only_df):
+        assert all(s == 0.0 for _, s in numerical_range_score(text_only_df))
+
+    def test_row_distance_to_mean_no_numeric(self, text_only_df):
+        assert all(s == 0.0 for _, s in row_distance_to_mean(text_only_df))
+
+    def test_feature_entropy_no_categorical(self):
+        """A purely numeric frame has no categorical columns."""
+        df = pd.DataFrame({'a': [1, 2, 3], 'b': [4, 5, 6]})
+        assert all(s == 0.0 for _, s in feature_entropy(df))
+
+    # --- LOF outlier method ---
+
+    def test_outlier_score_lof_method(self):
+        rng = np.random.RandomState(0)
+        df = pd.DataFrame(rng.randn(20, 3), columns=['a', 'b', 'c'])
+        results = outlier_score(df, method='lof', n_neighbors=5)
+        assert len(results) == 20
+
+    # --- NaN in categorical sorters ---
+
+    def test_categorical_rarity_nan(self):
+        """NaN categories are treated as rarest (freq 0)."""
+        df = pd.DataFrame({'cat': ['A', 'A', 'B', None]})
+        scores = dict(categorical_rarity(df, 'cat'))
+        assert scores[3] == 0.0
+
+    def test_feature_entropy_nan(self):
+        """NaN categorical cells are treated as very rare."""
+        df = pd.DataFrame({'cat': ['A', 'A', 'B', None]})
+        results = feature_entropy(df, low_first=False)
+        # The NaN row should be among the highest-entropy (rarest) rows.
+        assert results[0][0] == 3
+
+    # --- multi_column_sort defaults / constant column ---
+
+    def test_multi_column_sort_default_weights(self):
+        df = pd.DataFrame({'a': [0, 50, 100], 'b': [100, 50, 0]})
+        results = multi_column_sort(df, ['a', 'b'])  # weights default to 1.0
+        assert len(results) == 3
+
+    def test_multi_column_sort_constant_column(self):
+        """A column with max == min normalizes to the 0.5 midpoint."""
+        df = pd.DataFrame({'a': [5, 5, 5], 'b': [0, 50, 100]})
+        results = multi_column_sort(df, ['a', 'b'], low_first=True)
+        indices = [idx for idx, _ in results]
+        assert indices == [0, 1, 2]  # ordered by 'b' since 'a' is flat
+
     def test_all_nan_column(self):
         """Should handle columns that are all NaN."""
         df = pd.DataFrame({
