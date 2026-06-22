@@ -1,5 +1,6 @@
 """Unit tests for text_sorters.py"""
 
+import numpy as np
 import pytest
 
 from splytters.sorters.text_sorters import (
@@ -388,10 +389,24 @@ class TestReadabilityScore:
 
     def test_different_metrics(self, texts):
         """Should support different readability metrics."""
-        metrics = ["flesch_kincaid", "flesch", "gunning_fog", "coleman_liau", "ari"]
+        metrics = [
+            "flesch_kincaid", "flesch", "gunning_fog", "coleman_liau", "ari",
+            "dale_chall", "linsear_write",
+        ]
         for metric in metrics:
             result = readability_score(texts, metric=metric)
             assert len(result) == 2
+            # At least one passage is long enough to receive a real (finite)
+            # score, so the metric's scoring branch actually runs.
+            assert any(np.isfinite(score) for _, score in result)
+
+    def test_smog_metric(self):
+        """SMOG needs >= 30 sentences; give it a passage that long so its
+        scoring branch runs instead of falling through to the inf handler."""
+        long_text = " ".join(f"This is plain sentence number {i} here." for i in range(40))
+        result = readability_score([long_text], metric="smog")
+        assert len(result) == 1
+        assert np.isfinite(result[0][1])
 
     def test_invalid_metric_raises(self, texts):
         """Should raise ValueError for invalid metric."""
