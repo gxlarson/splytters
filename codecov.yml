@@ -1,0 +1,23 @@
+# Codecov configuration. Coverage is measured by the `full` CI job
+# (all extras, `pytest -m "not slow"`); model-download tests are @slow and
+# excluded, so the genuine ceiling is ~94%.
+coverage:
+  status:
+    project:
+      default:
+        target: 90%       # fail the check if total coverage drops below 90%
+        threshold: 1%     # tolerate 1% noise (the `full` job is a latest-deps canary)
+    patch:
+      default:
+        target: 80%       # new/changed lines in a PR should be ~80% covered
+        threshold: 5%
+
+# The `full` job is continue-on-error and uploads with `if: always()`, so a
+# single upload is expected per commit. Don't wait for more before reporting.
+codecov:
+  notify:
+    after_n_builds: 1
+
+comment:
+  layout: "reach, diff, files"
+  require_changes: true   # only comment on PRs that actually move coverage
