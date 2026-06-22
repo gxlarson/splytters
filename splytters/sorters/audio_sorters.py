@@ -185,7 +185,21 @@ def dynamic_range(
     scores = []
     for i, audio in enumerate(audios):
         y, _ = _load_audio(audio, sr)
-        dyn_range = np.abs(y).max() - np.abs(y).min()
+        y = np.asarray(y, dtype=float)
+        # Dynamic range = spread between the loudest and quietest parts *over
+        # time*. Measure it as the range of frame-wise RMS energy. Taking
+        # |amplitude|.min() instead is ~0 for any zero-crossing waveform, so it
+        # collapses to peak loudness and can't tell compressed from dynamic
+        # audio.
+        frame, hop = 2048, 512
+        if len(y) >= frame:
+            frames = np.lib.stride_tricks.sliding_window_view(y, frame)[::hop]
+            rms = np.sqrt(np.mean(frames ** 2, axis=1))
+        elif len(y) > 0:
+            rms = np.array([np.sqrt(np.mean(y ** 2))])
+        else:
+            rms = np.zeros(1)
+        dyn_range = float(rms.max() - rms.min())
         scores.append((i, dyn_range))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)

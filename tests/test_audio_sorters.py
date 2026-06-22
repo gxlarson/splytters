@@ -164,6 +164,22 @@ class TestDynamicRange:
 
         assert scores["dynamic_high"] > scores["dynamic_low"]
 
+    def test_dynamic_signal_scores_above_compressed(self):
+        """Frame-wise RMS range must rank a loud+quiet signal above a constant-
+        amplitude (compressed) one. Guards the old ``abs(y).min()`` ~ 0 bug that
+        collapsed dynamic_range to peak loudness."""
+        sr = 22050
+        t = np.linspace(0, 1, sr, endpoint=False)
+        compressed = 0.5 * np.sin(2 * np.pi * 440 * t)
+        dynamic = np.concatenate([
+            0.9 * np.sin(2 * np.pi * 440 * t[: sr // 2]),
+            0.02 * np.sin(2 * np.pi * 440 * t[sr // 2:]),
+        ])
+        results = dynamic_range([(compressed, sr), (dynamic, sr)], low_first=False)
+        scores = dict(results)
+        assert scores[1] > scores[0]  # dynamic (idx 1) has the larger range
+        assert results[0][0] == 1     # and sorts first with low_first=False
+
 
 class TestPeakToAverageRatio:
     """Tests for peak_to_average_ratio function."""

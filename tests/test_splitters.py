@@ -39,6 +39,7 @@ from splytters.overlap import (
     stratified_similarity_split,
 )
 from splytters.utils import (
+    apportion_train,
     cluster_embeddings,
     compute_centroid,
     compute_pairwise_distances,
@@ -46,6 +47,7 @@ from splytters.utils import (
     compute_split_similarity,
     greedy_assign_to_target,
     random_split,
+    resolve_n_train,
     validate_split_inputs,
 )
 
@@ -1024,3 +1026,76 @@ class TestSklearnAlignment:
         train, test = random_split(X, train_size=0.7)
         assert isinstance(train, np.ndarray)
         assert len(train) + len(test) == 20
+
+
+# ===========================================================================
+# Regression tests for fixed correctness bugs
+# ===========================================================================
+
+class TestBinSplitApportionment:
+    """Bin/cluster splitters must never empty the test set and must hit the
+    requested train fraction (largest-remainder apportionment)."""
+
+    def test_apportion_train_sums_exactly(self):
+        counts = apportion_train([4, 4, 4, 4], 10)
+        assert counts.sum() == 10
+        assert all(0 <= c <= 4 for c in counts)
+
+    def test_apportion_singletons_leave_some_for_test(self):
+        # 12 singleton bins, target 8 train -> 8 bins train, 4 test.
+        counts = apportion_train([1] * 12, 8)
+        assert counts.sum() == 8
+        assert (counts == 0).sum() == 4
+
+    @pytest.mark.parametrize("splitter", [
+        stratified_similarity_split, density_balanced_split,
+    ])
+    def test_singleton_bins_do_not_empty_test(self, splitter):
+        """n_bins >= n_samples used to force every sample into train."""
+        X = np.random.RandomState(0).randn(12, 3)
+        train, test = splitter(X, train_size=0.7, n_bins=20)
+        assert len(test) > 0
+        assert_valid_split(train, test, 12, ratio_tol=0.25)
+
+    @pytest.mark.parametrize("splitter,kw", [
+        (stratified_similarity_split, {"n_bins": 10}),
+        (density_balanced_split, {"n_bins": 10}),
+        (cluster_leak_split, {"n_clusters": 8}),
+    ])
+    def test_hits_requested_train_fraction(self, splitter, kw):
+        """Per-bin int() truncation used to undershoot (got ~50% for 0.7)."""
+        X = np.random.RandomState(0).randn(40, 5)
+        train, test = splitter(X, train_size=0.7, **kw)
+        assert len(train) == 28  # resolve_n_train(40, 0.7)
+        assert_valid_split(train, test, 40, ratio_tol=0.05)
+
+
+class TestResolveNTrainClamp:
+
+    def test_small_fraction_never_empties_a_side(self):
+        # int(2 * 0.3) == 0 previously -> empty train.
+        assert resolve_n_train(2, 0.3) == 1
+        train, test = random_split(np.zeros((2, 4)), train_size=0.3)
+        assert_valid_split(train, test, 2, train_size=0.3, ratio_tol=0.5)
+
+    def test_normal_cases_unchanged(self):
+        assert resolve_n_train(10, 0.7) == 7
+        assert resolve_n_train(100, 0.9) == 90
+        assert resolve_n_train(100, 50) == 50  # absolute count passes through
+
+    def test_high_fraction_leaves_one_for_test(self):
+        assert resolve_n_train(10, 0.999) == 9
+
+
+class TestHistogramMatchedConstantDim:
+
+    def test_constant_dimension_does_not_produce_nan(self):
+        """A constant feature collapses percentile bin edges; density=True used
+        to divide by zero and NaN-poison the optimizer score."""
+        import warnings
+        X = np.random.RandomState(0).randn(30, 4)
+        X[:, 2] = 5.0  # constant dimension
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # any RuntimeWarning fails the test
+            train, test = histogram_matched_split(X, train_size=0.6, n_iterations=30)
+        assert_valid_split(train, test, 30, train_size=0.6, ratio_tol=0.2)

@@ -14,6 +14,7 @@ from scipy.stats import ks_2samp
 from sklearn.utils import check_random_state
 
 from splytters.utils import (
+    apportion_train,
     as_index_array,
     optimized_split,
     resolve_n_train,
@@ -120,16 +121,20 @@ def histogram_matched_split(
     embeddings = validate_split_inputs(embeddings, train_size)
     n_dims = embeddings.shape[1]
 
-    # Precompute bin edges for each dimension
+    # Precompute bin edges for each dimension. Skip degenerate dimensions whose
+    # percentile edges collapse (constant/near-constant features) — a zero-width
+    # bin makes density=True divide by zero and poison the score with NaN, which
+    # would silently stall the optimizer (every NaN comparison is False).
     bin_edges = [
         np.percentile(embeddings[:, d], np.linspace(0, 100, n_bins + 1))
         for d in range(n_dims)
     ]
+    valid_dims = [d for d in range(n_dims) if np.all(np.diff(bin_edges[d]) > 0)]
 
     def score_fn(X: np.ndarray, train: list[int], test: list[int]) -> float:
         train_data, test_data = X[train], X[test]
         total_diff = 0.0
-        for d in range(n_dims):
+        for d in valid_dims:
             train_hist, _ = np.histogram(train_data[:, d], bins=bin_edges[d], density=True)
             test_hist, _ = np.histogram(test_data[:, d], bins=bin_edges[d], density=True)
             total_diff += np.sum(np.abs(train_hist - test_hist))
@@ -214,22 +219,21 @@ def density_balanced_split(
     bin_edges = np.percentile(densities, np.linspace(0, 100, n_bins + 1))
     bin_assignments = np.digitize(densities, bin_edges[1:-1])
 
-    train_fraction = resolve_n_train(n_samples, train_size) / n_samples
+    n_train_total = resolve_n_train(n_samples, train_size)
+
+    # Apportion the global train target across non-empty density bins
+    # (largest-remainder) so the split hits train_size and never empties the
+    # test set, even when bins are singletons (n_bins >= n_samples).
+    bins = [b for b in (np.where(bin_assignments == i)[0] for i in range(n_bins))
+            if len(b) > 0]
+    per_bin_train = apportion_train([len(b) for b in bins], n_train_total)
 
     train_indices = []
     test_indices = []
-
-    # Sample proportionally from each bin
-    for bin_id in range(n_bins):
-        bin_samples = np.where(bin_assignments == bin_id)[0]
-        if len(bin_samples) == 0:
-            continue
-
+    for bin_samples, k in zip(bins, per_bin_train, strict=True):
         rng.shuffle(bin_samples)
-        n_train = max(1, int(len(bin_samples) * train_fraction))
-
-        train_indices.extend(bin_samples[:n_train].tolist())
-        test_indices.extend(bin_samples[n_train:].tolist())
+        train_indices.extend(bin_samples[:k].tolist())
+        test_indices.extend(bin_samples[k:].tolist())
 
     return as_index_array(train_indices), as_index_array(test_indices)
 
