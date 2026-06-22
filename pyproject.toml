@@ -73,6 +73,7 @@ docs = [
 all = ["splytters[text,image,audio,tabular,embedders,viz,demo,ann]"]
 dev = [
     "splytters[all,docs]",
+    "networkx",  # exact min-cut backend for min_cut_split(method="stoer_wagner")
     "pytest",
     "pytest-cov",
     "ruff",
