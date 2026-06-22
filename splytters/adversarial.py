@@ -972,10 +972,15 @@ def decision_boundary_split(
             ``stratify="per_class"`` it sizes each class's train portion (so the
             test set stays label-balanced); with ``"global"`` it sizes the whole
             train set.
-        model: surrogate classifier, ``"linear_svc"``
-            (:class:`~sklearn.svm.LinearSVC`) or ``"logistic"``
-            (:class:`~sklearn.linear_model.LogisticRegression`). Each is
-            standardized via a per-fold :class:`~sklearn.preprocessing.StandardScaler`.
+        model: surrogate classifier -- ``"linear_svc"`` (default,
+            :class:`~sklearn.svm.LinearSVC`), ``"logistic"``
+            (:class:`~sklearn.linear_model.LogisticRegression`), or ``"rbf_svc"``
+            (kernel SVM, :class:`~sklearn.svm.SVC` with an RBF kernel and
+            ``gamma="scale"``). The linear models are fast; ``"rbf_svc"`` captures
+            non-linear boundaries -- and finds genuinely harder splits on
+            non-linearly-separable embeddings -- but costs O(n^2)+ per fold, so
+            reserve it for smaller n. Each is standardized via a per-fold
+            :class:`~sklearn.preprocessing.StandardScaler`.
         score: hardness measure. ``"confidence"`` (default) uses the top-1 minus
             top-2 margin and works for both models; ``"entropy"`` uses predictive
             entropy and requires probabilities (``model="logistic"`` only).
@@ -1009,10 +1014,12 @@ def decision_boundary_split(
     from sklearn.model_selection import StratifiedKFold
     from sklearn.pipeline import make_pipeline
     from sklearn.preprocessing import StandardScaler
-    from sklearn.svm import LinearSVC
+    from sklearn.svm import SVC, LinearSVC
 
-    if model not in ("linear_svc", "logistic"):
-        raise ValueError(f"model must be 'linear_svc' or 'logistic', got {model!r}")
+    if model not in ("linear_svc", "logistic", "rbf_svc"):
+        raise ValueError(
+            f"model must be 'linear_svc', 'logistic', or 'rbf_svc', got {model!r}"
+        )
     if score not in ("confidence", "entropy"):
         raise ValueError(f"score must be 'confidence' or 'entropy', got {score!r}")
     if stratify not in ("per_class", "global"):
@@ -1040,11 +1047,13 @@ def decision_boundary_split(
     n_folds = min(cv, int(counts.min()))
 
     def make_clf():
-        clf = (
-            LinearSVC(random_state=random_state)
-            if model == "linear_svc"
-            else LogisticRegression(max_iter=1000, random_state=random_state)
-        )
+        if model == "linear_svc":
+            clf = LinearSVC(random_state=random_state)
+        elif model == "rbf_svc":
+            clf = SVC(kernel="rbf", decision_function_shape="ovr",
+                      random_state=random_state)
+        else:
+            clf = LogisticRegression(max_iter=1000, random_state=random_state)
         return make_pipeline(StandardScaler(), clf)
 
     # Out-of-fold hardness: higher == closer to the boundary == harder.
@@ -1062,15 +1071,18 @@ def decision_boundary_split(
 
         if model == "logistic":
             margins = pipe.predict_proba(Xh)
-        else:
+        else:  # linear_svc or rbf_svc
             D = pipe.decision_function(Xh)
-            if D.ndim == 1:  # binary: distance to the single hyperplane
+            if D.ndim == 1:  # binary: distance to the single boundary
                 hardness[hold_idx] = -np.abs(D)
                 continue
-            # Multiclass OvR: normalize each column to a geometric distance by
-            # its own ||w_k|| so the cross-class top1 - top2 margin is comparable.
-            coef = pipe[-1].coef_
-            margins = D / np.linalg.norm(coef, axis=1)
+            if model == "linear_svc":
+                # Normalize each OvR column to a geometric distance by its own
+                # ||w_k|| so the cross-class top1 - top2 is comparable. The RBF
+                # SVC has no coef_; its OvR decision_function is already
+                # vote-aggregated across classes, so it is used as-is.
+                D = D / np.linalg.norm(pipe[-1].coef_, axis=1)
+            margins = D
 
         top2 = np.sort(margins, axis=1)[:, -2:]
         hardness[hold_idx] = -(top2[:, 1] - top2[:, 0])

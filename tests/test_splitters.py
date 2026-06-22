@@ -567,7 +567,7 @@ class TestDecisionBoundarySplit:
         y = np.array([0] * 30 + [1] * 30 + [2] * 30)
         return X, y
 
-    @pytest.mark.parametrize("model", ["linear_svc", "logistic"])
+    @pytest.mark.parametrize("model", ["linear_svc", "logistic", "rbf_svc"])
     @pytest.mark.parametrize("stratify", ["per_class", "global"])
     def test_valid_split_binary(self, two_lines, model, stratify):
         X, y = two_lines
@@ -576,11 +576,24 @@ class TestDecisionBoundarySplit:
         )
         assert_valid_split(train, test, len(X), ratio_tol=0.1)
 
-    @pytest.mark.parametrize("model", ["linear_svc", "logistic"])
+    @pytest.mark.parametrize("model", ["linear_svc", "logistic", "rbf_svc"])
     def test_valid_split_multiclass(self, three_blobs, model):
         X, y = three_blobs
         train, test = decision_boundary_split(X, y, model=model, random_state=0)
         assert_valid_split(train, test, len(X), ratio_tol=0.1)
+
+    def test_rbf_concentrates_on_nonlinear_boundary(self):
+        """On concentric circles (no linear boundary), the RBF surrogate routes
+        test points tightly onto the true circular boundary, where the linear
+        surrogate -- which has no meaningful boundary -- scatters them."""
+        from sklearn.datasets import make_circles
+
+        X, y = make_circles(n_samples=400, noise=0.08, factor=0.5, random_state=0)
+        radii = {}
+        for model in ("linear_svc", "rbf_svc"):
+            _, test = decision_boundary_split(X, y, model=model, random_state=0)
+            radii[model] = np.sqrt((X[test] ** 2).sum(axis=1)).std()
+        assert radii["rbf_svc"] < radii["linear_svc"]
 
     @pytest.mark.parametrize("model", ["linear_svc", "logistic"])
     def test_boundary_samples_go_to_test(self, two_lines, model):
@@ -608,10 +621,11 @@ class TestDecisionBoundarySplit:
             decision_boundary_split(X, y, random_state=1),
         )
 
-    def test_entropy_requires_logistic(self, two_lines):
+    @pytest.mark.parametrize("model", ["linear_svc", "rbf_svc"])
+    def test_entropy_requires_logistic(self, two_lines, model):
         X, y = two_lines
         with pytest.raises(ValueError, match="entropy"):
-            decision_boundary_split(X, y, model="linear_svc", score="entropy")
+            decision_boundary_split(X, y, model=model, score="entropy")
 
     def test_single_class_raises(self, two_lines):
         X, _ = two_lines
