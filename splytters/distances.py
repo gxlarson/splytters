@@ -3,15 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from difflib import SequenceMatcher
 
-from numpy.typing import ArrayLike
-from scipy.spatial.distance import euclidean as _dist_euclidean
-
 
 def simple_tokenizer(s: str) -> list[str]:
     return s.split()
-
-def dist_euclidean(u: ArrayLike, v: ArrayLike) -> float:
-    return _dist_euclidean(u, v)
 
 def difflib_character_similarity(s1: str, s2: str) -> float:
     return SequenceMatcher(a=s1, b=s2).ratio()
@@ -70,12 +64,3 @@ def ngram_jaccard_distance(t1: str, t2: str, n: int = 3) -> float:
     sim = ngram_jaccard_similarity(t1, t2, n)
     dist = 1 - sim
     return dist
-
-if __name__ == "__main__":
-    # simple test
-    text1 = 'my bank balance is what'
-    text2 = 'what is my bank balance'
-    s = ngram_jaccard_similarity(text1, text2)
-    print(s)
-    s = difflib_token_similarity(text1, text2)
-    print(s)

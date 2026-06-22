@@ -52,6 +52,27 @@ class TestSplitReport:
         assert adv["mean_cross_distance"] >= rand["mean_cross_distance"]
         assert adv["energy_distance"] >= rand["energy_distance"]
 
+    def test_diversity_keys_present_and_finite(self, embeddings_2d):
+        train, test = random_split(embeddings_2d)
+        rep = split_report(embeddings_2d, train, test)
+        for key in ("train_diversity", "test_diversity"):
+            assert key in rep
+            assert np.isfinite(rep[key]) and rep[key] >= 0.0
+
+    def test_text_diversity_reported_when_texts_given(self, embeddings_2d):
+        texts = [f"sample number {i} of the corpus" for i in range(len(embeddings_2d))]
+        train, test = random_split(embeddings_2d)
+        rep = split_report(embeddings_2d, train, test, texts=texts)
+        for key in ("train_text_diversity", "test_text_diversity"):
+            assert key in rep
+            assert 0.0 <= rep[key] <= 1.0
+
+    def test_text_diversity_absent_without_texts(self, embeddings_2d):
+        train, test = random_split(embeddings_2d)
+        rep = split_report(embeddings_2d, train, test)
+        assert "train_text_diversity" not in rep
+        assert "test_text_diversity" not in rep
+
     def test_label_shift_reported(self, embeddings_2d):
         y = np.array([0] * 60 + [1] * 60)
         train, test = random_split(embeddings_2d)
