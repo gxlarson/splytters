@@ -570,6 +570,115 @@ def minority_split(
     return as_index_array(sorted(train)), as_index_array(sorted(test))
 
 
+_STRATIFY_MODES = ("none", "global", "per_class")
+
+
+def _proportional_quota(y: np.ndarray, target: int) -> dict[Any, int]:
+    """Per-class integer test quotas summing to ``target``, proportional to each
+    class's frequency in ``y`` (largest-remainder rounding for an exact sum)."""
+    classes, counts = np.unique(y, return_counts=True)
+    raw = counts / counts.sum() * target
+    quota = np.floor(raw).astype(int)
+    short = target - int(quota.sum())
+    if short:  # hand leftover seats to the largest fractional parts
+        quota[np.argsort(-(raw - quota))[:short]] += 1
+    return dict(zip(classes.tolist(), quota.tolist(), strict=True))
+
+
+def _grow_global(
+    embeddings: np.ndarray,
+    y: np.ndarray,
+    test_mask: np.ndarray,
+    target_n_test: int,
+    metric: str,
+    *,
+    stratify: bool,
+) -> None:
+    """Grow ``test_mask`` by single-linkage proximity to the whole current test
+    set. If ``stratify``, cap each class at its proportional quota -- a class drops
+    out of the shared frontier once full. Mutates ``test_mask`` in place."""
+    # min_dist[i] = distance from sample i to its nearest current test member.
+    min_dist = cdist(embeddings, embeddings[test_mask], metric=metric).min(axis=1)
+
+    # `blocked[i]` marks samples that can no longer be picked: already in test, or
+    # (when stratifying) belonging to a class that has filled its quota.
+    if stratify:
+        quota = _proportional_quota(y, target_n_test)
+
+        def _full(c: Any) -> bool:
+            return int(((y == c) & test_mask).sum()) >= quota[c]
+
+        blocked = test_mask.copy()
+        for c in np.unique(y):
+            if _full(c):
+                blocked |= y == c
+    else:
+        blocked = test_mask  # proximity-only growth; nothing else to block
+
+    min_dist[blocked] = np.inf
+    while test_mask.sum() < target_n_test:
+        cand = int(np.argmin(min_dist))  # nearest growable sample to the test set
+        if not np.isfinite(min_dist[cand]):
+            break  # nothing left to grow into (all classes full / unreachable)
+        test_mask[cand] = True
+        d_new = cdist(embeddings, embeddings[cand : cand + 1], metric=metric)[:, 0]
+        min_dist = np.minimum(min_dist, d_new)
+        # Re-mask everything blocked: np.minimum above can revive a previously
+        # excluded point (a test member, or a full-class member when stratifying)
+        # whose distance to the new pick is small, which would make argmin keep
+        # re-picking it and spin forever.
+        if stratify:
+            if _full(y[cand]):
+                blocked |= y == y[cand]
+            blocked |= test_mask
+            min_dist[blocked] = np.inf
+        else:
+            min_dist[test_mask] = np.inf
+
+
+def _grow_per_class(
+    embeddings: np.ndarray,
+    y: np.ndarray,
+    test_mask: np.ndarray,
+    target_n_test: int,
+    metric: str,
+) -> None:
+    """Grow each class's own nearest-to-seed neighborhood up to its proportional
+    quota, independently of the other classes. Mutates ``test_mask`` in place."""
+    quota = _proportional_quota(y, target_n_test)
+    seed_idx = np.flatnonzero(test_mask)
+    for c, q in quota.items():
+        members = np.flatnonzero(y == c)
+        if int(test_mask[members].sum()) >= q:
+            continue  # seed already fills (or exceeds) this class's quota
+        if not test_mask[members].any():
+            # No seed member of this class: anchor at the class sample nearest the
+            # overall seed, so its region stays near the hard core.
+            d_to_seed = cdist(
+                embeddings[members], embeddings[seed_idx], metric=metric
+            ).min(axis=1)
+            test_mask[members[int(np.argmin(d_to_seed))]] = True
+
+        # Single-linkage growth restricted to class c. `in_test` is a bool mask
+        # over `members` (local indices); keep it in sync with test_mask.
+        in_test = test_mask[members]
+        min_dist = cdist(
+            embeddings[members], embeddings[members[in_test]], metric=metric
+        ).min(axis=1)
+        min_dist[in_test] = np.inf
+        while int(test_mask[members].sum()) < q:
+            local = int(np.argmin(min_dist))
+            if not np.isfinite(min_dist[local]):
+                break
+            test_mask[members[local]] = True
+            in_test[local] = True
+            d_new = cdist(
+                embeddings[members], embeddings[members[local : local + 1]], metric=metric
+            )[:, 0]
+            min_dist = np.minimum(min_dist, d_new)
+            min_dist[in_test] = np.inf  # re-mask in-class members (revival guard)
+
+
 def minority_grow_split(
     embeddings: ArrayLike,
     y: ArrayLike,
@@ -578,6 +687,7 @@ def minority_grow_split(
     method: str = "kmeans",
     metric: str = "euclidean",
     random_state: int = 42,
+    stratify: str = "none",
     **cluster_kwargs: Any,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -592,6 +702,27 @@ def minority_grow_split(
     unlike :func:`minority_split`, whose size is dictated by the data and is
     often degenerately small.
 
+    Class balance is controlled by ``stratify`` (mirrors ``cluster_split``'s
+    ``strategy`` string convention):
+
+    - ``"none"`` (default): growth is purely geometric and ignores ``y``, so the
+      test set is generally *not* class-balanced -- it expands into one region and
+      inherits that region's dominant class (same un-balanced behavior as
+      :func:`minority_split`).
+    - ``"global"``: one shared proximity frontier, but each class is capped at its
+      data-proportional share of the test set; a class drops out of the frontier
+      once full. The test set stays one contiguous region whose label mix tracks
+      the data.
+    - ``"per_class"``: each class grows its *own* nearest-to-seed neighborhood up
+      to its quota, independently. The test set is the union of these per-class
+      regions (so not a single contiguous blob), but every class contributes its
+      geometrically-tightest hard samples. A class with no seed member is anchored
+      at its sample nearest the overall seed.
+
+    For both stratified modes the quotas are data-proportional and the minority
+    seed is always kept, so a class whose seed already over-fills its quota may
+    still exceed its share.
+
     Args:
         embeddings: array-like of shape (n_samples, embedding_dim)
         y: class labels of shape (n_samples,)
@@ -601,18 +732,28 @@ def minority_grow_split(
         method: clustering algorithm for the seed, 'kmeans' or 'dbscan'
         metric: distance metric (``scipy.spatial.distance.cdist``) for growing
         random_state: for reproducibility of the clustering seed
+        stratify: class-balance policy for growth, one of ``"none"`` (default,
+            proximity only), ``"global"`` (shared frontier with per-class quotas),
+            or ``"per_class"`` (independent per-class neighborhoods). See above.
         **cluster_kwargs: passed to the seed clustering algorithm
 
     Returns:
         train_indices: ndarray of indices for the training set
         test_indices: ndarray of indices for the test set (the minority seed plus
             its grown neighborhood). If the seed already meets or exceeds the
-            target size, it is returned as-is (test may exceed the target).
+            target size, it is returned as-is (test may exceed the target). Under a
+            stratified mode the test set may fall short of the target if every
+            class hits its quota first.
 
     Raises:
-        ValueError: on an unknown ``method``, a ``y``/embeddings length mismatch,
-            or if the seed is empty (every cluster is label-pure -- see
-            :func:`minority_split`).
+        ValueError: on an unknown ``method`` or ``stratify``, a ``y``/embeddings
+            length mismatch, or if the seed is empty (every cluster is label-pure
+            -- see :func:`minority_split`).
+
+    Warns:
+        UserWarning: if the resulting test set contains no samples for one or more
+            classes (those classes then can't be evaluated). Prefer a stratified
+            mode or a larger ``train_size``.
 
     References:
         Extends the bias-amplified minority seed of Reif & Schwartz (2023); see
@@ -624,6 +765,10 @@ def minority_grow_split(
     n_samples = len(embeddings)
     if len(y) != n_samples:
         raise ValueError(f"y has length {len(y)} but embeddings has {n_samples} rows")
+    if stratify not in _STRATIFY_MODES:
+        raise ValueError(
+            f"Unknown stratify: {stratify!r}. Choose from {list(_STRATIFY_MODES)}"
+        )
 
     # Seed with minority_split; suppress its degenerate-size warning since the
     # whole point here is to grow that seed to a usable size.
@@ -645,21 +790,31 @@ def minority_grow_split(
     target_n_test = max(1, min(target_n_test, n_samples - 1))
 
     if test_mask.sum() < target_n_test:
-        # min_dist[i] = distance from sample i to its nearest current test member.
-        min_dist = cdist(embeddings, embeddings[test_mask], metric=metric).min(axis=1)
-        min_dist[test_mask] = np.inf  # already in test
-        while test_mask.sum() < target_n_test:
-            cand = int(np.argmin(min_dist))  # nearest non-test sample to the test set
-            test_mask[cand] = True
-            d_new = cdist(embeddings, embeddings[cand : cand + 1], metric=metric)[:, 0]
-            min_dist = np.minimum(min_dist, d_new)
-            # Re-mask *all* test members: np.minimum above can revive a previously
-            # selected point whose distance to the new pick is small (near-duplicate),
-            # which would make argmin keep re-picking it and spin forever.
-            min_dist[test_mask] = np.inf
+        if stratify == "per_class":
+            _grow_per_class(embeddings, y, test_mask, target_n_test, metric)
+        else:
+            _grow_global(
+                embeddings, y, test_mask, target_n_test, metric,
+                stratify=stratify == "global",
+            )
 
     test_idx = np.flatnonzero(test_mask)
     train_idx = np.flatnonzero(~test_mask)
+
+    # A class wholly absent from the test set can't be evaluated. Possible here
+    # because the minority seed skips majority-everywhere classes and proximity
+    # growth need not reach them (stratify quotas mitigate but don't guarantee
+    # when a class's proportional quota rounds to 0).
+    missing = np.setdiff1d(np.unique(y), y[test_idx])
+    if missing.size:
+        warnings.warn(
+            f"minority_grow_split produced a test set with no samples for "
+            f"class(es) {missing.tolist()}, so those classes cannot be evaluated. "
+            "Try stratify='global' or 'per_class', a larger train_size (bigger "
+            "test set), or a different n_clusters.",
+            stacklevel=2,
+        )
+
     return as_index_array(train_idx), as_index_array(test_idx)
 
 
