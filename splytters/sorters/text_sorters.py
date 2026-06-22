@@ -360,7 +360,7 @@ def readability_score(
                 score = r.linsear_write().score
             elif metric == "smog":
                 score = r.smog().score
-            else:
+            else:  # pragma: no cover - unreachable; metric validated above
                 raise ValueError(f"Unknown readability metric: {metric}")
             scores.append((i, score))
         except Exception:
