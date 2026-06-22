@@ -22,6 +22,7 @@ from typing import Any
 import numpy as np
 from sklearn.model_selection import BaseCrossValidator
 from sklearn.utils import _safe_indexing
+from sklearn.utils.validation import _num_samples
 
 from splytters._types import Splitter
 from splytters.adversarial import cluster_split
@@ -139,6 +140,16 @@ def splytter_train_test_split(
         if not arrays:
             raise ValueError("Pass at least one array or `embeddings=`.")
         embeddings = arrays[0]
+
+    # All inputs must align with the indices the splitter returns; mismatched
+    # lengths otherwise IndexError (longer) or silently drop rows (shorter).
+    n = _num_samples(embeddings)
+    for i, a in enumerate(arrays):
+        if _num_samples(a) != n:
+            raise ValueError(
+                f"All arrays must have the same length as embeddings ({n}); "
+                f"array {i} has length {_num_samples(a)}."
+            )
 
     train_idx, test_idx = splitter(
         embeddings, train_size=train_size, random_state=random_state, **splitter_kwargs

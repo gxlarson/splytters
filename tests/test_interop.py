@@ -109,6 +109,12 @@ class TestTrainTestSplitConvenience:
         with pytest.raises(ValueError, match="at least one array"):
             splytter_train_test_split()
 
+    def test_mismatched_array_length_raises(self, labelled_data):
+        """An array whose length differs from embeddings is rejected up front."""
+        X, y = labelled_data
+        with pytest.raises(ValueError, match="same length"):
+            splytter_train_test_split(X, y[:-1], embeddings=X)
+
 
 # ---------------------------------------------------------------------------
 # Framework interop (lazily-imported deps)

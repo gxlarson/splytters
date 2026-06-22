@@ -103,6 +103,13 @@ def split_report(
     rng = check_random_state(random_state)
 
     n_train, n_test = len(train_indices), len(test_indices)
+    # A report compares two non-empty sides; an empty side otherwise divides by
+    # zero here or crashes downstream in compute_split_similarity.
+    if n_train == 0 or n_test == 0:
+        raise ValueError(
+            f"split_report requires non-empty train and test splits "
+            f"(got n_train={n_train}, n_test={n_test})."
+        )
     report: dict[str, float] = {
         "n_train": float(n_train),
         "n_test": float(n_test),

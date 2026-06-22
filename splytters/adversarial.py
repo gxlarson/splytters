@@ -424,6 +424,18 @@ def cluster_kfold(
     for idx, label in enumerate(labels):
         cluster_to_indices[int(label)].append(idx)
 
+    # Folds are whole clusters, so we need at least n_folds distinct clusters.
+    # KMeans is guarded by the n_clusters check above, but DBSCAN chooses its
+    # own cluster count and can return fewer (e.g. one dense cluster plus a
+    # noise group), which would silently leave CV folds empty. Fail loudly.
+    n_found = len(cluster_to_indices)
+    if n_found < n_folds:
+        raise ValueError(
+            f"clustering produced only {n_found} cluster(s), fewer than "
+            f"n_folds={n_folds}, which would leave empty folds. Adjust the "
+            f"clustering (e.g. DBSCAN eps/min_samples) or reduce n_folds."
+        )
+
     classes = np.unique(y)
     class_idx = {c: k for k, c in enumerate(classes)}
 

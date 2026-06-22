@@ -312,6 +312,16 @@ class TestClusterKFold:
         with pytest.raises(ValueError, match="at least"):
             cluster_kfold(embeddings_2d, labels, n_folds=5, n_clusters=3)
 
+    def test_dbscan_too_few_clusters_raises(self):
+        """DBSCAN picks its own cluster count; when it finds fewer than n_folds
+        (one dense blob + a noise group) folds would be left empty -> raise."""
+        blob = np.random.RandomState(0).randn(60, 2) * 0.05
+        noise = np.random.RandomState(99).randn(15, 2) * 30
+        X = np.vstack([blob, noise])
+        y = np.arange(len(X)) % 2
+        with pytest.raises(ValueError, match="fewer than"):
+            cluster_kfold(X, y, n_folds=4, method="dbscan", eps=0.5, min_samples=5)
+
     def test_unknown_method_raises(self, embeddings_2d, labels):
         with pytest.raises(ValueError, match="Unknown clustering method"):
             cluster_kfold(embeddings_2d, labels, method="nope")
