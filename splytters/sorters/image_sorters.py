@@ -144,6 +144,7 @@ def dominant_color(
     n_clusters: int = 5,
     target_color: list[int] | None = None,
     low_first: bool = True,
+    random_state: int = 42,
 ) -> list[tuple[int, float]]:
     """
     Sort images by their dominant color.
@@ -160,6 +161,7 @@ def dominant_color(
         target_color: RGB tuple to measure distance from (default [128, 128, 128] gray)
         low_first: if True, images closest to target color first;
                    if False, images furthest from target first
+        random_state: seed for the pixel subsample and k-means (default 42)
 
     Returns:
         List of (index, distance) tuples sorted by distance from target color.
@@ -176,13 +178,16 @@ def dominant_color(
         # Reshape to list of pixels
         pixels = rgb.reshape(-1, 3)
 
-        # Sample pixels if image is large (for speed)
+        # Sample pixels if image is large (for speed). Use a seeded generator
+        # so the subsample — and therefore the dominant color and the resulting
+        # ranking — is reproducible across calls (the global RNG was not).
         if len(pixels) > 10000:
-            indices = np.random.choice(len(pixels), 10000, replace=False)
+            rng = np.random.default_rng(random_state)
+            indices = rng.choice(len(pixels), 10000, replace=False)
             pixels = pixels[indices]
 
         # Find dominant colors via k-means
-        kmeans = KMeans(n_clusters=n_clusters, n_init="auto", random_state=42)
+        kmeans = KMeans(n_clusters=n_clusters, n_init="auto", random_state=random_state)
         kmeans.fit(pixels)
 
         # Get the most common cluster (dominant color)

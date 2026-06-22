@@ -84,10 +84,55 @@ def validate_split_inputs(
 
 
 def resolve_n_train(n_samples: int, train_size: float | int) -> int:
-    """Resolve ``train_size`` (fraction or absolute count) to an int count."""
+    """Resolve ``train_size`` (fraction or absolute count) to an int count.
+
+    A fractional ``train_size`` is clamped to ``[1, n_samples - 1]`` so the
+    resolved count never collapses one side of the split to empty (e.g.
+    ``n_samples=2, train_size=0.3`` would otherwise truncate to 0).
+    """
     if isinstance(train_size, (int, np.integer)) and not isinstance(train_size, bool):
         return int(train_size)
-    return int(n_samples * train_size)
+    n_train = int(n_samples * train_size)
+    return min(max(n_train, 1), n_samples - 1)
+
+
+def apportion_train(bin_sizes: list[int], n_train_total: int) -> np.ndarray:
+    """Split ``n_train_total`` train slots across bins via largest-remainder.
+
+    Each bin gets ``floor(size * n_train_total / total)`` slots, then the
+    leftover slots go to the bins with the largest fractional remainders. The
+    per-bin counts sum exactly to ``n_train_total`` (clamped to ``[0, total]``),
+    avoiding both the per-bin ``int()`` truncation bias that undershoots the
+    requested train fraction and the all-to-train rounding that can empty the
+    test set.
+
+    Args:
+        bin_sizes: number of samples in each (non-empty) bin.
+        n_train_total: total samples to assign to train across all bins.
+
+    Returns:
+        Integer ndarray of per-bin train counts, aligned with ``bin_sizes``.
+    """
+    sizes = np.asarray(bin_sizes, dtype=np.intp)
+    total = int(sizes.sum())
+    if total == 0:
+        return np.zeros(len(sizes), dtype=np.intp)
+    n_train_total = int(min(max(n_train_total, 0), total))
+
+    ideal = sizes * (n_train_total / total)
+    counts = np.floor(ideal).astype(np.intp)
+    remainder = n_train_total - int(counts.sum())
+    if remainder > 0:
+        # Hand leftover slots to the largest fractional remainders that still
+        # have spare capacity (ideal <= size, so capacity always exists here).
+        order = np.argsort(-(ideal - np.floor(ideal)))
+        for i in order:
+            if remainder == 0:
+                break
+            if counts[i] < sizes[i]:
+                counts[i] += 1
+                remainder -= 1
+    return counts
 
 
 def as_index_array(indices: ArrayLike) -> np.ndarray:

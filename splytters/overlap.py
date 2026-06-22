@@ -16,6 +16,7 @@ from scipy.spatial.distance import cdist
 from sklearn.utils import check_random_state
 
 from splytters.utils import (
+    apportion_train,
     as_index_array,
     cluster_embeddings,
     compute_centroid,
@@ -57,21 +58,21 @@ def cluster_leak_split(
         embeddings, n_clusters, "kmeans", random_state, **cluster_kwargs
     )
 
+    n_samples = len(embeddings)
+    n_train_total = resolve_n_train(n_samples, train_size)
+
+    # Apportion the global train target across clusters (largest-remainder) so
+    # the realized split matches train_size instead of undershooting from
+    # per-cluster truncation.
+    clusters = [np.array(idx) for idx in cluster_to_indices.values()]
+    per_cluster_train = apportion_train([len(c) for c in clusters], n_train_total)
+
     train_indices = []
     test_indices = []
-
-    # Determine the per-cluster fraction to send to train.
-    n_samples = len(embeddings)
-    train_fraction = resolve_n_train(n_samples, train_size) / n_samples
-
-    # Split each cluster proportionally
-    for indices in cluster_to_indices.values():
-        indices = np.array(indices)
+    for indices, k in zip(clusters, per_cluster_train, strict=True):
         rng.shuffle(indices)
-
-        n_train = int(len(indices) * train_fraction)
-        train_indices.extend(indices[:n_train].tolist())
-        test_indices.extend(indices[n_train:].tolist())
+        train_indices.extend(indices[:k].tolist())
+        test_indices.extend(indices[k:].tolist())
 
     return as_index_array(train_indices), as_index_array(test_indices)
 
@@ -227,22 +228,21 @@ def stratified_similarity_split(
     bin_edges = np.percentile(distances, np.linspace(0, 100, n_bins + 1))
     bin_assignments = np.digitize(distances, bin_edges[1:-1])
 
-    train_fraction = resolve_n_train(len(embeddings), train_size) / len(embeddings)
+    n_train_total = resolve_n_train(len(embeddings), train_size)
+
+    # Collect non-empty bins, then apportion the global train target across them
+    # (largest-remainder) so the split hits train_size and never empties the
+    # test set, even when bins are singletons (n_bins >= n_samples).
+    bins = [b for b in (np.where(bin_assignments == i)[0] for i in range(n_bins))
+            if len(b) > 0]
+    per_bin_train = apportion_train([len(b) for b in bins], n_train_total)
 
     train_indices = []
     test_indices = []
-
-    # Sample proportionally from each bin
-    for bin_id in range(n_bins):
-        bin_samples = np.where(bin_assignments == bin_id)[0]
-        if len(bin_samples) == 0:
-            continue
-
+    for bin_samples, k in zip(bins, per_bin_train, strict=True):
         rng.shuffle(bin_samples)
-        n_train = max(1, int(len(bin_samples) * train_fraction))
-
-        train_indices.extend(bin_samples[:n_train].tolist())
-        test_indices.extend(bin_samples[n_train:].tolist())
+        train_indices.extend(bin_samples[:k].tolist())
+        test_indices.extend(bin_samples[k:].tolist())
 
     return as_index_array(train_indices), as_index_array(test_indices)
 

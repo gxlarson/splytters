@@ -176,6 +176,28 @@ class TestDominantColor:
             assert isinstance(distance, float)
             assert distance >= 0
 
+    def test_deterministic_on_large_image(self):
+        """Images over 10k pixels subsample their pixels; the ranking must be
+        reproducible across calls. Guards the old unseeded np.random.choice
+        subsample (KMeans contributes only ~1e-6 float jitter, which does not
+        reorder distinct images)."""
+        import numpy as np
+        from PIL import Image
+
+        rng = np.random.RandomState(0)
+        # 130*130 = 16900 pixels (> 10k) triggers the subsampling path.
+        imgs = [
+            Image.fromarray(rng.randint(0, 256, size=(130, 130, 3), dtype=np.uint8))
+            for _ in range(4)
+        ]
+        r1 = dominant_color(imgs)
+        r2 = dominant_color(imgs)
+        # Ranking identical, distances stable to within KMeans float jitter.
+        assert [i for i, _ in r1] == [i for i, _ in r2]
+        np.testing.assert_allclose(
+            [d for _, d in r1], [d for _, d in r2], rtol=1e-3
+        )
+
 
 class TestCompressionRatio:
     """Tests for compression_ratio function."""
