@@ -80,6 +80,16 @@ class TestSplitReport:
         assert "label_distribution_shift" in rep
         assert 0.0 <= rep["label_distribution_shift"] <= 1.0
 
+    def test_rejects_empty_split(self, embeddings_2d):
+        """An empty train or test side is rejected with a clear error rather
+        than a ZeroDivisionError / downstream crash."""
+        empty = np.array([], dtype=int)
+        full = np.arange(len(embeddings_2d))
+        with pytest.raises(ValueError, match="non-empty"):
+            split_report(embeddings_2d, empty, empty)
+        with pytest.raises(ValueError, match="non-empty"):
+            split_report(embeddings_2d, full, empty)
+
     def test_rejects_nan_embeddings(self, embeddings_2d):
         X = embeddings_2d.copy()
         X[0, 0] = np.nan
