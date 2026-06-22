@@ -18,6 +18,7 @@ from splytters.adversarial import (
     class_boundary_split,
     cluster_kfold,
     cluster_split,
+    decision_boundary_split,
     density_adversarial_split,
     distance_adversarial_split,
     get_cluster_info,
@@ -103,6 +104,7 @@ __all__ = [
     "minority_split",
     "minority_grow_split",
     "class_boundary_split",
+    "decision_boundary_split",
     "get_cluster_info",
     # Clustering-based challenging cross-validation (returns per-sample fold ids)
     "cluster_kfold",
@@ -175,6 +177,7 @@ _SPLITTER_FAMILIES: dict[str, list[str]] = {
         "minority_split",
         "minority_grow_split",
         "class_boundary_split",
+        "decision_boundary_split",
     ],
     "overlap": [
         "cluster_leak_split",

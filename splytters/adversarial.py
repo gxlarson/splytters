@@ -928,6 +928,161 @@ def class_boundary_split(
     return as_index_array(sorted(train)), as_index_array(sorted(test))
 
 
+def decision_boundary_split(
+    embeddings: ArrayLike,
+    y: ArrayLike,
+    train_size: float | int = 0.7,
+    *,
+    model: str = "linear_svc",
+    score: str = "confidence",
+    stratify: str = "per_class",
+    cv: int = 5,
+    random_state: int = 42,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Supervised adversarial split on a learned decision boundary.
+
+    Fits a fast linear classifier under cross-validation and routes the samples
+    a real model finds hardest -- those closest to the learned decision boundary
+    -- to the test set, leaving the confident, class-interior samples for train.
+    The learned-boundary counterpart to :func:`class_boundary_split` (which
+    instead measures geometric distance to other classes).
+
+    Hardness is scored *out of fold* via
+    :class:`~sklearn.model_selection.StratifiedKFold`: each sample's margin comes
+    from a model that did not train on it, so the score reflects genuine
+    difficulty rather than in-sample memorization.
+
+    Args:
+        embeddings: array-like of shape (n_samples, embedding_dim).
+        y: class labels of shape (n_samples,).
+        train_size: fraction in (0, 1) or absolute count. With
+            ``stratify="per_class"`` it sizes each class's train portion (so the
+            test set stays label-balanced); with ``"global"`` it sizes the whole
+            train set.
+        model: surrogate classifier, ``"linear_svc"``
+            (:class:`~sklearn.svm.LinearSVC`) or ``"logistic"``
+            (:class:`~sklearn.linear_model.LogisticRegression`). Each is
+            standardized via a per-fold :class:`~sklearn.preprocessing.StandardScaler`.
+        score: hardness measure. ``"confidence"`` (default) uses the top-1 minus
+            top-2 margin and works for both models; ``"entropy"`` uses predictive
+            entropy and requires probabilities (``model="logistic"`` only).
+        stratify: ``"per_class"`` (default; per-class test quota -> label-balanced
+            test) or ``"global"`` (purest-hard; may unbalance classes).
+        cv: number of cross-validation folds, clamped to the smallest class
+            count. Each fold supplies the out-of-fold margins for its held-out
+            samples.
+        random_state: seeds the fold shuffling and the classifier; the split is
+            deterministic (ties broken by index).
+
+    Returns:
+        train_indices: ndarray of confident, class-interior sample indices.
+        test_indices: ndarray of near-boundary, model-confusable indices.
+
+    Raises:
+        ValueError: on a ``y``/embeddings length mismatch, fewer than two
+            distinct classes, an unknown ``model``/``score``/``stratify``, an
+            ``entropy`` score with ``linear_svc``, or a class with fewer than two
+            samples (too small to hold out).
+
+    References:
+        Uncertainty / margin sampling from active learning (Lewis & Gale, 1994;
+        Scheffer et al., 2001; Settles, 2009). Like :func:`class_boundary_split`,
+        a label-aware variant of the hard-split motivation of Soegaard et al.
+        (2021), "We Need to Talk About Random Splits"
+        (https://aclanthology.org/2021.eacl-main.156), but using a *learned*
+        boundary rather than embedding geometry.
+    """
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.model_selection import StratifiedKFold
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.svm import LinearSVC
+
+    if model not in ("linear_svc", "logistic"):
+        raise ValueError(f"model must be 'linear_svc' or 'logistic', got {model!r}")
+    if score not in ("confidence", "entropy"):
+        raise ValueError(f"score must be 'confidence' or 'entropy', got {score!r}")
+    if stratify not in ("per_class", "global"):
+        raise ValueError(f"stratify must be 'per_class' or 'global', got {stratify!r}")
+    if score == "entropy" and model != "logistic":
+        raise ValueError("score='entropy' needs predict_proba; use model='logistic'.")
+
+    embeddings = validate_split_inputs(embeddings, train_size)
+    y = np.asarray(y)
+    n_samples = len(embeddings)
+    if len(y) != n_samples:
+        raise ValueError(f"y has length {len(y)} but embeddings has {n_samples} rows")
+
+    classes, counts = np.unique(y, return_counts=True)
+    if len(classes) < 2:
+        raise ValueError(
+            f"need at least 2 distinct classes for a boundary split, got {len(classes)}"
+        )
+    if counts.min() < 2:
+        raise ValueError(
+            "every class needs >= 2 samples for out-of-fold margins; smallest "
+            f"class has {int(counts.min())}."
+        )
+
+    n_folds = min(cv, int(counts.min()))
+
+    def make_clf():
+        clf = (
+            LinearSVC(random_state=random_state)
+            if model == "linear_svc"
+            else LogisticRegression(max_iter=1000, random_state=random_state)
+        )
+        return make_pipeline(StandardScaler(), clf)
+
+    # Out-of-fold hardness: higher == closer to the boundary == harder.
+    hardness = np.empty(n_samples, dtype=float)
+    skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=random_state)
+    for fit_idx, hold_idx in skf.split(embeddings, y):
+        pipe = make_clf()
+        pipe.fit(embeddings[fit_idx], y[fit_idx])
+        Xh = embeddings[hold_idx]
+
+        if score == "entropy":
+            P = pipe.predict_proba(Xh)
+            hardness[hold_idx] = -np.sum(P * np.log(P + 1e-12), axis=1)
+            continue
+
+        if model == "logistic":
+            margins = pipe.predict_proba(Xh)
+        else:
+            D = pipe.decision_function(Xh)
+            if D.ndim == 1:  # binary: distance to the single hyperplane
+                hardness[hold_idx] = -np.abs(D)
+                continue
+            # Multiclass OvR: normalize each column to a geometric distance by
+            # its own ||w_k|| so the cross-class top1 - top2 margin is comparable.
+            coef = pipe[-1].coef_
+            margins = D / np.linalg.norm(coef, axis=1)
+
+        top2 = np.sort(margins, axis=1)[:, -2:]
+        hardness[hold_idx] = -(top2[:, 1] - top2[:, 0])
+
+    # Route the hardest samples to test (stable sort -> ties broken by index).
+    if stratify == "global":
+        n_test = n_samples - resolve_n_train(n_samples, train_size)
+        test_idx = np.argsort(-hardness, kind="stable")[:n_test]
+        test_set = set(test_idx.tolist())
+    else:
+        test_set = set()
+        for k in classes:
+            members = np.flatnonzero(y == k)
+            n_train_k = min(resolve_n_train(len(members), train_size), len(members))
+            n_test_k = len(members) - n_train_k
+            if n_test_k <= 0:
+                continue
+            order = np.argsort(-hardness[members], kind="stable")
+            test_set.update(members[order[:n_test_k]].tolist())
+
+    train = [i for i in range(n_samples) if i not in test_set]
+    return as_index_array(train), as_index_array(sorted(test_set))
+
+
 def distance_adversarial_split(
     embeddings: ArrayLike,
     train_size: float | int = 0.7,
