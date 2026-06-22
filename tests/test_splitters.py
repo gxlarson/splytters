@@ -1,5 +1,7 @@
 """Unit tests for splitting algorithms."""
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -12,6 +14,7 @@ from splytters.adversarial import (
     distance_adversarial_split,
     get_cluster_info,
     min_cut_split,
+    minority_grow_split,
     minority_split,
     mmd_maximized_split,
     normalized_cut_split,
@@ -368,6 +371,106 @@ class TestMinoritySplit:
         y = np.array([0, 1] * 50)
         with pytest.raises(ValueError, match="Unknown clustering method"):
             minority_split(embeddings_2d, y, method="nope")
+
+
+class TestMinorityGrowSplit:
+    """minority_split seed grown to a target test size by proximity."""
+
+    @pytest.fixture
+    def biased_data(self):
+        rng = np.random.RandomState(0)
+        a = rng.randn(20, 2) * 0.2 + np.array([5, 5])
+        ya = np.array([0] * 18 + [1] * 2)  # blob A: minorities {18,19}
+        b = rng.randn(20, 2) * 0.2 + np.array([-5, -5])
+        yb = np.array([1] * 18 + [0] * 2)  # blob B: minorities {38,39}
+        return np.vstack([a, b]), np.concatenate([ya, yb])
+
+    def test_grows_to_target_size(self, biased_data):
+        X, y = biased_data
+        train, test = minority_grow_split(X, y, train_size=0.7, n_clusters=2,
+                                          random_state=0)
+        assert_valid_split(train, test, len(X))
+        # target test = n - int(n * 0.7) = 40 - 28 = 12 (seed of 4 grown to 12).
+        assert len(test) == 12
+
+    def test_seed_is_subset_of_test(self, biased_data):
+        X, y = biased_data
+        # The 4 minority seeds must survive into the grown test set.
+        train, test = minority_grow_split(X, y, train_size=0.7, n_clusters=2,
+                                          random_state=0)
+        assert {18, 19, 38, 39}.issubset(set(test.tolist()))
+
+    def test_deterministic(self, biased_data):
+        X, y = biased_data
+        a = minority_grow_split(X, y, n_clusters=2, random_state=0)
+        b = minority_grow_split(X, y, n_clusters=2, random_state=0)
+        assert _splits_equal(a, b)
+
+    def test_y_length_mismatch_raises(self, embeddings_2d):
+        with pytest.raises(ValueError, match="length"):
+            minority_grow_split(embeddings_2d, np.array([0, 1, 0]))
+
+    def test_invalid_stratify_raises(self, embeddings_2d):
+        with pytest.raises(ValueError, match="Unknown stratify"):
+            minority_grow_split(embeddings_2d, np.zeros(len(embeddings_2d)),
+                                stratify="bogus")
+
+    @pytest.mark.parametrize("mode", ["global", "per_class"])
+    def test_stratify_balances_test_labels(self, mode):
+        # On moons (50/50 labels) proximity-only growth expands into one region
+        # and skews the test labels hard; both stratified modes pull it to ~50/50.
+        from sklearn.datasets import make_moons
+
+        X, y = make_moons(n_samples=400, noise=0.18, random_state=0)
+        _, te_plain = minority_grow_split(X, y, train_size=0.7, n_clusters=8,
+                                          random_state=0, stratify="none")
+        _, te_strat = minority_grow_split(X, y, train_size=0.7, n_clusters=8,
+                                          random_state=0, stratify=mode)
+        # Stratified test set mirrors the 50/50 data split (target test = 120 ->
+        # 60/60); the un-stratified one is far more lopsided.
+        skew_strat = abs(int((y[te_strat] == 0).sum()) - len(te_strat) / 2)
+        skew_plain = abs(int((y[te_plain] == 0).sum()) - len(te_plain) / 2)
+        assert skew_strat <= 1  # within rounding of perfectly balanced
+        assert skew_plain > skew_strat
+
+    @pytest.mark.parametrize("mode", ["global", "per_class"])
+    def test_stratify_keeps_seed_and_valid(self, biased_data, mode):
+        X, y = biased_data
+        train, test = minority_grow_split(X, y, train_size=0.7, n_clusters=2,
+                                          random_state=0, stratify=mode)
+        assert_valid_split(train, test, len(X))
+        assert {18, 19, 38, 39}.issubset(set(test.tolist()))
+
+    @pytest.fixture
+    def far_class_data(self):
+        # Classes 0/1 share a near-origin cluster (seed + growth stay here); class 2
+        # is a far, label-pure blob that proximity growth can't reach with a small
+        # test target -> class 2 ends up with no test samples.
+        rng = np.random.RandomState(0)
+        near = rng.randn(25, 2) * 0.2
+        far = rng.randn(30, 2) * 0.2 + np.array([100, 100])
+        X = np.vstack([near, far])
+        y = np.array([0] * 20 + [1] * 5 + [2] * 30)
+        return X, y
+
+    def test_warns_on_class_missing_from_test(self, far_class_data):
+        X, y = far_class_data
+        with pytest.warns(UserWarning, match=r"no samples for class\(es\) \[2\]"):
+            train, test = minority_grow_split(X, y, train_size=0.7, n_clusters=2,
+                                              random_state=0, stratify="none")
+        assert 2 not in y[np.asarray(test)]
+
+    @pytest.mark.parametrize("mode", ["global", "per_class"])
+    def test_stratify_avoids_missing_class(self, far_class_data, mode):
+        X, y = far_class_data
+        # With quotas, growth reaches the far class (global: forced once near ones
+        # fill; per_class: it gets its own anchored neighborhood), so every class
+        # appears in test and no warning is raised.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # any UserWarning would fail the test
+            train, test = minority_grow_split(X, y, train_size=0.7, n_clusters=2,
+                                              random_state=0, stratify=mode)
+        assert set(y[np.asarray(test)].tolist()) == {0, 1, 2}
 
 
 class TestClassBoundarySplit:

@@ -22,6 +22,7 @@ from splytters.adversarial import (
     distance_adversarial_split,
     get_cluster_info,
     min_cut_split,
+    minority_grow_split,
     minority_split,
     mmd_maximized_split,
     normalized_cut_split,
@@ -100,6 +101,7 @@ __all__ = [
     "wasserstein_adversarial_split",
     "mmd_maximized_split",
     "minority_split",
+    "minority_grow_split",
     "class_boundary_split",
     "get_cluster_info",
     # Clustering-based challenging cross-validation (returns per-sample fold ids)
@@ -171,6 +173,7 @@ _SPLITTER_FAMILIES: dict[str, list[str]] = {
         "wasserstein_adversarial_split",
         "mmd_maximized_split",
         "minority_split",
+        "minority_grow_split",
         "class_boundary_split",
     ],
     "overlap": [
