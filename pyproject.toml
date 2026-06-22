@@ -74,6 +74,7 @@ all = ["splytters[text,image,audio,tabular,embedders,viz,demo,ann]"]
 dev = [
     "splytters[all,docs]",
     "pytest",
+    "pytest-cov",
     "ruff",
 ]
 
@@ -96,6 +97,17 @@ splytters = ["py.typed"]
 testpaths = ["tests"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["splytters"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
 ]
 
 [tool.ruff]
