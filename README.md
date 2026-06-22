@@ -1,5 +1,10 @@
 # splytters
 
+[![CI](https://github.com/gxlarson/splytters/actions/workflows/ci.yml/badge.svg)](https://github.com/gxlarson/splytters/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/downloads/)
+[![Code style: Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+
 Train/test splitting algorithms for dataset partitioning — beyond random splits.
 
 A random split tells you how a model performs on data that looks just like its training set. Often that's not the question you're asking. This library provides splitters with three different objectives:
