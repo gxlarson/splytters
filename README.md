@@ -3,8 +3,9 @@
 [![PyPI](https://img.shields.io/pypi/v/splytters.svg)](https://pypi.org/project/splytters/)
 [![CI](https://github.com/gxlarson/splytters/actions/workflows/ci.yml/badge.svg)](https://github.com/gxlarson/splytters/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/gxlarson/splytters/branch/main/graph/badge.svg)](https://codecov.io/gh/gxlarson/splytters)
+[![Docs](https://img.shields.io/badge/docs-online-blue.svg)](https://gxlarson.github.io/splytters/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/pypi/pyversions/splytters.svg)](https://pypi.org/project/splytters/)
 [![Code style: Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 Train/test splitting algorithms for dataset partitioning — beyond random splits.

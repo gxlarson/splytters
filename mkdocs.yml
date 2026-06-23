@@ -61,3 +61,6 @@ markdown_extensions:
       anchor_linenums: true
   - pymdownx.superfences
   - pymdownx.inlinehilite
+  # Auto-link bare URLs (e.g. the paper links in docstring "References"
+  # sections) so they render as clickable hyperlinks, not plain text.
+  - pymdownx.magiclink
