@@ -14,8 +14,6 @@ Train/test splitting algorithms for dataset partitioning — beyond random split
 pip install splytters
 ```
 
-📖 **Documentation:** [splytters.readthedocs.io](https://splytters.readthedocs.io)
-
 A random split tells you how a model performs on data that looks just like its training set. Often that's not the question you're asking. This library provides splitters with three different objectives:
 
 | Objective | Package module | What it does | Use it for |
@@ -185,7 +183,7 @@ for an image example with CLIP embeddings, and `demos/trec_sorter_experiment.py`
 for a TREC curriculum-split benchmark (text sorters + linear SVM) that quantifies
 which sorters capture a real difficulty axis.
 
-## Installation
+## Install from source
 
 ```bash
 git clone https://github.com/gxlarson/splytters
@@ -209,6 +207,10 @@ pip install -e ".[all]"      # everything
 > pulls in no optional dependencies, and each extra is self-sufficient (e.g.
 > `[image]` alone powers the image sorters). The core `splytters` install (numpy,
 > scipy, scikit-learn) is all the splitters need.
+
+## Documentation
+
+Full API reference and guides: [splytters.readthedocs.io](https://splytters.readthedocs.io).
 
 ## Tests
 
