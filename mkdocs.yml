@@ -2,7 +2,7 @@ site_name: splytters
 site_description: >-
   Clustering-based data splits for model robustness testing: adversarial,
   overlap, and distribution-balanced train-test splitting.
-site_url: https://gxlarson.github.io/splytters/
+site_url: https://splytters.readthedocs.io/
 repo_url: https://github.com/gxlarson/splytters
 repo_name: gxlarson/splytters
 copyright: Copyright &copy; Stefan Larson
