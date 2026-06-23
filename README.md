@@ -21,6 +21,26 @@ All splitters operate on embeddings (any `(n_samples, dim)` array — numpy, lis
 pandas, or torch tensors) and return integer index arrays, so they work with any
 data you can embed: text, images, audio, tabular rows.
 
+## Installation
+
+```bash
+pip install splytters
+```
+
+The core install (numpy, scipy, scikit-learn) covers **every splitter**. Optional
+extras add modality-specific dependencies for the `sorters` and built-in embedders:
+
+```bash
+pip install "splytters[text]"       # text sorters (pysbd, transformers, wordfreq, ...)
+pip install "splytters[image]"      # image sorters (pillow)
+pip install "splytters[audio]"      # audio sorters (librosa)
+pip install "splytters[tabular]"    # tabular sorters (pandas)
+pip install "splytters[embedders]"  # built-in embedders (sentence-transformers, ...)
+pip install "splytters[all]"        # all of the above
+```
+
+Requires Python 3.10+ (tested on 3.10–3.14).
+
 ## Quickstart
 
 ```python
