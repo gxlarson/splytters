@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "splytters"
-version = "0.2.0"
-description = "Clustering-based data splits for model robustness testing: adversarial, overlap, and distribution-balanced train-test splitting."
+version = "0.1.0"
+description = "Embedding-based train/test splitting beyond random splits: adversarial, overlap, and distribution-balanced splits for robust model evaluation."
 readme = "README.md"
 license = "MIT"
 authors = [
