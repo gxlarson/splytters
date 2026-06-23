@@ -1,25 +1,19 @@
 name: docs
 
+# Read the Docs hosts the published site (splytters.readthedocs.io). This
+# workflow only validates that the docs build cleanly — it does not deploy.
 on:
   push:
     branches: [main]
-  # Manual "Run workflow" button in the Actions tab.
+  pull_request:
   workflow_dispatch:
 
-# Allow the workflow to deploy to GitHub Pages.
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-# One concurrent deploy; don't cancel an in-progress one.
-concurrency:
-  group: pages
-  cancel-in-progress: false
 
 jobs:
   build:
-    name: build site
+    name: build (strict)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,17 +27,3 @@ jobs:
         run: pip install -e ".[docs]"
       - name: Build (strict — fail on warnings/broken refs)
         run: mkdocs build --strict
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-
-  deploy:
-    name: deploy to Pages
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
