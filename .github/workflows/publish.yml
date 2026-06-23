@@ -33,5 +33,11 @@ jobs:
           python -m pip install --upgrade twine
           python -m twine check dist/*
 
+      - name: Verify the wheel installs and imports in a clean venv
+        run: |
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install dist/*.whl
+          cd /tmp && /tmp/venv/bin/python -c "import splytters; splytters.list_splitters(); import splytters.sorters; print('install ok')"
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

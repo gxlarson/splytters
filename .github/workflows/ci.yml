@@ -33,6 +33,43 @@ jobs:
       - name: Core + interop + report tests
         run: pytest tests/test_splitters.py tests/test_interop.py tests/test_report.py -q
 
+  # Verify the BUILT wheel installs into a clean environment and imports. The
+  # editable (`-e .`) installs above keep the source tree on sys.path, so they
+  # can't catch a wheel missing a subpackage / py.typed, or a dependency that
+  # won't resolve from scratch.
+  package:
+    name: package (wheel install smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+      - name: Install the built wheel into a clean venv
+        run: |
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install dist/*.whl
+      - name: Smoke-import the installed wheel (outside the source tree)
+        run: |
+          cat > /tmp/smoke.py <<'PY'
+          import os
+          import numpy as np
+          import splytters
+          print("splitters:", len(splytters.list_splitters()))
+          tr, te = splytters.cluster_split(np.random.rand(120, 8), train_size=0.7)
+          assert len(tr) + len(te) == 120
+          import splytters.sorters  # lazy subpackage must ship in the wheel
+          assert os.path.exists(
+              os.path.join(os.path.dirname(splytters.__file__), "py.typed")
+          ), "py.typed missing from the installed wheel"
+          print("wheel install OK")
+          PY
+          cd /tmp && /tmp/venv/bin/python /tmp/smoke.py
+
   # Lint with ruff.
   lint:
     name: lint (ruff)
