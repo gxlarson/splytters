@@ -4,7 +4,7 @@
 [![CI](https://github.com/gxlarson/splytters/actions/workflows/ci.yml/badge.svg)](https://github.com/gxlarson/splytters/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/gxlarson/splytters/branch/main/graph/badge.svg)](https://codecov.io/gh/gxlarson/splytters)
 [![Docs](https://img.shields.io/badge/docs-online-blue.svg)](https://gxlarson.github.io/splytters/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/gxlarson/splytters/blob/main/LICENSE)
 [![Python](https://img.shields.io/pypi/pyversions/splytters.svg)](https://pypi.org/project/splytters/)
 [![Code style: Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
