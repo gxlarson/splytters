@@ -1,5 +1,6 @@
 # splytters
 
+[![PyPI](https://img.shields.io/pypi/v/splytters.svg)](https://pypi.org/project/splytters/)
 [![CI](https://github.com/gxlarson/splytters/actions/workflows/ci.yml/badge.svg)](https://github.com/gxlarson/splytters/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/gxlarson/splytters/branch/main/graph/badge.svg)](https://codecov.io/gh/gxlarson/splytters)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
