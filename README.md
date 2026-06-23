@@ -9,6 +9,10 @@
 
 Train/test splitting algorithms for dataset partitioning — beyond random splits.
 
+```bash
+pip install splytters
+```
+
 A random split tells you how a model performs on data that looks just like its training set. Often that's not the question you're asking. This library provides splitters with three different objectives:
 
 | Objective | Package module | What it does | Use it for |
