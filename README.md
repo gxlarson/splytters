@@ -1,5 +1,6 @@
 # splytters
 
+[![PyPI](https://img.shields.io/pypi/v/splytters.svg)](https://pypi.org/project/splytters/)
 [![CI](https://github.com/gxlarson/splytters/actions/workflows/ci.yml/badge.svg)](https://github.com/gxlarson/splytters/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/gxlarson/splytters/branch/main/graph/badge.svg)](https://codecov.io/gh/gxlarson/splytters)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -7,6 +8,10 @@
 [![Code style: Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 Train/test splitting algorithms for dataset partitioning — beyond random splits.
+
+```bash
+pip install splytters
+```
 
 A random split tells you how a model performs on data that looks just like its training set. Often that's not the question you're asking. This library provides splitters with three different objectives:
 
@@ -19,6 +24,26 @@ A random split tells you how a model performs on data that looks just like its t
 All splitters operate on embeddings (any `(n_samples, dim)` array — numpy, lists,
 pandas, or torch tensors) and return integer index arrays, so they work with any
 data you can embed: text, images, audio, tabular rows.
+
+## Installation
+
+```bash
+pip install splytters
+```
+
+The core install (numpy, scipy, scikit-learn) covers **every splitter**. Optional
+extras add modality-specific dependencies for the `sorters` and built-in embedders:
+
+```bash
+pip install "splytters[text]"       # text sorters (pysbd, transformers, wordfreq, ...)
+pip install "splytters[image]"      # image sorters (pillow)
+pip install "splytters[audio]"      # audio sorters (librosa)
+pip install "splytters[tabular]"    # tabular sorters (pandas)
+pip install "splytters[embedders]"  # built-in embedders (sentence-transformers, ...)
+pip install "splytters[all]"        # all of the above
+```
+
+Requires Python 3.10+ (tested on 3.10–3.14).
 
 ## Quickstart
 
