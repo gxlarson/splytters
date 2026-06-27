@@ -5,7 +5,9 @@ Quantifies *how* adversarial, overlapping, or balanced a produced train/test
 split actually is — so users can compare splitters and so papers can report a
 single, interpretable table. Builds on :func:`splytters.utils.compute_split_similarity`
 and :func:`splytters.adversarial.get_cluster_info`, adding distribution-distance
-metrics (MMD, energy distance, mean 1-D Wasserstein / KS) and label balance.
+metrics (MMD, energy, mean 1-D and sliced Wasserstein, KS, Fréchet), a
+classifier two-sample test (``c2st_auc``), k-NN manifold precision/recall, and
+label balance.
 """
 
 from __future__ import annotations
@@ -52,6 +54,91 @@ def _subsample(
     return X[np.asarray(idx, dtype=np.intp)]
 
 
+# Defaults for the projection / manifold metrics, kept internal so the
+# split_report signature stays small.
+_SLICED_WASSERSTEIN_PROJECTIONS = 50
+_MANIFOLD_K = 5
+
+
+def _sliced_wasserstein(A: np.ndarray, B: np.ndarray, n_projections: int, rng) -> float:
+    """Mean 1-D Wasserstein over random projections.
+
+    Unlike the per-axis ``wasserstein_mean``, random directions capture
+    cross-dimensional structure of the two distributions.
+    """
+    dirs = rng.standard_normal((n_projections, A.shape[1]))
+    dirs /= np.linalg.norm(dirs, axis=1, keepdims=True)
+    return float(np.mean([wasserstein_distance(A @ w, B @ w) for w in dirs]))
+
+
+def _frechet_distance(A: np.ndarray, B: np.ndarray, eps: float = 1e-6) -> float:
+    """Fréchet (FID-style) distance between Gaussians fit to A and B.
+
+    ``‖μ_A − μ_B‖² + Tr(Σ_A + Σ_B − 2 (Σ_A Σ_B)^½)`` — a parametric (mean +
+    covariance) distribution distance. Covariances are ``eps``-regularized for
+    numerical stability; the estimate is unreliable when n_features exceeds the
+    (subsampled) sample size, since the covariance is then singular.
+    """
+    from scipy.linalg import sqrtm
+
+    d = A.shape[1]
+    offset = eps * np.eye(d)
+    cov_a = np.atleast_2d(np.cov(A, rowvar=False)) + offset
+    cov_b = np.atleast_2d(np.cov(B, rowvar=False)) + offset
+    covmean = sqrtm(cov_a @ cov_b)
+    if np.iscomplexobj(covmean):
+        covmean = covmean.real
+    diff = A.mean(axis=0) - B.mean(axis=0)
+    return float(diff @ diff + np.trace(cov_a + cov_b - 2 * covmean))
+
+
+def _c2st_auc(A: np.ndarray, B: np.ndarray, random_state: int) -> float:
+    """Classifier two-sample test: out-of-fold AUC distinguishing A from B.
+
+    ~0.5 means a classifier can't tell train from test (similar / overlap);
+    →1.0 means they are trivially separable (dissimilar / adversarial). AUC is
+    used (not accuracy) so unequal train/test sizes don't bias the score. A
+    random forest is used (not a linear model) so the test also detects
+    *non-linear* shifts — e.g. a radial shell-vs-core split, which a linear
+    classifier, and the mean-based distance metrics, would miss.
+    """
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.metrics import roc_auc_score
+    from sklearn.model_selection import StratifiedKFold, cross_val_predict
+
+    n_folds = min(5, len(A), len(B))
+    if n_folds < 2:
+        return float("nan")  # a side too small to cross-validate
+    X = np.vstack([A, B])
+    y = np.concatenate([np.zeros(len(A)), np.ones(len(B))])
+    clf = RandomForestClassifier(n_estimators=100, random_state=random_state)
+    cv = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=random_state)
+    proba = cross_val_predict(clf, X, y, cv=cv, method="predict_proba")[:, 1]
+    return float(roc_auc_score(y, proba))
+
+
+def _manifold_precision_recall(
+    A: np.ndarray, B: np.ndarray, k: int
+) -> tuple[float, float]:
+    """k-NN manifold precision/recall (Kynkäänniemi et al., 2019).
+
+    ``precision`` = fraction of B (test) inside the train manifold — the union
+    of each train point's k-NN ball; ``recall`` = fraction of A (train) inside
+    the test manifold. High precision means test is well supported by train; low
+    recall means test misses parts of the train support.
+    """
+    from sklearn.neighbors import NearestNeighbors
+
+    k_a, k_b = min(k, len(A) - 1), min(k, len(B) - 1)
+    if k_a < 1 or k_b < 1:
+        return float("nan"), float("nan")
+    radii_a = NearestNeighbors(n_neighbors=k_a + 1).fit(A).kneighbors(A)[0][:, -1]
+    radii_b = NearestNeighbors(n_neighbors=k_b + 1).fit(B).kneighbors(B)[0][:, -1]
+    precision = float((cdist(B, A) <= radii_a[None, :]).any(axis=1).mean())
+    recall = float((cdist(A, B) <= radii_b[None, :]).any(axis=1).mean())
+    return precision, recall
+
+
 def split_report(
     embeddings: ArrayLike,
     train_indices: ArrayLike,
@@ -67,9 +154,17 @@ def split_report(
     """Summarize how similar/dissimilar a train/test split is.
 
     Larger distribution distances (``mmd_rbf``, ``energy_distance``,
-    ``wasserstein_mean``, ``ks_mean``) and ``mean_cross_distance`` indicate a
-    *more adversarial* (harder) split; values near a random split indicate a
+    ``wasserstein_mean``, ``sliced_wasserstein``, ``ks_mean``,
+    ``frechet_distance``) and ``mean_cross_distance`` indicate a *more
+    adversarial* (harder) split; values near a random split indicate a
     *balanced* split; near-zero indicates *overlap*.
+
+    ``c2st_auc`` is a classifier two-sample test — the out-of-fold AUC of a
+    logistic model trained to tell train from test points: ~0.5 means the two
+    sides are indistinguishable (overlap), →1.0 means trivially separable
+    (adversarial). ``manifold_precision`` / ``manifold_recall`` (k-NN support
+    coverage) report how much of test lies inside the train manifold and vice
+    versa.
 
     Alongside these train↔test *distance* metrics, ``train_diversity`` and
     ``test_diversity`` report the within-split *spread* (mean distance to each
@@ -138,6 +233,19 @@ def split_report(
     report["ks_mean"] = float(
         np.mean([ks_2samp(A[:, d], B[:, d]).statistic for d in range(X.shape[1])])
     )
+    report["sliced_wasserstein"] = _sliced_wasserstein(
+        A, B, _SLICED_WASSERSTEIN_PROJECTIONS, rng
+    )
+    report["frechet_distance"] = _frechet_distance(A, B)
+
+    # Learned separability (can a classifier tell train from test?) and k-NN
+    # support coverage between the two manifolds.
+    report["c2st_auc"] = _c2st_auc(
+        A, B, random_state if isinstance(random_state, int) else 42
+    )
+    precision, recall = _manifold_precision_recall(A, B, _MANIFOLD_K)
+    report["manifold_precision"] = precision
+    report["manifold_recall"] = recall
 
     # Within-split diversity (spread): how varied is each side on its own.
     report["train_diversity"] = mean_dist(X[train_indices])
