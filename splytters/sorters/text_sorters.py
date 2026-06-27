@@ -371,3 +371,36 @@ def readability_score(
     return scores
 
 
+def gzip_complexity(
+    texts: list[str], low_first: bool = True
+) -> list[tuple[int, float]]:
+    """
+    Sort texts by gzip compression ratio — a model-free complexity proxy.
+
+    Redundant / repetitive / simple text compresses well (low ratio); varied,
+    information-dense text compresses poorly (high ratio). Needs no model, so
+    unlike :func:`perplexity_score` it runs without any heavy dependency.
+
+    Args:
+        texts: list of strings.
+        low_first: if True, the simplest (most compressible) texts first.
+
+    Returns:
+        List of (index, compression_ratio) tuples (compressed / raw bytes).
+
+    Note:
+        gzip carries ~18 bytes of header overhead, so the ratio is noisy for
+        very short strings; it is most meaningful across texts of comparable
+        length.
+    """
+    import gzip
+
+    scores = []
+    for i, text in enumerate(texts):
+        raw = text.encode("utf-8")
+        ratio = len(gzip.compress(raw)) / len(raw) if raw else 0.0
+        scores.append((i, float(ratio)))
+    scores.sort(key=lambda p: p[1], reverse=not low_first)
+    return scores
+
+

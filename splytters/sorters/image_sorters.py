@@ -299,3 +299,33 @@ def frequency_content(
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
     return [(idx, float(value)) for idx, value in scores]
+
+
+def sharpness(
+    images: list[ImageInput], low_first: bool = True
+) -> list[tuple[int, float]]:
+    """
+    Sort images by sharpness — the variance of the Laplacian (a blur detector).
+
+    A blurry image has little high-frequency detail and a low Laplacian
+    variance; a sharp, detailed image has a high one. Distinct from
+    ``contrast`` / ``frequency_content`` in isolating edge focus.
+
+    Useful for adversarial / curriculum splits: train on sharp images, test on
+    blurry ones (or vice versa).
+
+    Args:
+        images: list of file paths or PIL Image objects.
+        low_first: if True, the blurriest images first.
+
+    Returns:
+        List of (index, laplacian_variance) tuples.
+    """
+    from scipy.ndimage import laplace
+
+    scores = []
+    for i, img in enumerate(images):
+        gray = _to_array(img, mode="L")
+        scores.append((i, float(laplace(gray).var())))
+    scores.sort(key=lambda p: p[1], reverse=not low_first)
+    return scores
