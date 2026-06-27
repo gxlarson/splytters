@@ -3,7 +3,7 @@
 import splytters
 import splytters.sorters as sorters
 
-SPLIT_FAMILIES = {"adversarial", "overlap", "balanced", "baseline"}
+SPLIT_FAMILIES = {"adversarial", "overlap", "balanced", "baseline", "grouped"}
 SORTER_MODALITIES = {"embedding", "text", "image", "audio", "tabular"}
 
 
@@ -42,6 +42,7 @@ def test_list_splitters_covers_every_registered_split():
         "splytters.adversarial",
         "splytters.overlap",
         "splytters.balanced",
+        "splytters.grouped",
     }
     actual = {
         n

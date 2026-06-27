@@ -126,7 +126,7 @@ distance, mean 1-D Wasserstein/KS, and optional label-distribution shift).
 ## Available splitters
 
 **Adversarial** (minimize train/test similarity):
-`cluster_split`, `centroid_adversarial_split`, `distance_adversarial_split`, `density_adversarial_split`, `outlier_adversarial_split`, `min_cut_split`, `normalized_cut_split`, `wasserstein_adversarial_split`, `mmd_maximized_split`, `minority_split`, `class_boundary_split`
+`cluster_split`, `centroid_adversarial_split`, `distance_adversarial_split`, `density_adversarial_split`, `outlier_adversarial_split`, `min_cut_split`, `normalized_cut_split`, `wasserstein_adversarial_split`, `mmd_maximized_split`, `minority_split`, `class_boundary_split`, `decision_boundary_split`, `maximin_split`
 
 ![Adversarial splitters on 2D distributions](https://raw.githubusercontent.com/gxlarson/splytters/main/docs/adv.png)
 
@@ -140,8 +140,11 @@ distance, mean 1-D Wasserstein/KS, and optional label-distribution shift).
 
 ![Balanced splitters on 2D distributions](https://raw.githubusercontent.com/gxlarson/splytters/main/docs/bal.png)
 
+**Grouped** (keep related samples / near-duplicates on one side, preventing leakage):
+`group_split` (explicit group ids), `deduplicated_split` (discovered near-duplicates)
+
 **Supervised** (label-aware — these take class labels `y`):
-`class_boundary_split`, `minority_split`, `stratified_random_split`, `sorted_stratified_split`, `cluster_split(strategy="subset_sum")`
+`class_boundary_split`, `decision_boundary_split`, `minority_split`, `stratified_random_split`, `sorted_stratified_split`, `cluster_split(strategy="subset_sum")`
 
 ![Supervised splitters on labeled 2D distributions](https://raw.githubusercontent.com/gxlarson/splytters/main/docs/supervised.png)
 
