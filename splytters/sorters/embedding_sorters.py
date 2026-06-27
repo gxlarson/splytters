@@ -199,6 +199,78 @@ def outlier_score(
     return scores
 
 
+def mahalanobis_distance_to_mean(
+    embeddings: ArrayLike, low_first: bool = True
+) -> list[tuple[int, float]]:
+    """
+    Sort samples by Mahalanobis distance from the dataset centroid.
+
+    Like :func:`distance_to_mean`, but covariance-aware: atypicality is measured
+    relative to the data's own spread and feature correlations rather than in
+    raw Euclidean units. Most typical samples first.
+
+    Args:
+        embeddings: array of shape (n_samples, embedding_dim).
+        low_first: if True, the most typical (smallest distance) samples first.
+
+    Returns:
+        List of (index, mahalanobis_distance) tuples.
+    """
+    X = np.asarray(embeddings, dtype=float)
+    centroid = X.mean(axis=0)
+    cov = np.atleast_2d(np.cov(X, rowvar=False)) + 1e-6 * np.eye(X.shape[1])
+    inv_cov = np.linalg.pinv(cov)
+    diff = X - centroid
+    d2 = np.einsum("ij,jk,ik->i", diff, inv_cov, diff)
+    dists = np.sqrt(np.maximum(d2, 0.0))
+    scores = sorted(
+        enumerate(dists.tolist()), key=lambda p: p[1], reverse=not low_first
+    )
+    return [(i, float(v)) for i, v in scores]
+
+
+def knn_label_disagreement(
+    embeddings: ArrayLike,
+    y: ArrayLike,
+    k: int = 5,
+    metric: str = "euclidean",
+    low_first: bool = True,
+) -> list[tuple[int, float]]:
+    """
+    Sort samples by the fraction of their k nearest neighbors with a *different*
+    label — a class-boundary / ambiguity score.
+
+    A point surrounded by same-label neighbors is class-typical (interior); one
+    whose neighbors disagree sits on a boundary and is harder. This is the
+    label-aware (supervised) sorter — pair it with
+    :func:`splytters.sorted_stratified_split` for a difficulty curriculum.
+
+    Args:
+        embeddings: array of shape (n_samples, embedding_dim).
+        y: class labels of shape (n_samples,).
+        k: number of neighbors to inspect (the point itself is excluded).
+        metric: distance metric for the neighbor search.
+        low_first: if True, the most class-typical (low-disagreement) first.
+
+    Returns:
+        List of (index, disagreement_fraction) tuples, each in [0, 1].
+    """
+    from sklearn.neighbors import NearestNeighbors
+
+    X = np.asarray(embeddings)
+    y = np.asarray(y)
+    n = len(X)
+    k = min(k, n - 1)
+    neighbors = (
+        NearestNeighbors(n_neighbors=k + 1, metric=metric)
+        .fit(X)
+        .kneighbors(X, return_distance=False)[:, 1:]  # drop self
+    )
+    scores = [(i, float(np.mean(y[neighbors[i]] != y[i]))) for i in range(n)]
+    scores.sort(key=lambda p: p[1], reverse=not low_first)
+    return scores
+
+
 if __name__ == "__main__":
     # Example: sort texts by distance to mean embedding.
     # Texts farther from the centroid (more atypical) appear later.

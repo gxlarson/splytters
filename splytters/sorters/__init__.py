@@ -32,6 +32,8 @@ _LAZY: dict[str, tuple[str, str]] = {
     "distance_to_nearest_neighbor": ("embedding_sorters", "distance_to_nearest_neighbor"),
     "local_density": ("embedding_sorters", "local_density"),
     "outlier_score": ("embedding_sorters", "outlier_score"),
+    "mahalanobis_distance_to_mean": ("embedding_sorters", "mahalanobis_distance_to_mean"),
+    "knn_label_disagreement": ("embedding_sorters", "knn_label_disagreement"),
     # Text sorters (deps: [text])
     "simple_tokenizer": ("text_sorters", "simple_tokenizer"),
     "character_length": ("text_sorters", "character_length"),
@@ -41,6 +43,7 @@ _LAZY: dict[str, tuple[str, str]] = {
     "vocabulary_rarity": ("text_sorters", "vocabulary_rarity"),
     "perplexity_score": ("text_sorters", "perplexity_score"),
     "readability_score": ("text_sorters", "readability_score"),
+    "gzip_complexity": ("text_sorters", "gzip_complexity"),
     # Image sorters (deps: [image])
     "mean_brightness": ("image_sorters", "mean_brightness"),
     "contrast": ("image_sorters", "contrast"),
@@ -48,6 +51,7 @@ _LAZY: dict[str, tuple[str, str]] = {
     "dominant_color": ("image_sorters", "dominant_color"),
     "image_compression_ratio": ("image_sorters", "compression_ratio"),
     "frequency_content": ("image_sorters", "frequency_content"),
+    "sharpness": ("image_sorters", "sharpness"),
     # Audio sorters (deps: [audio])
     "duration": ("audio_sorters", "duration"),
     "mean_amplitude": ("audio_sorters", "mean_amplitude"),
