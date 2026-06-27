@@ -22,6 +22,7 @@ from splytters.adversarial import (
     density_adversarial_split,
     distance_adversarial_split,
     get_cluster_info,
+    maximin_split,
     min_cut_split,
     minority_grow_split,
     minority_split,
@@ -44,6 +45,9 @@ from splytters.curriculum import sorted_stratified_split
 
 # Embedder discovery (heavy model libs stay lazy; listing needs no extra).
 from splytters.embedders import list_embedders
+
+# Grouping-aware splits (keep related samples / near-duplicates on one side).
+from splytters.grouped import deduplicated_split, group_split
 
 # Framework interop (pandas / torch / HuggingFace datasets). Heavy deps are
 # imported lazily inside each helper, so this import stays dependency-light.
@@ -105,6 +109,7 @@ __all__ = [
     "minority_grow_split",
     "class_boundary_split",
     "decision_boundary_split",
+    "maximin_split",
     "get_cluster_info",
     # Clustering-based challenging cross-validation (returns per-sample fold ids)
     "cluster_kfold",
@@ -125,6 +130,9 @@ __all__ = [
     "mmd_minimized_split",
     # Baseline
     "random_split",
+    # Grouped (keep related samples / near-duplicates on one side)
+    "group_split",
+    "deduplicated_split",
     # Curriculum (ordering-driven; pair with a splytters.sorters ranking)
     "sorted_stratified_split",
     # Stratify any embedding splitter / sorter by class (coverage-safe wrappers)
@@ -178,6 +186,7 @@ _SPLITTER_FAMILIES: dict[str, list[str]] = {
         "minority_grow_split",
         "class_boundary_split",
         "decision_boundary_split",
+        "maximin_split",
     ],
     "overlap": [
         "cluster_leak_split",
@@ -199,6 +208,10 @@ _SPLITTER_FAMILIES: dict[str, list[str]] = {
     "baseline": [
         "random_split",
     ],
+    "grouped": [
+        "group_split",
+        "deduplicated_split",
+    ],
 }
 
 
@@ -207,9 +220,9 @@ def list_splitters(by_family: bool = False) -> list[str] | dict[str, list[str]]:
 
     Args:
         by_family: if True, return a dict mapping each family
-            ("adversarial", "overlap", "balanced", "baseline") to its list of
-            splitter names. If False (default), return a flat list of every
-            splitter name, in family order.
+            ("adversarial", "overlap", "balanced", "baseline", "grouped") to its
+            list of splitter names. If False (default), return a flat list of
+            every splitter name, in family order.
 
     Returns:
         A flat list of names, or a dict of family -> names.

@@ -1615,3 +1615,58 @@ def get_cluster_info(
         "clusters_with_leakage": total_leaking,
         "leakage_ratio": total_leaking / n_clusters
     }
+
+
+def maximin_split(
+    embeddings: ArrayLike,
+    train_size: float | int = 0.7,
+    metric: str = "euclidean",
+    random_state: int = 42,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Adversarial split via farthest-point (k-center) test selection.
+
+    Builds the test set by greedy farthest-first traversal: seed with one point,
+    then repeatedly add the point farthest (``metric``) from everything already
+    selected. The result is a maximally *spread-out* test set that covers the
+    corners and extremes of the embedding space — a diverse, hard evaluation
+    that, unlike a random sample, never under-represents sparse / outlying
+    regions. Train is the (denser) remainder.
+
+    Args:
+        embeddings: array-like of shape (n_samples, embedding_dim).
+        train_size: fraction in (0, 1) or absolute count for the training set.
+        metric: distance metric passed to ``scipy.spatial.distance.cdist``.
+        random_state: seeds the starting point (the traversal is otherwise
+            deterministic).
+
+    Returns:
+        train_indices: the denser interior remainder.
+        test_indices: a farthest-point-sampled, space-covering test set.
+    """
+    embeddings = validate_split_inputs(embeddings, train_size)
+    n_samples = len(embeddings)
+    n_test = n_samples - resolve_n_train(n_samples, train_size)
+    rng = check_random_state(random_state)
+
+    # TODO: Replace the full pairwise matrix with incremental NearestNeighbors
+    # queries to avoid materializing O(n²) distances.
+    distances = cdist(embeddings, embeddings, metric=metric)
+
+    start = int(rng.randint(n_samples))
+    selected = [start]
+    selected_mask = np.zeros(n_samples, dtype=bool)
+    selected_mask[start] = True
+    # Min distance from each point to the current test set; -1 marks selected.
+    min_dist = distances[start].copy()
+    min_dist[selected_mask] = -1.0
+    while len(selected) < n_test:
+        nxt = int(np.argmax(min_dist))
+        selected.append(nxt)
+        selected_mask[nxt] = True
+        min_dist = np.minimum(min_dist, distances[nxt])
+        min_dist[selected_mask] = -1.0
+
+    test_set = set(selected)
+    train = [i for i in range(n_samples) if i not in test_set]
+    return as_index_array(train), as_index_array(sorted(test_set))

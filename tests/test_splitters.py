@@ -14,6 +14,7 @@ from splytters.adversarial import (
     density_adversarial_split,
     distance_adversarial_split,
     get_cluster_info,
+    maximin_split,
     min_cut_split,
     minority_grow_split,
     minority_split,
@@ -650,6 +651,28 @@ class TestDecisionBoundarySplit:
         X, y = two_lines
         with pytest.raises(ValueError):
             decision_boundary_split(X, y, **kw)
+
+
+class TestMaximinSplit:
+    """Farthest-point (k-center) test selection — a diverse, spread-out test."""
+
+    def test_valid_split(self, embeddings_2d):
+        train, test = maximin_split(embeddings_2d, train_size=0.7)
+        assert_valid_split(train, test, len(embeddings_2d), ratio_tol=0.05)
+
+    def test_test_more_spread_than_random(self, embeddings_2d):
+        """The farthest-point test set is more diverse (larger mean pairwise
+        distance) than a random test set of the same size."""
+        from scipy.spatial.distance import pdist
+        _, m_te = maximin_split(embeddings_2d, train_size=0.7, random_state=0)
+        _, r_te = random_split(embeddings_2d, train_size=0.7, random_state=0)
+        assert pdist(embeddings_2d[m_te]).mean() > pdist(embeddings_2d[r_te]).mean()
+
+    def test_deterministic(self, embeddings_2d):
+        assert _splits_equal(
+            maximin_split(embeddings_2d, random_state=1),
+            maximin_split(embeddings_2d, random_state=1),
+        )
 
 
 class TestMMDMaximizedSplit:
