@@ -11,6 +11,7 @@ in train (coverage 1.0), so only pure within-class structure is left.
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Iterator, Sequence
 from typing import Any
 
@@ -25,6 +26,17 @@ def _class_groups(y: np.ndarray) -> Iterator[tuple[Any, np.ndarray]]:
     """Yield ``(label, global_indices)`` for each unique label in ``y``."""
     for c in np.unique(y):
         yield c, np.flatnonzero(y == c)
+
+
+def _accepts_random_state(fn: Any) -> bool:
+    """Whether ``fn`` takes a ``random_state`` keyword (directly or via **kwargs)."""
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return True  # can't introspect (e.g. a C callable) — assume it does
+    if any(p.kind == p.VAR_KEYWORD for p in params.values()):
+        return True
+    return "random_state" in params
 
 
 def _take(data: Any, idx: np.ndarray) -> Any:
@@ -65,7 +77,11 @@ def per_class_split(
             than ``n_clusters``). ``"fallback"`` (default) falls back to a random
             split for that class so coverage is preserved; ``"raise"`` propagates
             the original error.
-        random_state: seed for the ``"fallback"`` random split.
+        random_state: seed forwarded to ``split_fn`` on every per-class call (so
+            it actually drives the wrapped splitter), and used for the
+            ``"fallback"`` random split. Deterministic splitters ignore it; a
+            custom ``split_fn`` that doesn't accept ``random_state`` is called
+            without it.
         **split_kwargs: forwarded to ``split_fn`` on every per-class call.
 
     Returns:
@@ -84,6 +100,13 @@ def per_class_split(
     if len(X) != len(y):
         raise ValueError(f"embeddings has {len(X)} rows but y has {len(y)} labels")
 
+    # Forward the seed to split_fn so per_class_split's random_state actually
+    # drives the wrapped splitter (deterministic splitters ignore it). Custom
+    # split_fns that don't accept random_state are called without it.
+    call_kwargs = dict(split_kwargs)
+    if _accepts_random_state(split_fn):
+        call_kwargs.setdefault("random_state", random_state)
+
     train: list[int] = []
     test: list[int] = []
     for _c, idx in _class_groups(y):
@@ -94,7 +117,7 @@ def per_class_split(
 
         class_emb = X[idx]
         try:
-            tr_local, te_local = split_fn(class_emb, train_size, **split_kwargs)
+            tr_local, te_local = split_fn(class_emb, train_size, **call_kwargs)
         except Exception:
             if on_error == "raise":
                 raise

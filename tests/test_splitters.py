@@ -761,6 +761,16 @@ class TestMinCutSplit:
         train, test = min_cut_split(embeddings_small, method="spectral")
         assert_valid_split(train, test, len(embeddings_small), ratio_tol=0.3)
 
+    def test_spectral_seed_independent(self):
+        """The Fiedler sign is oriented deterministically, so different seeds
+        give the identical split (previously the sign flip yielded disjoint
+        held-out sets)."""
+        rng = np.random.RandomState(0)
+        X = np.vstack([rng.randn(50, 10), rng.randn(50, 10) + 4])
+        a = min_cut_split(X, train_size=0.8, method="spectral", random_state=0)
+        b = min_cut_split(X, train_size=0.8, method="spectral", random_state=1)
+        assert _splits_equal(a, b)
+
     def test_tiny_dataset(self):
         X = np.array([[0, 0], [1, 1]])
         train, test = min_cut_split(X, train_size=0.5)

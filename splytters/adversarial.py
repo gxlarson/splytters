@@ -1305,6 +1305,15 @@ def min_cut_split(
             # Fiedler vector (2nd eigenvector)
             fiedler = eigenvectors[:, 1]
 
+            # The Fiedler sign is mathematically arbitrary and, with eigsh's
+            # random start vector, flips between runs — which would flip which
+            # half of the cut becomes test (giving a completely different, seed-
+            # dependent held-out set). Orient it deterministically (sign of the
+            # largest-magnitude component, as in sklearn's svd_flip) so the split
+            # is reproducible.
+            if fiedler[np.argmax(np.abs(fiedler))] < 0:
+                fiedler = -fiedler
+
             # Partition by Fiedler vector values
             # Sort and split to achieve desired train_size
             sorted_indices = np.argsort(fiedler)
