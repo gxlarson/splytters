@@ -4,11 +4,53 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — 0.2.0
+## [0.2.0] — 2026-07-01
 
-This release aligns the API with scikit-learn and adds a first-class
-interoperability and reporting layer. **It contains breaking changes**, made
-deliberately before the API has downstream users.
+### Added
+- **Grouped splitters** (new `grouped` family): `group_split` keeps every sample
+  sharing a group id (user / document / source) on one side — the embedding
+  analogue of scikit-learn's `GroupShuffleSplit` — and `deduplicated_split`
+  keeps each discovered near-duplicate cluster on one side (the inverse of
+  `duplicate_spread_split`).
+- **`maximin_split`** — farthest-point (k-center) test selection, for a diverse,
+  space-covering held-out set that never under-represents sparse regions.
+- **New `split_report` similarity metrics**: `c2st_auc` (classifier two-sample
+  test — how distinguishable train and test are), `frechet_distance` (FID-style),
+  `sliced_wasserstein`, and `manifold_precision` / `manifold_recall` (k-NN
+  support coverage).
+- **New sorters**: `mahalanobis_distance_to_mean` and `knn_label_disagreement`
+  (embedding), `gzip_complexity` (text), and `sharpness` (image).
+- **Seed-stability notes** in every splitter docstring, classifying how much the
+  held-out set changes across random seeds (deterministic / structure-stable /
+  varies-like-random).
+
+### Fixed
+- `min_cut_split` (spectral) now orients the Fiedler vector's sign
+  deterministically (like scikit-learn's `svd_flip`), so the split is
+  reproducible — previously the arbitrary `eigsh` sign could flip the held-out
+  set to a completely disjoint one between seeds.
+- `per_class_split` now forwards `random_state` to the wrapped splitter, so its
+  seed actually drives the per-class splits (previously it only seeded the rare
+  fallback path, leaving the wrapped splitter pinned to its default seed).
+
+### Changed
+- Documentation is now hosted on Read the Docs
+  ([splytters.readthedocs.io](https://splytters.readthedocs.io)); docstring URLs
+  auto-link, and the README gained an Installation section and docs links.
+- CI: added a wheel-install smoke test (with a pre-publish gate) and
+  README-example API-drift tests.
+
+## [0.1.1] — 2026-06-22
+
+Documentation and packaging refresh: PyPI / docs / Python badges, an Installation
+section and `pip install` one-liner, corrected License metadata, and Read the
+Docs hosting.
+
+## [0.1.0] — 2026-06-22
+
+First PyPI release. Aligns the API with scikit-learn and adds a first-class
+interoperability and reporting layer. **It contains breaking changes** vs the
+pre-release, made deliberately before the API had downstream users.
 
 ### Changed (breaking)
 - Renamed the split parameter `train_ratio` → **`train_size`** across every
@@ -46,12 +88,9 @@ deliberately before the API has downstream users.
 - **`wasserstein_adversarial_split`** — Wasserstein nearest-neighbor adversarial
   split (Søgaard et al., EACL 2021), ported from the `wasserstein-splitting`
   branch and adapted to real-valued embeddings.
-- **Validation harnesses** (`run_experiment.py`, `validate.py`, kept in the
-  companion `splytters-paper` repo): the latter sweeps 3 datasets (synthetic,
-  vision, real text) × 4 model families, reports *balanced* accuracy +
-  label-coverage diagnostics (so covariate shift is distinguished from
-  class-dropping), and shows `split_report`'s energy distance predicts realized
-  difficulty (Spearman ρ ≈ 0.65). Confirms the thesis is real and model-agnostic.
+- **Supervised splitters** including `class_boundary_split`, `minority_split`,
+  `minority_grow_split`, and `decision_boundary_split` (a learned-boundary margin
+  split with a linear or RBF surrogate).
 - `[ann]` extra (`pynndescent`) for approximate-nearest-neighbor backends.
 
 ### Fixed
@@ -62,32 +101,26 @@ deliberately before the API has downstream users.
   missing values (NaN cells map to the neutral midpoint).
 - `compute_split_similarity` raises a clear error on empty train/test sets
   instead of crashing.
-- `splytters.metrics.diversity_text`: removed the dead `datatype` parameter,
-  computes over unique pairs (halving work), and gained optional subsampling for
-  large inputs.
-
-### Fixed (test suite / latest dependencies)
-The suite is now fully green on current library versions (307 passed, incl. slow
-model-download tests). Failures fell into three buckets:
-- **Library API drift:** librosa now returns tempo as an array (`tempo` extracts
-  the scalar); transformers ≥5 returns a `BaseModelOutputWithPooling` from CLIP
-  `get_*_features` (`splytters.embedders._features_to_numpy` handles tensor *and* object);
-  NLTK 3.9 renamed `punkt`→`punkt_tab` (readability tests ensure the resource).
-- **Return types:** audio/image sorters returned `np.float32`; they now return
-  Python `float` (matching their `-> tuple[int, float]` hints).
-- **Broken fixtures:** the audio generator peak-normalized every clip (so
-  "quiet"/"loud" were identical) and the "detailed" frequency image scored below
-  "medium"; both generators are fixed (and seeded) and the data regenerated.
-- **Code bug:** `readability_score` swallowed its own invalid-metric `ValueError`
-  in a broad `except`; the metric is now validated up front.
-- Model-download tests (`test_embedders`) are marked `slow`.
+- Several correctness fixes in the bin/cluster splitters (empty-test-set and
+  train-fraction bugs), `resolve_n_train` clamping, `histogram_matched_split`
+  NaN on constant dimensions, `dynamic_range` (audio), and `dominant_color`
+  (image) determinism; plus defensive guards for empty CV folds and array-length
+  mismatches.
+- `splytters.metrics.diversity_text`: computes over unique pairs (halving work)
+  and gained optional subsampling for large inputs.
 
 ### Infrastructure
-- GitHub Actions CI (core-only matrix on Python 3.10–3.12 + ruff lint +
-  full-deps canary), `conftest.py` (seeding + optional-dep skipping),
-  `CITATION.cff`, `CONTRIBUTING.md`, registered `slow` pytest marker, and ruff
-  configuration.
+- GitHub Actions CI (core matrix on Python 3.10–3.14 + ruff lint + full-deps
+  canary), Codecov coverage (~94%), Trusted-Publishing release workflow,
+  `conftest.py` (seeding + optional-dep skipping), `CITATION.cff`,
+  `CONTRIBUTING.md`, registered `slow` pytest marker, and ruff configuration.
 
-## [0.1.0]
-- Initial release: adversarial / overlap / balanced splitters, per-modality
-  sorters, embedders, demos, and the pytest suite.
+## [0.0.x] — pre-release (2022–2026)
+
+The original repository before the scikit-learn API alignment and PyPI
+packaging: adversarial / overlap / balanced splitters, per-modality sorters,
+embedders, demos, and the pytest suite.
+
+[0.2.0]: https://github.com/gxlarson/splytters/compare/v0.1.1...v0.2.0
+[0.1.1]: https://github.com/gxlarson/splytters/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/gxlarson/splytters/releases/tag/v0.1.0

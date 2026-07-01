@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: "If you use splytters in your research, please cite it as below."
-title: "splytters: Clustering-based data splits for model robustness testing"
+title: "splytters: Embedding-based train/test splitting beyond random splits"
 abstract: >-
   splytters provides train/test splitting algorithms that operate on embeddings
   with three objectives — adversarial (minimize train/test similarity, for hard
