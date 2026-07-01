@@ -64,6 +64,28 @@ class TestPerClassSplit:
         np.testing.assert_array_equal(a[0], b[0])
         np.testing.assert_array_equal(a[1], b[1])
 
+    def test_random_state_drives_wrapped_splitter(self, labeled_embeddings):
+        """random_state must reach split_fn (not just the fallback): a
+        seed-varying splitter gives different splits for different seeds, and the
+        same seed is reproducible."""
+        X, y = labeled_embeddings
+        a = per_class_split(cluster_split, X, y, 0.7, random_state=0, n_clusters=5)
+        b = per_class_split(cluster_split, X, y, 0.7, random_state=1, n_clusters=5)
+        c = per_class_split(cluster_split, X, y, 0.7, random_state=0, n_clusters=5)
+        assert not np.array_equal(a[1], b[1])          # seed changes the split
+        np.testing.assert_array_equal(a[1], c[1])       # same seed reproducible
+
+    def test_custom_split_fn_without_random_state(self, labeled_embeddings):
+        """A split_fn that doesn't accept random_state is called without it."""
+        X, y = labeled_embeddings
+
+        def custom(emb, train_size=0.7):
+            k = int(len(emb) * train_size)
+            return np.arange(k), np.arange(k, len(emb))
+
+        train, test = per_class_split(custom, X, y, 0.7, random_state=0)
+        assert _is_partition(train, test, len(X))
+
     def test_fallback_on_small_class(self):
         """cluster_split(n_clusters=10) fails on a 4-sample class; fallback saves it."""
         rng = np.random.RandomState(1)
