@@ -31,9 +31,14 @@ class TestSplitReport:
             "centroid_distance", "mean_cross_distance", "coverage",
             "cluster_leakage_ratio",
             "mmd_rbf", "energy_distance", "wasserstein_mean", "ks_mean",
+            "sliced_wasserstein", "frechet_distance", "c2st_auc",
+            "manifold_precision", "manifold_recall",
         ):
             assert key in rep, f"missing {key}"
             assert np.isfinite(rep[key])
+        # AUC and manifold fractions live in [0, 1].
+        for key in ("c2st_auc", "manifold_precision", "manifold_recall"):
+            assert 0.0 <= rep[key] <= 1.0
 
     def test_counts_consistent(self, embeddings_2d):
         train, test = random_split(embeddings_2d, train_size=0.7)
@@ -51,6 +56,19 @@ class TestSplitReport:
         # Adversarial pushes test away from train on multiple measures.
         assert adv["mean_cross_distance"] >= rand["mean_cross_distance"]
         assert adv["energy_distance"] >= rand["energy_distance"]
+
+    def test_c2st_and_manifold_track_adversarialness(self, embeddings_2d):
+        """An adversarial split is more classifier-separable (higher c2st_auc
+        and Fréchet) and leaves test less supported by train (lower manifold
+        precision) than a random split."""
+        r_tr, r_te = random_split(embeddings_2d, random_state=0)
+        a_tr, a_te = centroid_adversarial_split(embeddings_2d, n_clusters=4)
+        rand = split_report(embeddings_2d, r_tr, r_te, random_state=0)
+        adv = split_report(embeddings_2d, a_tr, a_te, random_state=0)
+        assert adv["c2st_auc"] >= rand["c2st_auc"]
+        assert adv["frechet_distance"] >= rand["frechet_distance"]
+        assert adv["sliced_wasserstein"] >= rand["sliced_wasserstein"]
+        assert adv["manifold_precision"] <= rand["manifold_precision"]
 
     def test_diversity_keys_present_and_finite(self, embeddings_2d):
         train, test = random_split(embeddings_2d)
