@@ -221,6 +221,10 @@ def random_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Seed stability: fully random -- every seed gives a different train/test
+    split; this is the baseline the other splitters' seed stability is measured
+    against.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     n_samples = len(embeddings)

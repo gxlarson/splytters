@@ -50,6 +50,9 @@ def cluster_leak_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Seed stability: varies with the seed like a random split -- each cluster is
+    shuffled before being split, so which members go to test differs run to run.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     rng = check_random_state(random_state)
@@ -100,6 +103,9 @@ def neighbor_coverage_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Seed stability: varies with the seed like a random split -- it starts from a
+    random train set and admits/swaps points stochastically.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     n_samples = len(embeddings)
@@ -182,6 +188,9 @@ def centroid_matched_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Seed stability: varies with the seed like a random split -- the swap
+    optimization has many assignments with equally matched centroids.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
 
@@ -216,6 +225,9 @@ def stratified_similarity_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Seed stability: varies with the seed like a random split -- samples are
+    shuffled within each distance bin before the proportional split.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     rng = check_random_state(random_state)
@@ -270,6 +282,9 @@ def nearest_neighbor_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Seed stability: varies with the seed like a random split -- points are
+    processed in a random order when building the test set.
     """
     from sklearn.neighbors import NearestNeighbors
 
@@ -331,6 +346,9 @@ def duplicate_spread_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Seed stability: varies with the seed like a random split -- each
+    near-duplicate group is shuffled before being split across both sides.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     rng = check_random_state(random_state)
@@ -404,6 +422,9 @@ def max_coverage_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Seed stability: varies with the seed like a random split -- it starts from a
+    random split and greedily swaps, reaching different high-coverage solutions.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     n_samples = len(embeddings)
