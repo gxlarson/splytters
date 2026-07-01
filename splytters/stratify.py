@@ -91,6 +91,11 @@ def per_class_split(
     Raises:
         ValueError: if ``embeddings`` and ``y`` differ in length, or ``on_error``
             is not ``"fallback"`` or ``"raise"``.
+
+    Seed stability: inherits ``split_fn``'s character -- wrapping a deterministic
+    splitter per class stays deterministic; wrapping a seed-varying one stays
+    seed-varying. Applying a splitter per class vs globally changes *which*
+    samples are selected, but not its determinism.
     """
     if on_error not in ("fallback", "raise"):
         raise ValueError(f"on_error must be 'fallback' or 'raise', got {on_error!r}")

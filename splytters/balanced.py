@@ -43,6 +43,10 @@ def distribution_matched_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Seed stability: varies with the seed like a random split -- the swap
+    optimization starts from a random split and many assignments match the
+    distribution equally well.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
 
@@ -79,6 +83,9 @@ def moment_matched_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Seed stability: varies with the seed like a random split -- the swap
+    optimization reaches different assignments with equally matched moments.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
 
@@ -117,6 +124,9 @@ def histogram_matched_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Seed stability: varies with the seed like a random split -- the swap
+    optimization reaches different assignments with equally matched histograms.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     n_dims = embeddings.shape[1]
@@ -163,6 +173,9 @@ def stratified_random_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Seed stability: varies with the seed like a random split -- it is a seeded
+    stratified random draw.
     """
     from sklearn.model_selection import train_test_split
 
@@ -200,6 +213,9 @@ def density_balanced_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Seed stability: varies with the seed like a random split -- samples are
+    shuffled within each density bin before the proportional split.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     n_samples = len(embeddings)
@@ -270,6 +286,9 @@ def mmd_minimized_split(
         (2025), "Clustering-Based Validation Splits for Model Selection under
         Domain Shift," TMLR (https://openreview.net/forum?id=Q692C0WtiD). See
         :func:`splytters.mmd_maximized_split`.
+
+    Seed stability: varies with the seed like a random split -- the swap
+    optimization reaches different assignments with similarly low MMD.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     n_dims = embeddings.shape[1]

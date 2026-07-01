@@ -82,6 +82,10 @@ def group_split(
     Raises:
         ValueError: on a ``groups``/embeddings length mismatch or fewer than two
             distinct groups (nothing to split).
+
+    Seed stability: varies with the seed like a random split -- whole groups are
+    assigned to train/test in a random (seeded) order, though each group always
+    stays intact.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     groups = np.asarray(groups)
@@ -135,6 +139,9 @@ def deduplicated_split(
         ValueError: if the threshold merges every sample into one near-duplicate
             component (nothing left to split without leakage) — lower
             ``similarity_threshold``.
+
+    Seed stability: structure-stable -- the near-duplicate groups are fixed; only
+    which group goes to which side is random.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     n_samples = len(embeddings)

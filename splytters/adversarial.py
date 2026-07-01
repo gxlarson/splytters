@@ -249,6 +249,11 @@ def cluster_split(
         class-balancing with a linear program (with convergence guarantees).
         https://openreview.net/forum?id=Q692C0WtiD . See
         :func:`mmd_maximized_split` for the MMD-maximizing objective.
+
+    Seed stability: varies with the seed -- the KMeans clustering, and which
+    whole clusters are held out, shift with the seed, so the test set can differ
+    substantially between runs (from near-identical to nearly disjoint) even
+    though the clusters themselves are similar.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
 
@@ -327,6 +332,10 @@ def centroid_adversarial_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Seed stability: varies with the seed -- built on KMeans clustering, so which
+    whole clusters land in test shifts between seeds and the held-out set can
+    change substantially.
     """
     return cluster_split(
         embeddings,
@@ -389,6 +398,10 @@ def cluster_kfold(
         Clustering-Based Data Splits for Model Performance Evaluation," Eval4NLP
         @ COLING -- folds that are lexically distinct from train while preserving
         label balance. https://aclanthology.org/2020.eval4nlp-1.15
+
+    Seed stability: structure-stable -- fold assignment varies with the KMeans
+    clustering, though the cluster-coherent, label-balanced structure is
+    preserved.
     """
     embeddings = validate_split_inputs(embeddings, 0.5)  # 0.5: unused placeholder
     y = np.asarray(y)
@@ -527,6 +540,9 @@ def minority_split(
         anti-biased (test). Their other two notions -- dataset cartography
         (training dynamics) and partial-input models -- are model-in-the-loop /
         task-specific and out of scope for a static splitter.
+
+    Seed stability: nearly deterministic -- the per-cluster minority labels are
+    stable; only the underlying KMeans clustering wobbles slightly between seeds.
     """
     embeddings = validate_split_inputs(embeddings, 0.5)  # 0.5: unused placeholder
     y = np.asarray(y)
@@ -771,6 +787,10 @@ def minority_grow_split(
         Extends the bias-amplified minority seed of Reif & Schwartz (2023); see
         :func:`minority_split`. The proximity growth is the single-linkage region
         growth also used by ``cluster_split(strategy="closest")``.
+
+    Seed stability: nearly deterministic -- the minority seeds and proximity
+    growth are largely fixed; only the underlying clustering wobbles between
+    seeds. This holds in every ``stratify`` mode (none / global / per-class).
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     y = np.asarray(y)
@@ -906,6 +926,10 @@ def class_boundary_split(
         toward *other classes* rather than toward the training set, yielding a
         boundary-focused test set; contrast :func:`distance_adversarial_split`
         (unsupervised, distance from the global centroid).
+
+    Seed stability: deterministic -- closeness to other classes is a fixed
+    geometric quantity, so the seed has no effect (it is accepted only for API
+    consistency).
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     y = np.asarray(y)
@@ -1009,6 +1033,11 @@ def decision_boundary_split(
         (2021), "We Need to Talk About Random Splits"
         (https://aclanthology.org/2021.eacl-main.156), but using a *learned*
         boundary rather than embedding geometry.
+
+    Seed stability: structure-stable -- the cross-validation folds depend on the
+    seed, so which samples sit nearest the learned boundary (and go to test)
+    shifts somewhat between seeds. This holds in both ``stratify`` modes
+    (per-class and global wobble about equally).
     """
     from sklearn.linear_model import LogisticRegression
     from sklearn.model_selection import StratifiedKFold
@@ -1128,6 +1157,10 @@ def distance_adversarial_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Seed stability: deterministic -- samples are ranked by distance from the
+    centroid, so the seed has no effect (it is accepted only for API
+    consistency).
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     centroid = compute_centroid(embeddings)
@@ -1167,6 +1200,9 @@ def density_adversarial_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Seed stability: deterministic -- samples are ranked by local density, so the
+    seed has no effect.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
 
@@ -1210,6 +1246,9 @@ def outlier_adversarial_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Seed stability: nearly deterministic -- the outlier ranking is fixed; only
+    samples right at the train/test cutoff can change between seeds.
     """
     from sklearn.ensemble import IsolationForest
 
@@ -1260,6 +1299,12 @@ def min_cut_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Seed stability: deterministic (spectral method) -- the split follows the
+    Fiedler vector, whose otherwise-arbitrary sign is oriented deterministically,
+    so it does not depend on the random ``eigsh`` start vector. (Without that
+    orientation the held-out half would flip with the sign, giving disjoint test
+    sets between seeds.)
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     n_samples = len(embeddings)
@@ -1416,6 +1461,9 @@ def normalized_cut_split(
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Seed stability: deterministic -- the normalized-cut partition uses a dense
+    eigendecomposition (eigh), which is fixed, so the seed has no effect.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     n_samples = len(embeddings)
@@ -1484,6 +1532,9 @@ def wasserstein_adversarial_split(
         Filippova (2021), "We Need to Talk About Random Splits," EACL, which
         constructs hard splits by (approximately) maximizing the Wasserstein
         distance between train and test. https://aclanthology.org/2021.eacl-main.156
+
+    Seed stability: varies with the seed like a random split -- the test pocket
+    is grown around a randomly chosen anchor point.
     """
     from scipy.stats import wasserstein_distance
     from sklearn.neighbors import NearestNeighbors
@@ -1554,6 +1605,10 @@ def mmd_maximized_split(
         programming to preserve class/group balance, with convergence guarantees
         and Nyström scaling. For class-balanced clustering splits, see
         ``cluster_split(strategy="subset_sum")`` and :func:`cluster_kfold`.
+
+    Seed stability: varies with the seed like a random split -- the swap
+    optimization starts from a random split and many assignments reach a similar
+    MMD, so the chosen test set differs run to run.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     n_dims = embeddings.shape[1]
@@ -1652,6 +1707,10 @@ def maximin_split(
     Returns:
         train_indices: the denser interior remainder.
         test_indices: a farthest-point-sampled, space-covering test set.
+
+    Seed stability: structure-stable -- only the starting point of the
+    farthest-first traversal is random, so different seeds give overlapping but
+    not identical space-covering test sets.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     n_samples = len(embeddings)
