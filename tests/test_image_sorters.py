@@ -1,10 +1,12 @@
 """Unit tests for image_sorters.py"""
 
+import shutil
 from pathlib import Path
 
 import pytest
 
 from splytters.sorters.image_sorters import (
+    _load_image,
     color_variance,
     compression_ratio,
     contrast,
@@ -68,6 +70,23 @@ class TestMeanBrightness:
             assert isinstance(idx, int)
             assert isinstance(brightness, float)
             assert 0 <= brightness <= 255
+
+
+class TestLoadImage:
+    """Regression tests for _load_image file-handle management."""
+
+    def test_closes_file_handle(self, tmp_path):
+        """_load_image force-loads pixels so the underlying file is closed; the
+        source file must be deletable afterward (fails on Windows if a handle
+        leaks). Guards against Image.open's lazy fd staying open."""
+        src = get_image_path("brightness_medium")
+        copied = tmp_path / "copy.png"
+        shutil.copy(src, copied)
+
+        img = _load_image(copied)
+        assert img.size[0] > 0  # pixels are accessible after the handle closed
+        copied.unlink()  # would raise PermissionError on Windows if fd still open
+        assert not copied.exists()
 
 
 class TestContrast:

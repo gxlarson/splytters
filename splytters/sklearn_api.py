@@ -28,6 +28,7 @@ from splytters._types import Splitter
 from splytters.adversarial import cluster_split
 from splytters.balanced import distribution_matched_split
 from splytters.overlap import cluster_leak_split
+from splytters.utils import accepts_random_state
 
 
 def _derive_seed(random_state: int | None, i: int) -> int | None:
@@ -89,12 +90,14 @@ class SplytterSplit(BaseCrossValidator):
 
     def split(self, X, y=None, groups=None) -> Iterator[tuple[np.ndarray, np.ndarray]]:
         emb = self.embeddings if self.embeddings is not None else X
+        pass_seed = accepts_random_state(self.splitter)
         for i in range(self.n_splits):
             seed = _derive_seed(self.random_state, i)
+            extra = {"random_state": seed} if pass_seed else {}
             train_idx, test_idx = self.splitter(
                 emb,
                 train_size=self.train_size,
-                random_state=seed,
+                **extra,
                 **self.splitter_kwargs,
             )
             yield np.asarray(train_idx, dtype=np.intp), np.asarray(
@@ -151,8 +154,9 @@ def splytter_train_test_split(
                 f"array {i} has length {_num_samples(a)}."
             )
 
+    extra = {"random_state": random_state} if accepts_random_state(splitter) else {}
     train_idx, test_idx = splitter(
-        embeddings, train_size=train_size, random_state=random_state, **splitter_kwargs
+        embeddings, train_size=train_size, **extra, **splitter_kwargs
     )
 
     if not arrays:

@@ -9,7 +9,6 @@ maximize dissimilarity.
 from __future__ import annotations
 
 from collections.abc import Callable
-from pprint import pprint
 from typing import Any
 
 import numpy as np
@@ -148,6 +147,7 @@ def outlier_score(
     embeddings: ArrayLike,
     method: str = "isolation_forest",
     low_first: bool = True,
+    random_state: int = 42,
     **kwargs: Any,
 ) -> list[tuple[int, float]]:
     """
@@ -166,6 +166,9 @@ def outlier_score(
             - 'lof': Local Outlier Factor (density-based)
         low_first: if True, normal/inlier samples first;
                    if False, outliers/anomalies first
+        random_state: seed for isolation_forest (ignored by lof, which is
+            deterministic). Exposed as its own parameter so it can't collide
+            with a ``random_state`` passed through ``**kwargs``.
         **kwargs: additional arguments passed to the outlier detector
 
     Returns:
@@ -176,7 +179,7 @@ def outlier_score(
     embeddings = np.asarray(embeddings)
 
     if method == "isolation_forest":
-        detector = IsolationForest(random_state=42, **kwargs)
+        detector = IsolationForest(random_state=random_state, **kwargs)
         detector.fit(embeddings)
         # score_samples returns negative scores; more negative = more normal
         # We negate so higher = more outlier
@@ -269,20 +272,3 @@ def knn_label_disagreement(
     scores = [(i, float(np.mean(y[neighbors[i]] != y[i]))) for i in range(n)]
     scores.sort(key=lambda p: p[1], reverse=not low_first)
     return scores
-
-
-if __name__ == "__main__":
-    # Example: sort texts by distance to mean embedding.
-    # Texts farther from the centroid (more atypical) appear later.
-    from sentence_transformers import SentenceTransformer
-    embedder = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-    texts = [
-        "what is my balance",
-        "my balance is what",
-        "how much do I owe",
-        "what's my balance"
-    ]
-    embeddings = embedder.encode(texts)
-    distances = distance_to_mean(embeddings)
-    distances = [(texts[i], d) for (i, d) in distances]
-    pprint(distances)

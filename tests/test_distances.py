@@ -42,6 +42,29 @@ class TestNgramJaccard:
     def test_distance_identical_is_zero(self):
         assert ngram_jaccard_distance("a b c d", "a b c d") == pytest.approx(0.0)
 
+    def test_short_texts_do_not_crash(self):
+        """Both texts shorter than n tokens previously raised ZeroDivisionError
+        (empty n-gram sets -> empty union). They should now score cleanly."""
+        assert ngram_jaccard_similarity("a b", "a b") == pytest.approx(1.0)
+        s = ngram_jaccard_similarity("a b", "a c")
+        assert 0.0 <= s <= 1.0
+
+    def test_empty_texts_are_identical(self):
+        """Two empty texts have no n-grams at any order -> treated as identical."""
+        assert ngram_jaccard_similarity("", "") == pytest.approx(1.0)
+
+    def test_uses_supplied_tokenizer(self):
+        """The `tokenizer` argument must actually be applied (it was ignored).
+        A case-folding tokenizer makes these identical; the default whitespace
+        tokenizer treats them as disjoint."""
+        def lower_tokenizer(s):
+            return s.lower().split()
+
+        assert ngram_jaccard_similarity("A B C", "a b c") == pytest.approx(0.0)
+        assert ngram_jaccard_similarity(
+            "A B C", "a b c", tokenizer=lower_tokenizer
+        ) == pytest.approx(1.0)
+
 
 class TestDifflib:
 

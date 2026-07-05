@@ -77,3 +77,20 @@ class TestMaxCoverageSwap:
         X = rng.randn(10, 2) * 10
         train, test = max_coverage_split(X, train_size=0.5, radius=1e-6)
         _disjoint_and_complete(train, test, len(X))
+
+    def test_covers_all_test_points_when_possible(self):
+        """Four tight pairs, one point per pair to each side: the greedy swaps
+        should reach full coverage (every test point has a train point within
+        radius). Guards the incremental cover_count rewrite for correctness."""
+        X = np.array([
+            [0.0, 0.0], [0.1, 0.0],
+            [10.0, 10.0], [10.1, 10.0],
+            [20.0, 20.0], [20.1, 20.0],
+            [30.0, 30.0], [30.1, 30.0],
+        ])
+        train, test = max_coverage_split(X, train_size=0.5, radius=1.0)
+        _disjoint_and_complete(train, test, len(X))
+
+        from scipy.spatial.distance import cdist
+        d = cdist(X[test], X[train])
+        assert (d.min(axis=1) <= 1.0).all()  # every test point covered

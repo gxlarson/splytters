@@ -216,6 +216,19 @@ class TestOutlierScore:
         with pytest.raises(ValueError, match="Unknown outlier detection method"):
             outlier_score(embeddings, method="invalid")
 
+    def test_random_state_kwarg_does_not_collide(self, embeddings_large):
+        """random_state is a named parameter now, so passing it no longer clashes
+        with a hardcoded seed (previously TypeError: multiple values)."""
+        results = outlier_score(
+            embeddings_large, method="isolation_forest", random_state=7
+        )
+        assert len(results) == len(embeddings_large)
+
+    def test_random_state_is_reproducible(self, embeddings_large):
+        a = outlier_score(embeddings_large, method="isolation_forest", random_state=7)
+        b = outlier_score(embeddings_large, method="isolation_forest", random_state=7)
+        assert a == b
+
 
 class TestNearestNeighborScalability:
     """distance_to_nearest_neighbor uses NearestNeighbors (O(n·k) memory)."""

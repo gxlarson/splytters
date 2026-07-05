@@ -1363,8 +1363,16 @@ def min_cut_split(
             # Sort and split to achieve desired train_size
             sorted_indices = np.argsort(fiedler)
 
-        except Exception:
-            # Fallback to random if eigendecomposition fails
+        except Exception as err:
+            # Eigendecomposition failed; fall back to a random split. Warn
+            # loudly — silently returning a *random* split from an adversarial
+            # splitter would misreport the result's difficulty.
+            warnings.warn(
+                f"min_cut_split: spectral eigendecomposition failed ({err!r}); "
+                "falling back to a random split, which is NOT adversarial. "
+                "Try method='stoer_wagner' or adjust similarity_threshold.",
+                stacklevel=2,
+            )
             rng = check_random_state(random_state)
             sorted_indices = np.arange(n_samples)
             rng.shuffle(sorted_indices)
@@ -1493,6 +1501,14 @@ def normalized_cut_split(
 
     # Use second eigenvector (Fiedler vector)
     fiedler = eigenvectors[:, 1]
+
+    # The Fiedler sign is mathematically arbitrary; eigh's choice is LAPACK-
+    # dependent and can differ across platforms/builds, which would flip which
+    # half becomes test. Orient it deterministically (sign of the largest-
+    # magnitude component, as in sklearn's svd_flip) so the "deterministic"
+    # claim above holds portably, not just within one machine.
+    if fiedler[np.argmax(np.abs(fiedler))] < 0:
+        fiedler = -fiedler
 
     # Sort by Fiedler vector to get partition
     sorted_indices = np.argsort(fiedler)
@@ -1653,6 +1669,10 @@ def get_cluster_info(
         dict with cluster statistics including leakage info
     """
     embeddings = np.asarray(embeddings)
+
+    # KMeans requires n_clusters <= n_samples; clamp so this helper (and its
+    # caller split_report) works on small inputs instead of raising.
+    n_clusters = max(1, min(n_clusters, len(embeddings)))
 
     clusterer = KMeans(n_clusters=n_clusters, random_state=random_state, n_init="auto")
     labels = clusterer.fit_predict(embeddings)

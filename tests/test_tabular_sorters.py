@@ -248,6 +248,17 @@ class TestOutlierScore:
         with pytest.raises(ValueError, match="Unknown outlier detection method"):
             outlier_score(df, method='invalid')
 
+    def test_random_state_kwarg_does_not_collide(self, df):
+        """Passing random_state no longer duplicates the hardcoded seed (it used
+        to raise TypeError: got multiple values for 'random_state')."""
+        results = outlier_score(df, method='isolation_forest', random_state=7)
+        assert len(results) == len(df)
+
+    def test_random_state_is_reproducible(self, df):
+        a = outlier_score(df, method='isolation_forest', random_state=7)
+        b = outlier_score(df, method='isolation_forest', random_state=7)
+        assert a == b
+
 
 class TestNumericalRangeScore:
     """Tests for numerical_range_score function."""
@@ -496,6 +507,18 @@ class TestEdgeCases:
         df = pd.DataFrame({'a': [10.0, 20.0, 30.0, np.nan]})
         results = column_absolute_zscore(df, 'a')
         assert results[-1][1] == float('inf')
+
+    def test_column_zscore_nan_stays_last_when_descending(self):
+        """With low_first=False the NaN row must still sort to the end, not the
+        front (a fixed +inf sentinel would put it first under a reverse sort)."""
+        df = pd.DataFrame({'a': [10.0, 20.0, 30.0, np.nan]})
+        results = column_zscore(df, 'a', low_first=False)
+        assert results[-1][0] == 3  # the NaN row
+
+    def test_column_absolute_zscore_nan_stays_last_when_descending(self):
+        df = pd.DataFrame({'a': [10.0, 20.0, 30.0, np.nan]})
+        results = column_absolute_zscore(df, 'a', low_first=False)
+        assert results[-1][0] == 3
 
     # --- no-numeric-column fallbacks (return all-zero) ---
 

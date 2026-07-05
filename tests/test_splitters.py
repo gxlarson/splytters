@@ -989,18 +989,28 @@ class TestNearestNeighborSplit:
         train, test = nearest_neighbor_split(embeddings_2d)
         assert_valid_split(train, test, len(embeddings_2d), ratio_tol=0.2)
 
-    def test_most_nn_in_train(self, embeddings_2d):
-        """Most test samples should have their nearest neighbor in train."""
+    def test_every_test_nn_in_train(self, embeddings_2d):
+        """The documented contract: *every* test sample's nearest neighbor is
+        in train. The old greedy could later pull a point's NN into test."""
         train, test = nearest_neighbor_split(embeddings_2d)
         from sklearn.neighbors import NearestNeighbors
         nn = NearestNeighbors(n_neighbors=2, algorithm="auto")
         nn.fit(embeddings_2d)
         neighbors = nn.kneighbors(embeddings_2d, return_distance=False)[:, 1]
 
-        train_set = set(train)
-        nn_in_train = sum(1 for t_idx in test if neighbors[t_idx] in train_set)
-        # The greedy algorithm should achieve high coverage, though not 100%
-        assert nn_in_train / len(test) > 0.8
+        train_set = set(train.tolist())
+        assert all(neighbors[t_idx] in train_set for t_idx in test.tolist())
+
+    def test_warns_when_test_cannot_be_filled(self):
+        """When keeping every NN in train prevents reaching n_test, the split
+        returns a smaller test set and warns rather than silently under-filling.
+        Two tight mutual-NN pairs far apart: each point moved to test pins its
+        partner into train, so at most 2 of the 3 requested test points fit."""
+        X = np.array([[0.0, 0.0], [0.1, 0.0], [10.0, 0.0], [10.1, 0.0]])
+        with pytest.warns(UserWarning, match="could only place"):
+            train, test = nearest_neighbor_split(X, train_size=0.25)
+        assert_valid_split(train, test, 4, train_size=0.25, ratio_tol=0.3)
+        assert len(test) < 3
 
 
 class TestDuplicateSpreadSplit:
@@ -1008,6 +1018,20 @@ class TestDuplicateSpreadSplit:
     def test_valid_split(self, embeddings_2d):
         train, test = duplicate_spread_split(embeddings_2d)
         assert_valid_split(train, test, len(embeddings_2d), ratio_tol=0.3)
+
+    def test_singletons_apportioned_to_hit_train_size(self):
+        """All-unique points (every group a singleton) must still split near
+        train_size; the old version dumped every singleton into train, leaving
+        the test set empty."""
+        rng = np.random.RandomState(0)
+        X = rng.randn(20, 4) * 100
+        # A tiny threshold makes every distinct point its own group (all
+        # singletons), isolating the singleton-apportionment path.
+        train, test = duplicate_spread_split(
+            X, train_size=0.7, similarity_threshold=1e-9
+        )
+        assert_valid_split(train, test, 20, train_size=0.7, ratio_tol=0.1)
+        assert len(test) > 0
 
 
 class TestMaxCoverageSplit:
