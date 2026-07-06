@@ -88,7 +88,7 @@ class TestMaxCoverageSwap:
             [20.0, 20.0], [20.1, 20.0],
             [30.0, 30.0], [30.1, 30.0],
         ])
-        train, test = max_coverage_split(X, train_size=0.5, radius=1.0)
+        train, test = max_coverage_split(X, train_size=0.5, radius=1.0, random_state=0)
         _disjoint_and_complete(train, test, len(X))
 
         from scipy.spatial.distance import cdist

@@ -290,14 +290,8 @@ class TestPerplexityScore:
 
     def test_requires_model_and_tokenizer_together(self, texts):
         """Passing only one of model/tokenizer must raise, not silently pair a
-        user object with a mismatched GPT-2 default. The check runs after the
-        torch/transformers import, so skip if that stack isn't importable."""
-        pytest.importorskip("torch")
-        pytest.importorskip("transformers")
-        try:
-            from transformers import GPT2LMHeadModel  # noqa: F401
-        except Exception:
-            pytest.skip("transformers/torch too old to import GPT-2 classes")
+        user object with a mismatched GPT-2 default. The check runs before the
+        torch/transformers imports, so it needs no skip guard."""
         with pytest.raises(ValueError, match="both `model` and `tokenizer`"):
             perplexity_score(texts, model=object())
         with pytest.raises(ValueError, match="both `model` and `tokenizer`"):

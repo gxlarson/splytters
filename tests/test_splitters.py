@@ -783,11 +783,13 @@ class TestMinCutSplit:
     def test_spectral_eigsh_failure_falls_back_to_random(
         self, embeddings_small, monkeypatch
     ):
-        """If eigendecomposition raises, the split falls back to a random one."""
+        """If eigendecomposition raises, the split falls back to a random one
+        and warns that the result is not adversarial."""
         def boom(*args, **kwargs):
             raise RuntimeError("eigsh failed")
         monkeypatch.setattr("splytters.adversarial.eigsh", boom)
-        train, test = min_cut_split(embeddings_small, method="spectral")
+        with pytest.warns(UserWarning, match="NOT adversarial"):
+            train, test = min_cut_split(embeddings_small, method="spectral")
         assert_valid_split(train, test, len(embeddings_small), ratio_tol=0.3)
 
     def test_stoer_wagner_connected_graph(self, embeddings_small):

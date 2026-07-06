@@ -7,6 +7,7 @@ similar to training samples, useful for sanity checks and debugging.
 
 from __future__ import annotations
 
+import warnings
 from collections import defaultdict
 from typing import Any
 
@@ -327,8 +328,6 @@ def nearest_neighbor_split(
             test_indices.append(idx)
 
     if len(test_indices) < n_test:
-        import warnings
-
         warnings.warn(
             f"nearest_neighbor_split could only place {len(test_indices)} of the "
             f"requested {n_test} test samples while keeping every test point's "
