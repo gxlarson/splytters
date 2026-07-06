@@ -1,6 +1,6 @@
 """Tests for the splitter/sorter introspection helpers."""
 
-import numpy as np
+import inspect
 
 import splytters
 import splytters.sorters as sorters
@@ -28,10 +28,17 @@ def test_accepts_random_state_direct_and_varkw():
     assert not accepts_random_state(without_it)
 
 
-def test_accepts_random_state_uninspectable_callable_assumed_true():
-    """A callable whose signature can't be introspected (e.g. a numpy ufunc)
-    hits the except branch and is assumed to accept random_state."""
-    assert accepts_random_state(np.add)
+def test_accepts_random_state_uninspectable_callable_assumed_true(monkeypatch):
+    """When the signature can't be introspected (some C callables raise), assume
+    the splitter accepts random_state -- the safer default. Forced via monkeypatch
+    since which callables raise is Python/numpy-version dependent."""
+    def raiser(_fn):
+        raise ValueError("no signature found")
+
+    monkeypatch.setattr(inspect, "signature", raiser)
+    # A plain callable that would introspect to False; True can only come from
+    # the except branch.
+    assert accepts_random_state(lambda embeddings: None)
 
 
 # --- list_splitters ---------------------------------------------------------
