@@ -15,7 +15,7 @@ authors:
     given-names: Stefan
     email: stefan.larson@vanderbilt.edu
     affiliation: Vanderbilt University
-version: 0.2.0
+version: 0.2.1
 license: MIT
 repository-code: "https://github.com/gxlarson/splytters"
 url: "https://github.com/gxlarson/splytters"

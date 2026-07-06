@@ -4,6 +4,51 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] — 2026-07-06
+
+Bug-fix roll-up from a full-package code review. Most changes are fixes to
+existing functions; see **Changed** for the one behavior change that can affect
+existing callers (`perplexity_score`).
+
+### Fixed
+- `ngram_jaccard_similarity` no longer raises `ZeroDivisionError` on texts
+  shorter than the n-gram order (e.g. two-token strings), and now applies its
+  `tokenizer` argument instead of ignoring it. This fixes a crash reachable from
+  `split_report(texts=...)` on short texts.
+- `split_report` clamps `n_clusters` to the sample count, so it no longer
+  crashes on datasets smaller than the default 10 clusters.
+- `nearest_neighbor_split` now honors its documented contract — every test
+  point's nearest neighbor is guaranteed to be in train — by pinning neighbors
+  into train, and warns when the requested test size cannot be met.
+- `duplicate_spread_split` apportions singleton (non-duplicate) points across
+  both sides instead of routing them all to train, so the realized split tracks
+  `train_size`.
+- Descending tabular sorts (`column_zscore` / `column_absolute_zscore` with
+  `low_first=False`) keep NaN rows at the end instead of sorting them first.
+- `outlier_score` (embedding and tabular) exposes `random_state` as a named
+  parameter, so passing it no longer raises `TypeError: got multiple values for
+  keyword 'random_state'`.
+- `min_cut_split` warns when spectral eigendecomposition fails and it falls back
+  to a random (non-adversarial) split, instead of doing so silently.
+- `max_coverage_split` uses incremental coverage bookkeeping (O(n) swaps),
+  replacing the previous O(n^4) worst case.
+- `normalized_cut_split` orients the Fiedler vector's sign deterministically, so
+  the split is reproducible across LAPACK builds/platforms.
+- Image sorters close image file handles after loading, avoiding descriptor
+  exhaustion on large image lists (notably on Windows).
+
+### Changed
+- **`perplexity_score` now raises `ValueError` when only one of `model` /
+  `tokenizer` is supplied**, instead of silently pairing your object with a
+  mismatched GPT-2 default. Pass both or neither.
+- `splytter_train_test_split` and `SplytterSplit` no longer force `random_state`
+  onto custom splitters that don't accept it (the callable is introspected
+  first).
+- Tabular row sorters (`missing_value_ratio`, `row_sparsity`,
+  `row_distance_to_mean`) are vectorized — roughly 100x faster on wide frames.
+- Build requires `setuptools>=77` (PEP 639 license string); the `audio` extra
+  now declares `soundfile` explicitly.
+
 ## [0.2.0] — 2026-07-01
 
 ### Added
@@ -121,6 +166,7 @@ The original repository before the scikit-learn API alignment and PyPI
 packaging: adversarial / overlap / balanced splitters, per-modality sorters,
 embedders, demos, and the pytest suite.
 
+[0.2.1]: https://github.com/gxlarson/splytters/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/gxlarson/splytters/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/gxlarson/splytters/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/gxlarson/splytters/releases/tag/v0.1.0

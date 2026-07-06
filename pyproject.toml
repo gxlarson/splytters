@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "splytters"
-version = "0.2.0"
+version = "0.2.1"
 description = "Embedding-based train/test splitting beyond random splits: adversarial, overlap, and distribution-balanced splits for robust model evaluation."
 readme = "README.md"
 license = "MIT"
