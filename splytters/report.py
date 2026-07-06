@@ -160,8 +160,8 @@ def split_report(
     *balanced* split; near-zero indicates *overlap*.
 
     ``c2st_auc`` is a classifier two-sample test — the out-of-fold AUC of a
-    logistic model trained to tell train from test points: ~0.5 means the two
-    sides are indistinguishable (overlap), →1.0 means trivially separable
+    random-forest classifier trained to tell train from test points: ~0.5 means
+    the two sides are indistinguishable (overlap), →1.0 means trivially separable
     (adversarial). ``manifold_precision`` / ``manifold_recall`` (k-NN support
     coverage) report how much of test lies inside the train manifold and vice
     versa.

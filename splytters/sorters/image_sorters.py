@@ -32,7 +32,13 @@ if TYPE_CHECKING:
 def _load_image(img: ImageInput) -> Image.Image:
     """Load image from path or return PIL Image directly."""
     if isinstance(img, (str, Path)):
-        return Image.open(img)
+        # Image.open is lazy and keeps the file handle open until the pixels are
+        # accessed; force the load inside a context manager so the fd is closed
+        # before we return. Otherwise sorting a large image list leaks one fd
+        # per image and can exhaust the descriptor limit (notably on Windows).
+        with Image.open(img) as opened:
+            opened.load()
+            return opened
     if isinstance(img, Image.Image):
         return img
     raise TypeError(

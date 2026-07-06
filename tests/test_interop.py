@@ -58,6 +58,21 @@ class TestSplytterSplit:
         folds = list(cv.split(X))
         assert len(folds) == 1
 
+    def test_custom_splitter_without_random_state(self, labelled_data):
+        """SplytterSplit must not force random_state onto a splitter that can't
+        accept it (previously TypeError on the first .split() call)."""
+        X, _ = labelled_data
+
+        def head_tail_split(embeddings, train_size=0.7):
+            n = len(embeddings)
+            n_train = int(n * train_size)
+            idx = np.arange(n)
+            return idx[:n_train], idx[n_train:]
+
+        cv = SplytterSplit(head_tail_split, embeddings=X)
+        (train, test), = list(cv.split(X))
+        assert set(train.tolist()) | set(test.tolist()) == set(range(len(X)))
+
     def test_drop_in_cross_validate(self, labelled_data):
         """The headline guarantee: usable as cv= in cross_validate."""
         from sklearn.linear_model import LogisticRegression
@@ -114,6 +129,22 @@ class TestTrainTestSplitConvenience:
         X, y = labelled_data
         with pytest.raises(ValueError, match="same length"):
             splytter_train_test_split(X, y[:-1], embeddings=X)
+
+    def test_custom_splitter_without_random_state(self, labelled_data):
+        """A user splitter that takes neither random_state nor **kwargs must not
+        get a random_state forced on it (that raised TypeError before the fix)."""
+        X, _ = labelled_data
+
+        def head_tail_split(embeddings, train_size=0.7):
+            n = len(embeddings)
+            n_train = int(n * train_size)
+            idx = np.arange(n)
+            return idx[:n_train], idx[n_train:]
+
+        train_idx, test_idx = splytter_train_test_split(
+            embeddings=X, splitter=head_tail_split
+        )
+        assert len(train_idx) + len(test_idx) == len(X)
 
 
 # ---------------------------------------------------------------------------

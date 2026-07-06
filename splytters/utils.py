@@ -4,6 +4,7 @@ Shared utilities for splitting algorithms.
 
 from __future__ import annotations
 
+import inspect
 from collections import defaultdict
 from collections.abc import Callable
 from typing import Any
@@ -13,6 +14,21 @@ from numpy.typing import ArrayLike
 from scipy.spatial.distance import cdist
 from sklearn.cluster import KMeans
 from sklearn.utils import check_array, check_random_state
+
+
+def accepts_random_state(fn: Any) -> bool:
+    """Whether ``fn`` takes a ``random_state`` keyword (directly or via **kwargs).
+
+    Used to decide whether to forward ``random_state`` to a user-supplied
+    splitter: passing it to one that doesn't accept it raises ``TypeError``.
+    """
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return True  # can't introspect (e.g. a C callable) — assume it does
+    if any(p.kind == p.VAR_KEYWORD for p in params.values()):
+        return True
+    return "random_state" in params
 
 
 def to_numpy(X: ArrayLike) -> Any:

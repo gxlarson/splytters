@@ -7,6 +7,7 @@ similar to training samples, useful for sanity checks and debugging.
 
 from __future__ import annotations
 
+import warnings
 from collections import defaultdict
 from typing import Any
 
@@ -302,8 +303,13 @@ def nearest_neighbor_split(
     neighbors = nn_model.kneighbors(embeddings, return_distance=False)[:, 1]
 
     # Start with all points in train, then greedily move points to test.
-    # A point can become test only if its NN is staying in train.
+    # A point can become test only if its NN is (and stays) in train.
     in_train = np.ones(n_samples, dtype=bool)
+    # `pinned` marks train points that some test point relies on as its nearest
+    # neighbor; they must never move to test, or that test point's invariant
+    # would break. Without this, a later iteration could pull a point's NN into
+    # test, silently violating the documented guarantee.
+    pinned = np.zeros(n_samples, dtype=bool)
 
     # Process in random order so the result isn't biased by index ordering
     order = np.arange(n_samples)
@@ -313,10 +319,22 @@ def nearest_neighbor_split(
     for idx in order:
         if len(test_indices) >= n_test:
             break
+        if pinned[idx]:
+            continue  # must stay in train to satisfy a dependent test point
         nn = neighbors[idx]
         if in_train[nn]:
             in_train[idx] = False
+            pinned[nn] = True  # lock idx's NN into train
             test_indices.append(idx)
+
+    if len(test_indices) < n_test:
+        warnings.warn(
+            f"nearest_neighbor_split could only place {len(test_indices)} of the "
+            f"requested {n_test} test samples while keeping every test point's "
+            "nearest neighbor in train; the test set is smaller than train_size "
+            "implies. Use a larger dataset or a smaller test fraction.",
+            stacklevel=2,
+        )
 
     train_indices = np.where(in_train)[0]
     return as_index_array(train_indices), as_index_array(test_indices)
@@ -375,26 +393,38 @@ def duplicate_spread_split(
     for idx, label in enumerate(labels):
         component_to_indices[label].append(idx)
 
-    train_fraction = resolve_n_train(len(embeddings), train_size) / len(embeddings)
+    n_train_total = resolve_n_train(len(embeddings), train_size)
+    train_fraction = n_train_total / len(embeddings)
 
     train_indices = []
     test_indices = []
+    singletons: list[int] = []
 
-    # For each component, split proportionally (ensuring both sets get samples)
+    # For each near-duplicate group of size >= 2, split it across both sides so
+    # the duplicates appear in train *and* test (the point of this splitter).
     for indices in component_to_indices.values():
         indices = np.array(indices)
         rng.shuffle(indices)
 
         if len(indices) == 1:
-            # Single sample: assign to train
-            train_indices.extend(indices.tolist())
-        else:
-            # Split ensuring both sets get at least one
-            n_train = max(1, int(len(indices) * train_fraction))
-            n_train = min(n_train, len(indices) - 1)  # Leave at least 1 for test
+            singletons.append(int(indices[0]))
+            continue
 
-            train_indices.extend(indices[:n_train].tolist())
-            test_indices.extend(indices[n_train:].tolist())
+        # Split ensuring both sets get at least one
+        n_train = max(1, int(len(indices) * train_fraction))
+        n_train = min(n_train, len(indices) - 1)  # Leave at least 1 for test
+
+        train_indices.extend(indices[:n_train].tolist())
+        test_indices.extend(indices[n_train:].tolist())
+
+    # Singletons have no near-duplicate to spread, so where they land doesn't
+    # affect the duplicates-on-both-sides property. Distribute them to bring the
+    # realized split close to train_size, instead of dumping them all in train
+    # (which skewed the split and could starve the test set).
+    rng.shuffle(singletons)
+    n_needed = max(0, n_train_total - len(train_indices))
+    train_indices.extend(singletons[:n_needed])
+    test_indices.extend(singletons[n_needed:])
 
     return as_index_array(train_indices), as_index_array(test_indices)
 
@@ -433,79 +463,66 @@ def max_coverage_split(
     # TODO: Replace full pairwise matrix with BallTree.query_radius to check
     # coverage without materializing O(n²) distances.
     distances = cdist(embeddings, embeddings, metric=metric)
-    np.fill_diagonal(distances, np.inf)
+    np.fill_diagonal(distances, np.inf)  # a point never covers itself
 
     # Set radius
     if radius is None:
         finite_dists = distances[distances < np.inf]
         radius = np.median(finite_dists)
 
-    # Start with random split
+    # Boolean "within radius" graph, plus a running count of how many *train*
+    # points cover each sample. Maintaining cover_count incrementally makes each
+    # candidate swap an O(n) update rather than an O(n²) full recompute of
+    # coverage (the previous nested-loop version was O(n⁴) worst case).
+    within = distances <= radius
+
+    # Start with a random split.
     all_indices = np.arange(n_samples)
     rng.shuffle(all_indices)
-
     n_train = resolve_n_train(n_samples, train_size)
-    train_set = set(all_indices[:n_train])
-    test_set = set(all_indices[n_train:])
+    train_mask = np.zeros(n_samples, dtype=bool)
+    train_mask[all_indices[:n_train]] = True
 
-    def compute_coverage():
-        covered = 0
-        for t_idx in test_set:
-            for tr_idx in train_set:
-                if distances[t_idx, tr_idx] <= radius:
-                    covered += 1
-                    break
-        return covered / len(test_set) if test_set else 1.0
+    cover_count = within[:, train_mask].sum(axis=1)  # train points within radius
 
-    current_coverage = compute_coverage()
+    def coverage(test_mask: np.ndarray, cc: np.ndarray) -> float:
+        return float((cc[test_mask] > 0).mean()) if test_mask.any() else 1.0
 
-    # Greedy optimization
-    improved = True
+    current_coverage = coverage(~train_mask, cover_count)
+
+    # Greedy optimization: repeatedly take an uncovered test point and, if some
+    # train point can swap in to raise overall coverage, apply the best such swap.
     max_iterations = n_samples * 2
-
     for _ in range(max_iterations):
+        test_mask = ~train_mask
+        uncovered = np.flatnonzero(test_mask & (cover_count == 0))
+        if uncovered.size == 0:
+            break  # every test point is covered; nothing left to improve
+
+        improved = False
+        train_idx = np.flatnonzero(train_mask)
+        for u in uncovered:
+            base = cover_count + within[:, u]  # effect of moving u into train
+            best_v, best_cov = None, current_coverage
+            for v in train_idx:
+                new_cc = base - within[:, v]  # and moving v out of train
+                new_test = test_mask.copy()
+                new_test[u] = False
+                new_test[v] = True
+                cov = coverage(new_test, new_cc)
+                if cov > best_cov:
+                    best_cov, best_v = cov, v
+            if best_v is not None:
+                cover_count = cover_count + within[:, u] - within[:, best_v]
+                train_mask[u] = True
+                train_mask[best_v] = False
+                current_coverage = best_cov
+                improved = True
+                break
         if not improved:
             break
-        improved = False
 
-        for test_idx in list(test_set):
-            # Check if covered
-            is_covered = any(
-                distances[test_idx, tr_idx] <= radius
-                for tr_idx in train_set
-            )
-
-            if not is_covered:
-                # Find best train sample to swap
-                best_swap = None
-                best_coverage = current_coverage
-
-                for train_idx in list(train_set):
-                    # Simulate swap
-                    train_set.remove(train_idx)
-                    train_set.add(test_idx)
-                    test_set.remove(test_idx)
-                    test_set.add(train_idx)
-
-                    new_coverage = compute_coverage()
-
-                    # Revert
-                    train_set.remove(test_idx)
-                    train_set.add(train_idx)
-                    test_set.remove(train_idx)
-                    test_set.add(test_idx)
-
-                    if new_coverage > best_coverage:
-                        best_coverage = new_coverage
-                        best_swap = train_idx
-
-                if best_swap is not None:
-                    train_set.remove(best_swap)
-                    train_set.add(test_idx)
-                    test_set.remove(test_idx)
-                    test_set.add(best_swap)
-                    current_coverage = best_coverage
-                    improved = True
-                    break
-
-    return as_index_array(train_set), as_index_array(test_set)
+    return (
+        as_index_array(np.flatnonzero(train_mask)),
+        as_index_array(np.flatnonzero(~train_mask)),
+    )

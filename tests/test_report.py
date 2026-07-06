@@ -40,6 +40,16 @@ class TestSplitReport:
         for key in ("c2st_auc", "manifold_precision", "manifold_recall"):
             assert 0.0 <= rep[key] <= 1.0
 
+    def test_small_dataset_below_default_n_clusters(self):
+        """Fewer samples than the default n_clusters (10) must not crash: the
+        cluster-leakage step clamps KMeans to n_samples."""
+        rng = np.random.RandomState(0)
+        X = rng.randn(8, 3)
+        train = np.array([0, 1, 2, 3, 4])
+        test = np.array([5, 6, 7])
+        rep = split_report(X, train, test)
+        assert np.isfinite(rep["cluster_leakage_ratio"])
+
     def test_counts_consistent(self, embeddings_2d):
         train, test = random_split(embeddings_2d, train_size=0.7)
         rep = split_report(embeddings_2d, train, test)

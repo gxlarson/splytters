@@ -255,10 +255,19 @@ def perplexity_score(
             f"scoring must be 'perplexity' or 'log_likelihood', got {scoring!r}"
         )
 
+    # Require model and tokenizer together: defaulting only the missing one to
+    # GPT-2 would pair a user's model with a mismatched tokenizer (or vice
+    # versa) and silently produce wrong scores. Checked before the heavy imports
+    # so the caller gets this error even without torch/transformers installed.
+    if (model is None) != (tokenizer is None):
+        raise ValueError(
+            "pass both `model` and `tokenizer`, or neither (to default to GPT-2)."
+        )
+
     import torch
     from transformers import GPT2LMHeadModel, GPT2TokenizerFast
 
-    if model is None or tokenizer is None:
+    if model is None:  # tokenizer is None here too
         tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
         model = GPT2LMHeadModel.from_pretrained("gpt2")
         model.eval()

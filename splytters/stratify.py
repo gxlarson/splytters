@@ -11,7 +11,6 @@ in train (coverage 1.0), so only pure within-class structure is left.
 
 from __future__ import annotations
 
-import inspect
 from collections.abc import Iterator, Sequence
 from typing import Any
 
@@ -19,24 +18,20 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from splytters._types import Splitter
-from splytters.utils import as_index_array, random_split, to_numpy
+from splytters.utils import (
+    accepts_random_state as _accepts_random_state,
+)
+from splytters.utils import (
+    as_index_array,
+    random_split,
+    to_numpy,
+)
 
 
 def _class_groups(y: np.ndarray) -> Iterator[tuple[Any, np.ndarray]]:
     """Yield ``(label, global_indices)`` for each unique label in ``y``."""
     for c in np.unique(y):
         yield c, np.flatnonzero(y == c)
-
-
-def _accepts_random_state(fn: Any) -> bool:
-    """Whether ``fn`` takes a ``random_state`` keyword (directly or via **kwargs)."""
-    try:
-        params = inspect.signature(fn).parameters
-    except (TypeError, ValueError):
-        return True  # can't introspect (e.g. a C callable) — assume it does
-    if any(p.kind == p.VAR_KEYWORD for p in params.values()):
-        return True
-    return "random_state" in params
 
 
 def _take(data: Any, idx: np.ndarray) -> Any:

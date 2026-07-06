@@ -40,19 +40,29 @@ def ngram_jaccard_similarity(
     From Figure 5 (top) of:
     https://aclanthology.org/N19-1051.pdf
     """
-    t1 = simple_tokenizer(text1)
-    t2 = simple_tokenizer(text2)
-    tally = 0
+    t1 = tokenizer(text1)
+    t2 = tokenizer(text2)
+    tally = 0.0
+    levels = 0
     for i in range(n):
-        _n = i+1
+        _n = i + 1
         ngrams1 = set(_ngrams(t1, _n))
         ngrams2 = set(_ngrams(t2, _n))
-        intersection = ngrams1.intersection(ngrams2)
         union = ngrams1.union(ngrams2)
-        ratio = len(intersection) / float(len(union))
-        tally += ratio
-    score = tally / n
-    return score
+        if not union:
+            # Neither text has n-grams at this order (both shorter than _n), so
+            # there is no evidence here; skip the level rather than dividing by
+            # zero. Averaging only over the levels that carry information keeps
+            # short-text scores meaningful (and identical to the n-way average
+            # once both texts have >= n tokens).
+            continue
+        intersection = ngrams1.intersection(ngrams2)
+        tally += len(intersection) / float(len(union))
+        levels += 1
+    if levels == 0:
+        # Both texts are empty (no tokens at any order): trivially identical.
+        return 1.0
+    return tally / levels
 
 def ngram_jaccard_distance(t1: str, t2: str, n: int = 3) -> float:
     """

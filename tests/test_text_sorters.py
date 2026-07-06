@@ -288,6 +288,15 @@ class TestPerplexityScore:
         with pytest.raises(ValueError, match="scoring must be"):
             perplexity_score(texts, scoring="bogus")
 
+    def test_requires_model_and_tokenizer_together(self, texts):
+        """Passing only one of model/tokenizer must raise, not silently pair a
+        user object with a mismatched GPT-2 default. The check runs before the
+        torch/transformers imports, so it needs no skip guard."""
+        with pytest.raises(ValueError, match="both `model` and `tokenizer`"):
+            perplexity_score(texts, model=object())
+        with pytest.raises(ValueError, match="both `model` and `tokenizer`"):
+            perplexity_score(texts, tokenizer=object())
+
     @pytest.mark.slow
     def test_log_likelihood_orders_typical_first(self, texts):
         """log_likelihood mode ranks by typicality too: normal text first."""

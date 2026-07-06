@@ -111,7 +111,9 @@ def column_zscore(
     for idx in df.index:
         value = series.loc[idx]
         if pd.isna(value):
-            zscore = float('inf')
+            # Push NaN to the end regardless of sort direction (a fixed +inf
+            # sentinel would sort NaN rows to the *front* when low_first=False).
+            zscore = float('inf') if low_first else float('-inf')
         else:
             zscore = (value - mean) / std
         scores.append((idx, zscore))
@@ -148,7 +150,8 @@ def column_absolute_zscore(
     for idx in df.index:
         value = series.loc[idx]
         if pd.isna(value):
-            abs_zscore = float('inf')
+            # Keep NaN at the end for both sort directions (see column_zscore).
+            abs_zscore = float('inf') if low_first else float('-inf')
         else:
             abs_zscore = abs((value - mean) / std)
         scores.append((idx, abs_zscore))
@@ -173,15 +176,13 @@ def missing_value_ratio(
     Returns:
         List of (index, missing_ratio) tuples sorted by missing ratio (0-1).
     """
-    scores = []
     n_cols = len(df.columns)
+    if n_cols == 0:
+        return [(idx, 0.0) for idx in df.index]
 
-    for idx in df.index:
-        row = df.loc[idx]
-        n_missing = row.isna().sum()
-        ratio = n_missing / n_cols if n_cols > 0 else 0
-        scores.append((idx, ratio))
-
+    # Vectorized: one pass over the whole frame instead of a per-row .loc.
+    ratios = df.isna().mean(axis=1)
+    scores = list(zip(df.index, ratios.tolist(), strict=True))
     scores.sort(key=lambda p: p[1], reverse=not low_first)
     return scores
 
@@ -210,13 +211,9 @@ def row_sparsity(
     if n_cols == 0:
         return [(idx, 0.0) for idx in df.index]
 
-    scores = []
-    for idx in df.index:
-        row = numeric_df.loc[idx]
-        n_zeros = (row.abs() < zero_threshold).sum()
-        sparsity = n_zeros / n_cols
-        scores.append((idx, sparsity))
-
+    # Vectorized: fraction of near-zero cells per row in one pass.
+    sparsity = (numeric_df.abs() < zero_threshold).mean(axis=1)
+    scores = list(zip(df.index, sparsity.tolist(), strict=True))
     scores.sort(key=lambda p: p[1], reverse=not low_first)
     return scores
 
@@ -225,6 +222,7 @@ def outlier_score(
     df: pd.DataFrame,
     method: str = "isolation_forest",
     low_first: bool = True,
+    random_state: int = 42,
     **kwargs: Any,
 ) -> list[tuple[Hashable, float]]:
     """
@@ -242,6 +240,9 @@ def outlier_score(
             - 'lof': Local Outlier Factor (density-based)
             - 'zscore': Mean absolute z-score across columns
         low_first: if True, normal rows first; if False, outliers first
+        random_state: seed for isolation_forest (ignored by lof/zscore).
+            Exposed separately so it can't collide with a ``random_state``
+            passed through ``**kwargs``.
         **kwargs: additional arguments passed to the outlier detector
 
     Returns:
@@ -257,7 +258,7 @@ def outlier_score(
     X = numeric_df.values
 
     if method == "isolation_forest":
-        detector = IsolationForest(random_state=42, **kwargs)
+        detector = IsolationForest(random_state=random_state, **kwargs)
         detector.fit(X)
         # Negate so higher = more outlier
         raw_scores = -detector.score_samples(X)
@@ -432,15 +433,11 @@ def row_distance_to_mean(
     if len(numeric_df.columns) == 0:
         return [(idx, 0.0) for idx in df.index]
 
-    # Compute column-wise mean
+    # Vectorized Euclidean distance of every row to the column-wise mean.
     mean_vector = numeric_df.mean().values
-
-    scores = []
-    for idx in df.index:
-        row_vector = numeric_df.loc[idx].values
-        distance = np.linalg.norm(row_vector - mean_vector)
-        scores.append((idx, distance))
-
+    diffs = numeric_df.values - mean_vector
+    distances = np.linalg.norm(diffs, axis=1)
+    scores = list(zip(df.index, distances.tolist(), strict=True))
     scores.sort(key=lambda p: p[1], reverse=not low_first)
     return scores
 
