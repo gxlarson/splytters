@@ -179,6 +179,12 @@ class TestMissingValueRatio:
         indices = [idx for idx, _ in results]
         assert indices[0] == 2  # Row 2 has most missing
 
+    def test_no_columns_returns_zero_ratios(self):
+        """A frame with rows but no columns has nothing missing -> all 0.0."""
+        df = pd.DataFrame(index=[0, 1, 2])
+        results = missing_value_ratio(df)
+        assert results == [(0, 0.0), (1, 0.0), (2, 0.0)]
+
 
 class TestRowSparsity:
     """Tests for row_sparsity function."""

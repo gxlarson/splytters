@@ -851,6 +851,16 @@ class TestNormalizedCutSplit:
         train, test = normalized_cut_split(X, train_size=0.5)
         assert_valid_split(train, test, 2, train_size=0.5, ratio_tol=0.5)
 
+    def test_deterministic_sign_orientation(self):
+        """The Fiedler vector is sign-oriented so the partition is stable. This
+        dataset's largest-magnitude Fiedler component is negative, exercising the
+        sign-flip branch; the split must be valid and repeatable."""
+        X = np.random.RandomState(0).randn(12, 2)
+        a = normalized_cut_split(X, train_size=0.5)
+        b = normalized_cut_split(X, train_size=0.5)
+        assert _splits_equal(a, b)
+        assert_valid_split(a[0], a[1], len(X), train_size=0.5, ratio_tol=0.2)
+
 
 class TestWassersteinAdversarialSplit:
 

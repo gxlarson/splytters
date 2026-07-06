@@ -1,10 +1,37 @@
 """Tests for the splitter/sorter introspection helpers."""
 
+import numpy as np
+
 import splytters
 import splytters.sorters as sorters
+from splytters.utils import accepts_random_state
 
 SPLIT_FAMILIES = {"adversarial", "overlap", "balanced", "baseline", "grouped"}
 SORTER_MODALITIES = {"embedding", "text", "image", "audio", "tabular"}
+
+
+# --- accepts_random_state ---------------------------------------------------
+
+
+def test_accepts_random_state_direct_and_varkw():
+    def has_it(embeddings, random_state=0):
+        return None
+
+    def via_kwargs(embeddings, **kwargs):
+        return None
+
+    def without_it(embeddings, train_size=0.7):
+        return None
+
+    assert accepts_random_state(has_it)
+    assert accepts_random_state(via_kwargs)
+    assert not accepts_random_state(without_it)
+
+
+def test_accepts_random_state_uninspectable_callable_assumed_true():
+    """A callable whose signature can't be introspected (e.g. a numpy ufunc)
+    hits the except branch and is assumed to accept random_state."""
+    assert accepts_random_state(np.add)
 
 
 # --- list_splitters ---------------------------------------------------------
