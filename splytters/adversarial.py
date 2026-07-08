@@ -587,6 +587,75 @@ def _minority_cluster_labels(
     raise ValueError(f"Unknown clustering method: {method}")
 
 
+def minority_route(
+    cluster_labels: ArrayLike,
+    y: ArrayLike,
+    minority_labels: str = "all_but_majority",
+) -> tuple[np.ndarray, np.ndarray]:
+    """Route a precomputed clustering into a bias-amplified minority split.
+
+    The label-only half of :func:`minority_split`: given an existing cluster
+    assignment (from any source -- kmeans, Ward, or an external clusterer such as a
+    faithful DEEP CLUSTER pass), send each cluster's *majority*-label instances to
+    train and its *minority*-label instances to test. Pure and gradient-free -- it
+    inspects only per-cluster label counts. Exposed so heavier, out-of-library
+    clusterers can reuse the exact same faithful routing (incl. footnote 10).
+
+    Args:
+        cluster_labels: integer cluster id per sample, shape (n_samples,).
+        y: class labels, shape (n_samples,).
+        minority_labels: ``'all_but_majority'`` (default) or ``'least_only'`` --
+            see :func:`minority_split`.
+
+    Returns:
+        (train_indices, test_indices), each a sorted index array.
+
+    Raises:
+        ValueError: on an unknown ``minority_labels``, a length mismatch, or if no
+            minority examples exist (every cluster is label-pure).
+    """
+    if minority_labels not in ("all_but_majority", "least_only"):
+        raise ValueError(f"Unknown minority_labels: {minority_labels}")
+    cluster_labels = np.asarray(cluster_labels)
+    y = np.asarray(y)
+    if len(cluster_labels) != len(y):
+        raise ValueError(
+            f"cluster_labels has length {len(cluster_labels)} but y has {len(y)}"
+        )
+
+    cluster_to_indices: dict[int, list[int]] = defaultdict(list)
+    for idx, label in enumerate(cluster_labels):
+        cluster_to_indices[int(label)].append(idx)
+
+    train: list[int] = []
+    test: list[int] = []
+    for idxs in cluster_to_indices.values():
+        idx_arr = np.asarray(idxs)
+        cls_labels = y[idx_arr]
+        vals, counts = np.unique(cls_labels, return_counts=True)
+        if len(vals) < 2:
+            train.extend(idx_arr.tolist())  # label-pure cluster: no minority here
+            continue
+        if minority_labels == "least_only":
+            # Footnote 10 (Reif & Schwartz, 2023): only the single least-frequent
+            # label per cluster is anti-biased. Keeps the test set small on
+            # many-class data, where "all but majority" would flood it.
+            minority = vals[np.argmin(counts)]  # ties -> lowest label (deterministic)
+            is_test = cls_labels == minority
+        else:  # "all_but_majority": every non-majority label is anti-biased
+            majority = vals[np.argmax(counts)]  # ties -> lowest label (deterministic)
+            is_test = cls_labels != majority
+        train.extend(idx_arr[~is_test].tolist())
+        test.extend(idx_arr[is_test].tolist())
+
+    if not test:
+        raise ValueError(
+            "no minority examples found (every cluster is label-pure); "
+            "try a different n_clusters or embeddings"
+        )
+    return as_index_array(sorted(train)), as_index_array(sorted(test))
+
+
 def minority_split(
     embeddings: ArrayLike,
     y: ArrayLike,
@@ -681,47 +750,15 @@ def minority_split(
     if len(y) != n_samples:
         raise ValueError(f"y has length {len(y)} but embeddings has {n_samples} rows")
 
-    if minority_labels not in ("all_but_majority", "least_only"):
-        raise ValueError(f"Unknown minority_labels: {minority_labels}")
-
     labels = _minority_cluster_labels(
         embeddings, method, n_clusters, random_state, **cluster_kwargs
     )
-    cluster_to_indices: dict[int, list[int]] = defaultdict(list)
-    for idx, label in enumerate(labels):
-        cluster_to_indices[int(label)].append(idx)
+    train_idx, test_idx = minority_route(labels, y, minority_labels)
 
-    train: list[int] = []
-    test: list[int] = []
-    for idxs in cluster_to_indices.values():
-        idx_arr = np.asarray(idxs)
-        cls_labels = y[idx_arr]
-        vals, counts = np.unique(cls_labels, return_counts=True)
-        if len(vals) < 2:
-            train.extend(idx_arr.tolist())  # label-pure cluster: no minority here
-            continue
-        if minority_labels == "least_only":
-            # Footnote 10 (Reif & Schwartz, 2023): only the single least-frequent
-            # label per cluster is anti-biased. Keeps the test set small on
-            # many-class data, where "all but majority" would flood it.
-            minority = vals[np.argmin(counts)]  # ties -> lowest label (deterministic)
-            is_test = cls_labels == minority
-        else:  # "all_but_majority": every non-majority label is anti-biased
-            majority = vals[np.argmax(counts)]  # ties -> lowest label (deterministic)
-            is_test = cls_labels != majority
-        train.extend(idx_arr[~is_test].tolist())
-        test.extend(idx_arr[is_test].tolist())
-
-    if not test:
-        raise ValueError(
-            "no minority examples found (every cluster is label-pure); "
-            "try a different n_clusters or embeddings"
-        )
-
-    test_fraction = len(test) / n_samples
+    test_fraction = len(test_idx) / n_samples
     if test_fraction < _MINORITY_DEGENERATE_FRACTION:
         warnings.warn(
-            f"minority_split produced a degenerate test set: {len(test)} of "
+            f"minority_split produced a degenerate test set: {len(test_idx)} of "
             f"{n_samples} samples ({test_fraction:.1%}). The clusters are nearly "
             "label-pure, so almost no 'minority' examples exist and this split is "
             "likely uninformative. Try a different n_clusters, or a splitter with "
@@ -729,7 +766,7 @@ def minority_split(
             stacklevel=2,
         )
 
-    return as_index_array(sorted(train)), as_index_array(sorted(test))
+    return train_idx, test_idx
 
 
 _STRATIFY_MODES = ("none", "global", "per_class")

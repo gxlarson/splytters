@@ -417,6 +417,27 @@ class TestMinoritySplit:
         with pytest.raises(ValueError, match="Unknown minority_labels"):
             minority_split(X, y, minority_labels="nope")
 
+    def test_route_matches_split_on_same_clustering(self, biased_data):
+        # minority_route on the clustering minority_split computes internally must
+        # reproduce minority_split's own train/test partition exactly.
+        from splytters.adversarial import _minority_cluster_labels, minority_route
+
+        X, y = biased_data
+        labels = _minority_cluster_labels(X, "kmeans", 2, 0)
+        r_tr, r_te = minority_route(labels, y)
+        s_tr, s_te = minority_split(X, y, n_clusters=2, method="kmeans", random_state=0)
+        assert np.array_equal(r_tr, s_tr)
+        assert np.array_equal(r_te, s_te)
+
+    def test_route_validates_length_and_labels(self):
+        from splytters.adversarial import minority_route
+
+        with pytest.raises(ValueError, match="length"):
+            minority_route(np.array([0, 1]), np.array([0, 1, 0]))
+        with pytest.raises(ValueError, match="Unknown minority_labels"):
+            minority_route(np.array([0, 0, 1, 1]), np.array([0, 1, 0, 1]),
+                           minority_labels="nope")
+
     def test_least_only_sends_fewer_to_test_on_many_labels(self):
         # One cluster with a clear majority and several rarer labels of unequal
         # size: all_but_majority sends every non-majority label to test, while
