@@ -17,7 +17,8 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import laplacian
 from scipy.sparse.linalg import eigsh
 from scipy.spatial.distance import cdist
-from sklearn.cluster import DBSCAN, KMeans
+from sklearn.cluster import DBSCAN, AgglomerativeClustering, KMeans
+from sklearn.neural_network import MLPClassifier
 from sklearn.utils import check_random_state
 
 from splytters.utils import (
@@ -485,11 +486,113 @@ def cluster_kfold(
     return fold_ids
 
 
+# Clustering methods accepted by ``minority_split`` / ``minority_grow_split``.
+_MINORITY_METHODS = ("kmeans", "dbscan", "ward", "deepcluster-lite")
+
+# DeepCluster-lite surrogate config (see ``_deepcluster_labels``). Deliberately
+# tiny and heavily under-fit, and iterated a few times: a comparison sweep showed
+# that a well-fit MLP just reproduces the (label-homogeneous) pseudo-labels, so it
+# is the *aggressive* under-fitting + repeated clustering that actually breaks up
+# label-pure clusters -- the label diversity we want from a DEEP CLUSTER stand-in.
+_DEEPCLUSTER_HIDDEN = (16,)
+_DEEPCLUSTER_MAX_ITER = 10
+_DEEPCLUSTER_ITERS = 3
+
+
+def _mlp_hidden_repr(mlp: MLPClassifier, X: np.ndarray) -> np.ndarray:
+    """Forward ``X`` through all but the output layer of a fitted ``MLPClassifier``,
+    returning the last hidden layer's activations (the learned representation)."""
+    activations = {
+        "relu": lambda z: np.maximum(z, 0.0),
+        "tanh": np.tanh,
+        "logistic": lambda z: 1.0 / (1.0 + np.exp(-z)),
+        "identity": lambda z: z,
+    }
+    f = activations[mlp.activation]
+    h = np.asarray(X, dtype=float)
+    for w, b in zip(mlp.coefs_[:-1], mlp.intercepts_[:-1], strict=True):
+        h = f(h @ w + b)
+    return h
+
+
+def _ward_labels(embeddings: np.ndarray, n_clusters: int, **kwargs: Any) -> np.ndarray:
+    """Ward's agglomerative clustering -- the paper's base clusterer (deterministic)."""
+    n_clusters = min(n_clusters, len(embeddings))
+    clusterer = AgglomerativeClustering(n_clusters=n_clusters, linkage="ward", **kwargs)
+    return clusterer.fit_predict(embeddings)
+
+
+def _deepcluster_labels(
+    embeddings: np.ndarray, n_clusters: int, random_state: int
+) -> np.ndarray:
+    """A cheap, gradient-based-but-CPU-light surrogate for DEEP CLUSTER (Caron et al.,
+    2018), the algorithm Reif & Schwartz (2023) use to obtain *label-diverse* clusters.
+
+    Mirrors one deep-clustering iteration without a heavyweight encoder: Ward-cluster
+    the embeddings into pseudo-labels, fit a small under-fit MLP mapping the embeddings
+    to those pseudo-labels, take its hidden representation, and re-cluster that. The
+    under-fitting (tiny net, few iters) is the diversifying mechanism -- it blends the
+    original geometry with the pseudo-structure rather than reproducing the (often
+    label-pure) starting clusters. NOT the faithful DEEP CLUSTER (no fine-tuned encoder);
+    it is a static-feature stand-in appropriate for a drop-in splitter.
+    """
+    z = np.asarray(embeddings, dtype=float)
+    for _ in range(_DEEPCLUSTER_ITERS):
+        pseudo = _ward_labels(z, n_clusters)
+        if len(np.unique(pseudo)) < 2:
+            break  # a single pseudo-cluster: nothing for the MLP to separate
+        mlp = MLPClassifier(
+            hidden_layer_sizes=_DEEPCLUSTER_HIDDEN,
+            max_iter=_DEEPCLUSTER_MAX_ITER,
+            activation="relu",
+            random_state=random_state,
+        )
+        with warnings.catch_warnings():
+            # We under-fit on purpose; silence the expected non-convergence warning.
+            warnings.simplefilter("ignore")
+            mlp.fit(embeddings, pseudo)
+        z = _mlp_hidden_repr(mlp, embeddings)
+    return _ward_labels(z, n_clusters)
+
+
+def _minority_cluster_labels(
+    embeddings: np.ndarray,
+    method: str,
+    n_clusters: int,
+    random_state: int,
+    **cluster_kwargs: Any,
+) -> np.ndarray:
+    """Cluster ``embeddings`` with the requested method, returning integer labels.
+
+    ``kmeans``/``dbscan`` are the original fast, label-homogeneous clusterers;
+    ``ward`` is the paper's deterministic base clusterer; ``deepcluster-lite`` is the
+    label-diversifying surrogate (see :func:`_deepcluster_labels`).
+    """
+    if method == "kmeans":
+        clusterer = KMeans(
+            n_clusters=n_clusters,
+            random_state=random_state,
+            n_init="auto",
+            **cluster_kwargs,
+        )
+        return clusterer.fit_predict(embeddings)
+    if method == "dbscan":
+        return DBSCAN(**cluster_kwargs).fit_predict(embeddings)
+    if method == "ward":
+        return _ward_labels(embeddings, n_clusters, **cluster_kwargs)
+    if method == "deepcluster-lite":
+        if cluster_kwargs:
+            raise ValueError("deepcluster-lite takes no extra cluster_kwargs")
+        return _deepcluster_labels(embeddings, n_clusters, random_state)
+    raise ValueError(f"Unknown clustering method: {method}")
+
+
 def minority_split(
     embeddings: ArrayLike,
     y: ArrayLike,
     n_clusters: int = 10,
     method: str = "kmeans",
+    minority_labels: str = "all_but_majority",
     random_state: int = 42,
     **cluster_kwargs: Any,
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -510,9 +613,23 @@ def minority_split(
     Args:
         embeddings: array-like of shape (n_samples, embedding_dim)
         y: class labels of shape (n_samples,)
-        n_clusters: number of clusters (kmeans only)
-        method: clustering algorithm, 'kmeans' or 'dbscan'
-        random_state: for reproducibility
+        n_clusters: number of clusters (ignored by 'dbscan')
+        method: clustering algorithm. ``'kmeans'`` (default, fast) or ``'dbscan'``
+            are standard clusterers that -- as the paper notes -- tend to produce
+            *label-homogeneous* clusters, so few minority examples are found and the
+            test set can be degenerately small. ``'ward'`` is the paper's
+            deterministic base clusterer (agglomerative, Ward linkage; O(n^2) memory).
+            ``'deepcluster-lite'`` is a light surrogate for the paper's DEEP CLUSTER
+            step that seeks *label-diverse* clusters (hence a larger, non-degenerate
+            minority set); see the References note below on faithfulness.
+        minority_labels: which of a cluster's labels are anti-biased (test).
+            ``'all_but_majority'`` (default) sends every non-majority label to test;
+            ``'least_only'`` (the paper's footnote 10) sends only the single
+            least-frequent label. Prefer ``'least_only'`` on many-class data: with
+            few clusters relative to the class count, ``'all_but_majority'`` floods
+            test (e.g. ~93% on 150-class CLINC with 10 clusters), which the paper
+            avoids once minority examples would exceed ~40% of the data.
+        random_state: for reproducibility (used by 'kmeans' and 'deepcluster-lite')
         **cluster_kwargs: passed to the clustering algorithm
 
     Returns:
@@ -520,9 +637,9 @@ def minority_split(
         test_indices: minority-label ("anti-biased") instances, pooled over clusters
 
     Raises:
-        ValueError: on an unknown ``method``, a ``y``/embeddings length mismatch,
-            or if no minority examples exist (every cluster is label-pure -- try
-            a different ``n_clusters`` or embeddings).
+        ValueError: on an unknown ``method`` or ``minority_labels``, a ``y``/embeddings
+            length mismatch, or if no minority examples exist (every cluster is
+            label-pure -- try a different ``n_clusters`` or embeddings).
 
     Warns:
         UserWarning: if the test set is degenerately small (under 5% of the
@@ -541,8 +658,22 @@ def minority_split(
         (training dynamics) and partial-input models -- are model-in-the-loop /
         task-specific and out of scope for a static splitter.
 
-    Seed stability: nearly deterministic -- the per-cluster minority labels are
-    stable; only the underlying KMeans clustering wobbles slightly between seeds.
+        Faithfulness caveat: the paper deliberately does NOT cluster with a standard
+        algorithm. It reports that k-means/Ward produce label-homogeneous clusters
+        (too few minority examples) and instead uses DEEP CLUSTER (Caron et al.,
+        2018) -- a fine-tuned encoder trained on cluster pseudo-labels -- to obtain
+        label-diverse clusters. Our default (``method='kmeans'``) is the standard
+        clusterer the paper rejects, so it can under-produce minority examples and
+        yield a small test set (hence the degenerate-size warning above).
+        ``method='ward'`` matches the paper's *base* clusterer (still homogeneous);
+        ``method='deepcluster-lite'`` is a static-feature stand-in for the full DEEP
+        CLUSTER step (no encoder fine-tuning -- it under-fits a small MLP on
+        pseudo-labels and re-clusters its hidden representation) that recovers some
+        label diversity at CPU cost.
+
+    Seed stability: with ``'kmeans'``/``'deepcluster-lite'``, nearly deterministic given a
+    fixed ``random_state`` (the per-cluster minority labels are stable; only the
+    clustering wobbles slightly). ``'ward'`` is fully deterministic (no seed).
     """
     embeddings = validate_split_inputs(embeddings, 0.5)  # 0.5: unused placeholder
     y = np.asarray(y)
@@ -550,19 +681,12 @@ def minority_split(
     if len(y) != n_samples:
         raise ValueError(f"y has length {len(y)} but embeddings has {n_samples} rows")
 
-    if method == "kmeans":
-        clusterer = KMeans(
-            n_clusters=n_clusters,
-            random_state=random_state,
-            n_init="auto",
-            **cluster_kwargs,
-        )
-    elif method == "dbscan":
-        clusterer = DBSCAN(**cluster_kwargs)
-    else:
-        raise ValueError(f"Unknown clustering method: {method}")
+    if minority_labels not in ("all_but_majority", "least_only"):
+        raise ValueError(f"Unknown minority_labels: {minority_labels}")
 
-    labels = clusterer.fit_predict(embeddings)
+    labels = _minority_cluster_labels(
+        embeddings, method, n_clusters, random_state, **cluster_kwargs
+    )
     cluster_to_indices: dict[int, list[int]] = defaultdict(list)
     for idx, label in enumerate(labels):
         cluster_to_indices[int(label)].append(idx)
@@ -573,10 +697,20 @@ def minority_split(
         idx_arr = np.asarray(idxs)
         cls_labels = y[idx_arr]
         vals, counts = np.unique(cls_labels, return_counts=True)
-        majority = vals[np.argmax(counts)]  # ties -> lowest label (deterministic)
-        is_majority = cls_labels == majority
-        train.extend(idx_arr[is_majority].tolist())
-        test.extend(idx_arr[~is_majority].tolist())
+        if len(vals) < 2:
+            train.extend(idx_arr.tolist())  # label-pure cluster: no minority here
+            continue
+        if minority_labels == "least_only":
+            # Footnote 10 (Reif & Schwartz, 2023): only the single least-frequent
+            # label per cluster is anti-biased. Keeps the test set small on
+            # many-class data, where "all but majority" would flood it.
+            minority = vals[np.argmin(counts)]  # ties -> lowest label (deterministic)
+            is_test = cls_labels == minority
+        else:  # "all_but_majority": every non-majority label is anti-biased
+            majority = vals[np.argmax(counts)]  # ties -> lowest label (deterministic)
+            is_test = cls_labels != majority
+        train.extend(idx_arr[~is_test].tolist())
+        test.extend(idx_arr[is_test].tolist())
 
     if not test:
         raise ValueError(
@@ -707,12 +841,36 @@ def _grow_per_class(
             min_dist[in_test] = np.inf  # re-mask in-class members (revival guard)
 
 
+def _subsample_seed(
+    seed: np.ndarray, y: np.ndarray, target: int, random_state: int
+) -> np.ndarray:
+    """Deterministically shrink an oversized minority seed to exactly ``target``
+    indices. Samples class-by-class in round-robin (every class contributes one
+    before any contributes a second), so class coverage is preserved as far as the
+    budget allows -- the opposite failure mode to growth. Assumes ``target`` is
+    strictly smaller than ``len(seed)``."""
+    rng = check_random_state(random_state)
+    by_class = {
+        int(c): rng.permutation(seed[y[seed] == c]).tolist()
+        for c in np.unique(y[seed])  # np.unique is sorted -> deterministic order
+    }
+    kept: list[int] = []
+    while len(kept) < target:
+        for members in by_class.values():
+            if members:
+                kept.append(members.pop())
+                if len(kept) >= target:
+                    break
+    return as_index_array(sorted(kept))
+
+
 def minority_grow_split(
     embeddings: ArrayLike,
     y: ArrayLike,
     train_size: float | int = 0.7,
     n_clusters: int = 10,
     method: str = "kmeans",
+    minority_labels: str = "all_but_majority",
     metric: str = "euclidean",
     random_state: int = 42,
     stratify: str = "none",
@@ -756,10 +914,16 @@ def minority_grow_split(
         y: class labels of shape (n_samples,)
         train_size: fraction in (0, 1) or absolute count for the training set;
             sets the target test size (``n_samples - n_train``).
-        n_clusters: number of clusters for the minority seed (kmeans only)
-        method: clustering algorithm for the seed, 'kmeans' or 'dbscan'
+        n_clusters: number of clusters for the minority seed (ignored by 'dbscan')
+        method: clustering algorithm for the seed -- see :func:`minority_split`
+            ('kmeans', 'dbscan', 'ward', or 'deepcluster-lite')
+        minority_labels: which cluster labels seed the test set, ``'all_but_majority'``
+            (default) or ``'least_only'`` (footnote 10) -- see :func:`minority_split`.
+            Prefer ``'least_only'`` on many-class data; note that either way an
+            oversized seed is subsampled back to the target size (below).
         metric: distance metric (``scipy.spatial.distance.cdist``) for growing
-        random_state: for reproducibility of the clustering seed
+        random_state: for reproducibility of the clustering seed (and of any
+            oversized-seed subsampling)
         stratify: class-balance policy for growth, one of ``"none"`` (default,
             proximity only), ``"global"`` (shared frontier with per-class quotas),
             or ``"per_class"`` (independent per-class neighborhoods). See above.
@@ -768,15 +932,16 @@ def minority_grow_split(
     Returns:
         train_indices: ndarray of indices for the training set
         test_indices: ndarray of indices for the test set (the minority seed plus
-            its grown neighborhood). If the seed already meets or exceeds the
-            target size, it is returned as-is (test may exceed the target). Under a
-            stratified mode the test set may fall short of the target if every
-            class hits its quota first.
+            its grown neighborhood). A seed larger than the target is subsampled
+            down to it (round-robin across classes to preserve coverage); a seed
+            equal to the target is returned as-is. Under a stratified mode the test
+            set may still fall short of the target if every class hits its quota
+            first.
 
     Raises:
-        ValueError: on an unknown ``method`` or ``stratify``, a ``y``/embeddings
-            length mismatch, or if the seed is empty (every cluster is label-pure
-            -- see :func:`minority_split`).
+        ValueError: on an unknown ``method``, ``minority_labels`` or ``stratify``, a
+            ``y``/embeddings length mismatch, or if the seed is empty (every cluster
+            is label-pure -- see :func:`minority_split`).
 
     Warns:
         UserWarning: if the resulting test set contains no samples for one or more
@@ -811,15 +976,22 @@ def minority_grow_split(
             y,
             n_clusters=n_clusters,
             method=method,
+            minority_labels=minority_labels,
             random_state=random_state,
             **cluster_kwargs,
         )
 
-    test_mask = np.zeros(n_samples, dtype=bool)
-    test_mask[seed] = True
-
     target_n_test = n_samples - resolve_n_train(n_samples, train_size)
     target_n_test = max(1, min(target_n_test, n_samples - 1))
+
+    if len(seed) > target_n_test:
+        # Grow can only add, never remove, so an oversized seed (e.g. the
+        # 'all_but_majority' flood on many-class data) would otherwise blow past
+        # train_size and starve train of classes. Shrink it back to target.
+        seed = _subsample_seed(seed, y, target_n_test, random_state)
+
+    test_mask = np.zeros(n_samples, dtype=bool)
+    test_mask[seed] = True
 
     if test_mask.sum() < target_n_test:
         if stratify == "per_class":
