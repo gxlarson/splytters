@@ -1,0 +1,9 @@
+# Heavy deps for the faithful DEEP CLUSTER experiment (Option A).
+# Deliberately NOT added to the splytters package, which stays gradient-free.
+# The repo's .venv already has these; listed for a standalone environment.
+torch>=2.0
+transformers>=4.30
+datasets>=2.0
+sentence-transformers>=2.2
+scikit-learn>=1.3
+numpy>=1.24
