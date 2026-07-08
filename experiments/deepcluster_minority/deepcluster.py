@@ -99,6 +99,8 @@ def deepcluster_labels(
     n_clusters: int = 10,
     n_iters: int = 1,
     task_finetune: bool = False,
+    task_epochs: int = 3,
+    reps_out: dict | None = None,
     log=print,
     **ft_kwargs,
 ) -> np.ndarray:
@@ -106,14 +108,21 @@ def deepcluster_labels(
 
     ``initial_emb`` seeds clustering #1 (frozen embeddings in the semi-faithful
     default). With ``task_finetune=True`` and ``y`` given, clustering #1 instead uses
-    a task-fine-tuned encoder's [CLS] (fully faithful). Then, ``n_iters`` times:
-    Ward-cluster -> fine-tune a fresh encoder on the pseudo-labels -> re-extract [CLS].
+    a task-fine-tuned encoder's [CLS] (fully faithful, ``task_epochs`` epochs). Then,
+    ``n_iters`` times: Ward-cluster -> fine-tune a fresh encoder on the pseudo-labels
+    -> re-extract [CLS]. If ``reps_out`` is given, the task-fine-tuned representation
+    is stored under ``reps_out['task_rep']`` so the caller can cluster it directly
+    (to observe the label-homogeneity DEEP CLUSTER is meant to undo).
     """
     if task_finetune:
         if y is None:
             raise ValueError("task_finetune=True requires y (the task labels)")
-        log("clustering #1 source: task-fine-tuned [CLS] (faithful)")
-        rep = _finetune_and_extract(texts, np.asarray(y), log=log, **ft_kwargs)
+        log(f"clustering #1 source: task-fine-tuned [CLS] ({task_epochs} epochs, faithful)")
+        rep = _finetune_and_extract(
+            texts, np.asarray(y), log=log, **{**ft_kwargs, "epochs": task_epochs}
+        )
+        if reps_out is not None:
+            reps_out["task_rep"] = rep
     else:
         log("clustering #1 source: frozen embeddings (semi-faithful)")
         rep = np.asarray(initial_emb, dtype=np.float32)

@@ -93,9 +93,12 @@ def evaluate(labels: np.ndarray, y: np.ndarray, Xeval: np.ndarray, seed: int = 0
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--smoke", action="store_true", help="tiny subset, fast wiring check")
-    ap.add_argument("--epochs", type=int, default=1)
+    ap.add_argument("--epochs", type=int, default=1,
+                    help="epochs for the pseudo-label deep-cluster pass")
     ap.add_argument("--task-finetune", action="store_true",
                     help="fully faithful: task fine-tune for clustering #1 too")
+    ap.add_argument("--task-epochs", type=int, default=3,
+                    help="epochs for the clustering-#1 task fine-tune (faithful only)")
     args = ap.parse_args()
 
     texts, y = load_trec()
@@ -115,13 +118,25 @@ def main():
         print(f"[{method}] done")
 
     # Faithful DEEP CLUSTER (heavy): its own clustering, same routing + eval.
+    reps: dict = {}
     dc_labels = deepcluster_labels(
         texts, Xeval, y=y, n_clusters=N_CLUSTERS, n_iters=1,
-        task_finetune=args.task_finetune, epochs=args.epochs, max_len=64,
+        task_finetune=args.task_finetune, epochs=args.epochs,
+        task_epochs=args.task_epochs, max_len=64, reps_out=reps,
     )
     tag = "deepcluster-faithful" if args.task_finetune else "deepcluster-semifaithful"
     rows[tag] = evaluate(dc_labels, y, Xeval)
     print(f"[{tag}] done")
+
+    # Decisive check: cluster the task-fine-tuned [CLS] directly. Plain clustering
+    # should go label-homogeneous here (what DEEP CLUSTER exists to undo), while the
+    # deepcluster-faithful row above re-clusters after the pseudo-label pass.
+    if "task_rep" in reps:
+        Xft = normalize(reps["task_rep"]).astype(np.float32)
+        for m in ("kmeans", "ward"):
+            labels = _minority_cluster_labels(Xft, m, N_CLUSTERS, 0)
+            rows[f"{m}@ft_cls"] = evaluate(labels, y, Xeval)
+            print(f"[{m}@ft_cls] done")
 
     hdr = f"{'method':<26}{'test_frac':>10}{'pure_frac':>10}{'entropy':>9}" \
           f"{'test_acc':>10}{'acc_drop':>10}"
