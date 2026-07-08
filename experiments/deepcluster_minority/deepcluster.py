@@ -72,7 +72,7 @@ def _finetune_and_extract(
                         labels=lab.to(device))
             out.loss.backward()
             opt.step()
-            running += float(out.loss)
+            running += out.loss.item()
             if step % 50 == 0:
                 log(f"  epoch {ep + 1}/{epochs} step {step}/{len(dl)} "
                     f"loss {running / step:.4f}")
