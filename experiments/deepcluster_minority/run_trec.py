@@ -49,9 +49,10 @@ def frozen_embeddings(texts: list[str]) -> np.ndarray:
 
     from sentence_transformers import SentenceTransformer
 
-    # Key the cache by text content so the smoke subset and the full set don't
-    # collide (they share this file otherwise, causing a size mismatch).
-    key = hashlib.sha1("\n".join(texts).encode()).hexdigest()[:12]
+    # Key the cache by encoder + text content so the smoke subset and the full
+    # set don't collide, and so switching ENCODER can't silently serve stale
+    # embeddings from a different model.
+    key = hashlib.sha1((ENCODER + "\n" + "\n".join(texts)).encode()).hexdigest()[:12]
     cache = HERE / "results" / f"trec_frozen_emb_{key}.npy"
     if cache.exists():
         return np.load(cache)

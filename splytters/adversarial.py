@@ -486,9 +486,6 @@ def cluster_kfold(
     return fold_ids
 
 
-# Clustering methods accepted by ``minority_split`` / ``minority_grow_split``.
-_MINORITY_METHODS = ("kmeans", "dbscan", "ward", "deepcluster-lite")
-
 # DeepCluster-lite surrogate config (see ``_deepcluster_labels``). Deliberately
 # tiny and heavily under-fit, and iterated a few times: a comparison sweep showed
 # that a well-fit MLP just reproduces the (label-homogeneous) pseudo-labels, so it
@@ -661,8 +658,8 @@ def minority_split(
     y: ArrayLike,
     n_clusters: int = 10,
     method: str = "kmeans",
-    minority_labels: str = "all_but_majority",
     random_state: int = 42,
+    minority_labels: str = "all_but_majority",
     **cluster_kwargs: Any,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -691,6 +688,7 @@ def minority_split(
             ``'deepcluster-lite'`` is a light surrogate for the paper's DEEP CLUSTER
             step that seeks *label-diverse* clusters (hence a larger, non-degenerate
             minority set); see the References note below on faithfulness.
+        random_state: for reproducibility (used by 'kmeans' and 'deepcluster-lite')
         minority_labels: which of a cluster's labels are anti-biased (test).
             ``'all_but_majority'`` (default) sends every non-majority label to test;
             ``'least_only'`` (the paper's footnote 10) sends only the single
@@ -698,7 +696,6 @@ def minority_split(
             few clusters relative to the class count, ``'all_but_majority'`` floods
             test (e.g. ~93% on 150-class CLINC with 10 clusters), which the paper
             avoids once minority examples would exceed ~40% of the data.
-        random_state: for reproducibility (used by 'kmeans' and 'deepcluster-lite')
         **cluster_kwargs: passed to the clustering algorithm
 
     Returns:
@@ -744,6 +741,11 @@ def minority_split(
     fixed ``random_state`` (the per-cluster minority labels are stable; only the
     clustering wobbles slightly). ``'ward'`` is fully deterministic (no seed).
     """
+    if minority_labels not in ("all_but_majority", "least_only"):
+        # Fail before the (possibly expensive, e.g. deepcluster-lite) clustering
+        # pass below rather than after it -- minority_route validates this too,
+        # but only once clustering has already run.
+        raise ValueError(f"Unknown minority_labels: {minority_labels}")
     embeddings = validate_split_inputs(embeddings, 0.5)  # 0.5: unused placeholder
     y = np.asarray(y)
     n_samples = len(embeddings)
@@ -907,10 +909,10 @@ def minority_grow_split(
     train_size: float | int = 0.7,
     n_clusters: int = 10,
     method: str = "kmeans",
-    minority_labels: str = "all_but_majority",
     metric: str = "euclidean",
     random_state: int = 42,
     stratify: str = "none",
+    minority_labels: str = "all_but_majority",
     **cluster_kwargs: Any,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -954,16 +956,16 @@ def minority_grow_split(
         n_clusters: number of clusters for the minority seed (ignored by 'dbscan')
         method: clustering algorithm for the seed -- see :func:`minority_split`
             ('kmeans', 'dbscan', 'ward', or 'deepcluster-lite')
-        minority_labels: which cluster labels seed the test set, ``'all_but_majority'``
-            (default) or ``'least_only'`` (footnote 10) -- see :func:`minority_split`.
-            Prefer ``'least_only'`` on many-class data; note that either way an
-            oversized seed is subsampled back to the target size (below).
         metric: distance metric (``scipy.spatial.distance.cdist``) for growing
         random_state: for reproducibility of the clustering seed (and of any
             oversized-seed subsampling)
         stratify: class-balance policy for growth, one of ``"none"`` (default,
             proximity only), ``"global"`` (shared frontier with per-class quotas),
             or ``"per_class"`` (independent per-class neighborhoods). See above.
+        minority_labels: which cluster labels seed the test set, ``'all_but_majority'``
+            (default) or ``'least_only'`` (footnote 10) -- see :func:`minority_split`.
+            Prefer ``'least_only'`` on many-class data; note that either way an
+            oversized seed is subsampled back to the target size (below).
         **cluster_kwargs: passed to the seed clustering algorithm
 
     Returns:

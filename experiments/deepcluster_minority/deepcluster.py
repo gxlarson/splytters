@@ -23,15 +23,10 @@ from __future__ import annotations
 
 import numpy as np
 import torch
-from sklearn.cluster import AgglomerativeClustering
 from torch.utils.data import DataLoader, TensorDataset
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-
-def ward(emb: np.ndarray, k: int) -> np.ndarray:
-    """Deterministic Ward clustering -- the paper's base clusterer."""
-    k = min(k, len(emb))
-    return AgglomerativeClustering(n_clusters=k, linkage="ward").fit_predict(emb)
+from splytters.adversarial import _ward_labels as ward
 
 
 def _finetune_and_extract(
