@@ -54,7 +54,7 @@ Sources:
 
 - Paper: https://aclanthology.org/2020.eval4nlp-1.15/
 - PDF: https://aclanthology.org/2020.eval4nlp-1.15.pdf
-- Paper-listed code: https://github.com/boschresearch/clusterdatasplit_eval4nlp-2020156
+- Paper-listed code: https://github.com/boschresearch/clusterdatasplit_eval4nlp-2020
 
 The docstring says it implements the challenging clustering-based
 cross-validation of Wecker, Friedrich, and Adel (2020), "ClusterDataSplit."
@@ -117,7 +117,7 @@ Assessment: the docstring is mostly honest. The safest language is
 "swap-optimized approximation of the max-MMD objective" rather than implying the
 published algorithm is implemented.
 
-## Recommended PR
+## Recommended PR (first pass; superseded by "Updated recommended PR sequence" below)
 
 Start with a documentation-accuracy PR:
 
@@ -361,6 +361,15 @@ Current implementation:
 
 Assessment: no issue. The docstrings are appropriately scoped as heuristic
 features.
+
+## Coverage
+
+This first pass audits the 11 cited methods listed above (cluster_split,
+cluster_kfold, the two MMD splitters, minority_split, minority_grow_split,
+the two boundary splitters, wasserstein_adversarial_split, the length
+sorters, perplexity_score, the text diversity utilities, and the audio
+sorters). Cited methods elsewhere in the package that are not covered by
+these findings have not yet been audited.
 
 ## Updated recommended PR sequence
 
