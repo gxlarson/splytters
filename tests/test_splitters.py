@@ -262,6 +262,96 @@ class TestClusterSplitStrategies:
         assert abs(test_p - global_p) < 0.2
 
 
+class TestClusterSplitFaithfulZuefle:
+    """Paper-faithful opt-in modes: cluster_range k-search and individual fill.
+
+    Züfle, Dankers & Titov (2023), "Latent Feature-based Data Splits to Improve
+    Generalisation Evaluation" (GenBench @ EMNLP). The defaults must reproduce
+    the pre-existing lightweight behavior exactly.
+    """
+
+    @pytest.fixture
+    def labels(self):
+        return np.array([0, 1] * 50)
+
+    def test_default_matches_fixed_k_unchanged(self, embeddings_2d, labels):
+        """cluster_range=None / fill_individual=False leaves the fixed-k path intact."""
+        base_tr, base_te = cluster_split(
+            embeddings_2d, n_clusters=8, strategy="closest", random_state=42
+        )
+        # Passing the new opt-out defaults explicitly must not change anything.
+        same_tr, same_te = cluster_split(
+            embeddings_2d, n_clusters=8, strategy="closest", random_state=42,
+            cluster_range=None, fill_individual=False,
+        )
+        assert np.array_equal(base_tr, same_tr)
+        assert np.array_equal(base_te, same_te)
+
+    def test_cluster_range_valid_and_respects_train_size(self, embeddings_2d, labels):
+        train, test = cluster_split(
+            embeddings_2d, strategy="subset_sum", y=labels,
+            cluster_range=(3, 15), train_size=0.7,
+        )
+        assert_valid_split(train, test, len(embeddings_2d), ratio_tol=0.4)
+        # The search should land close to the 30-example target test size.
+        assert abs(len(test) - 30) <= 10
+
+    def test_cluster_range_beats_or_matches_worst_fixed_k(self, embeddings_2d, labels):
+        """The searched split should be at least as close to target as some fixed k."""
+        _, te_search = cluster_split(
+            embeddings_2d, strategy="subset_sum", y=labels, cluster_range=(3, 15)
+        )
+        _, te_fixed = cluster_split(
+            embeddings_2d, strategy="subset_sum", y=labels, n_clusters=3
+        )
+        target = 30
+        assert abs(len(te_search) - target) <= abs(len(te_fixed) - target) + 10
+
+    def test_cluster_range_requires_kmeans(self, embeddings_2d):
+        with pytest.raises(ValueError, match="cluster_range requires method='kmeans'"):
+            cluster_split(
+                embeddings_2d, method="dbscan", strategy="size",
+                cluster_range=(3, 10), eps=2.0, min_samples=3,
+            )
+
+    def test_cluster_range_bad_pair_raises(self, embeddings_2d):
+        with pytest.raises(ValueError, match="cluster_range must be"):
+            cluster_split(embeddings_2d, strategy="size", cluster_range=(10, 3))
+
+    def test_fill_individual_exact_test_size(self, embeddings_2d, labels):
+        n = len(embeddings_2d)
+        target_test = n - int(round(0.7 * n))
+        train, test = cluster_split(
+            embeddings_2d, n_clusters=8, strategy="closest",
+            y=labels, fill_individual=True,
+        )
+        assert_valid_split(train, test, n, ratio_tol=0.4)
+        assert len(test) == target_test
+
+    def test_fill_individual_grows_test_set(self, embeddings_2d, labels):
+        """Filling should top up (never shrink) the whole-cluster pocket."""
+        _, te_nofill = cluster_split(
+            embeddings_2d, n_clusters=8, strategy="closest", random_state=42
+        )
+        _, te_fill = cluster_split(
+            embeddings_2d, n_clusters=8, strategy="closest", random_state=42,
+            fill_individual=True,
+        )
+        assert len(te_fill) >= len(te_nofill)
+
+    def test_cluster_range_and_fill_deterministic(self, embeddings_2d, labels):
+        a = cluster_split(
+            embeddings_2d, strategy="closest", y=labels,
+            cluster_range=(3, 12), fill_individual=True, random_state=7,
+        )
+        b = cluster_split(
+            embeddings_2d, strategy="closest", y=labels,
+            cluster_range=(3, 12), fill_individual=True, random_state=7,
+        )
+        assert np.array_equal(a[0], b[0])
+        assert np.array_equal(a[1], b[1])
+
+
 class TestClusterKFold:
     """Challenging clustering-based cross-validation folds."""
 

@@ -80,7 +80,12 @@ def _assign_by_centroid(
 
 
 def _assign_closest(
-    embeddings: np.ndarray, cluster_to_indices: dict[int, list[int]], target_test: int
+    embeddings: np.ndarray,
+    cluster_to_indices: dict[int, list[int]],
+    target_test: int,
+    *,
+    y: np.ndarray | None = None,
+    fill_individual: bool = False,
 ) -> tuple[list[int], list[int]]:
     """CLOSEST-SPLIT: build one coherent, isolated test pocket in latent space.
 
@@ -88,6 +93,10 @@ def _assign_closest(
     other cluster centroids), then grow the test set by repeatedly adding the
     remaining cluster nearest (cosine) to the current test pocket, stopping
     before the target test size is exceeded.
+
+    When ``fill_individual`` is set, the whole-cluster pocket is then topped up
+    to exactly ``target_test`` with individual examples nearest (cosine) to the
+    test-pocket centroid -- the paper's final individual-example fill step.
     """
     cids = list(cluster_to_indices)
     centroids = _cluster_centroids(embeddings, cluster_to_indices)
@@ -120,7 +129,96 @@ def _assign_closest(
     test: list[int] = []
     for cid, indices in cluster_to_indices.items():
         (test if cid in test_cids else train).extend(indices)
+
+    if fill_individual:
+        train, test = _fill_individual_examples(
+            embeddings, train, test, target_test, y=y
+        )
     return train, test
+
+
+def _fill_individual_examples(
+    embeddings: np.ndarray,
+    train: list[int],
+    test: list[int],
+    target_test: int,
+    *,
+    y: np.ndarray | None = None,
+) -> tuple[list[int], list[int]]:
+    """Top up the test set to exactly ``target_test`` with individual examples.
+
+    Moves the training examples nearest (cosine) to the current test centroid
+    into test. When ``y`` is given, examples are prioritized by the per-class
+    deficit so the topped-up test set tracks the target class distribution
+    (``target_test * class_proportions``); any rounding shortfall is then filled
+    by nearest example regardless of class. This is the paper's CLOSEST-SPLIT
+    final individual-example fill step.
+    """
+    if len(test) >= target_test or not test or not train:
+        return train, test
+
+    train_idx = np.asarray(train)
+    test_centroid = embeddings[test].mean(axis=0, keepdims=True)
+    dist = cdist(embeddings[train_idx], test_centroid, metric="cosine").ravel()
+    nearest_first = np.argsort(dist, kind="stable")  # positions into train_idx
+
+    need = target_test - len(test)
+    chosen_pos: list[int] = []
+
+    if y is not None:
+        classes = np.unique(y)
+        target_counts = {
+            c: int(round(target_test * np.sum(y == c) / len(y))) for c in classes
+        }
+        have = {c: int(np.sum(y[test] == c)) for c in classes}
+        for pos in nearest_first:
+            if len(chosen_pos) >= need:
+                break
+            c = y[train_idx[pos]]
+            if have.get(c, 0) < target_counts.get(c, 0):
+                chosen_pos.append(int(pos))
+                have[c] = have.get(c, 0) + 1
+
+    # Fill any remaining slots (no y, or class quotas already met) by proximity.
+    if len(chosen_pos) < need:
+        taken = set(chosen_pos)
+        for pos in nearest_first:
+            if len(chosen_pos) >= need:
+                break
+            if int(pos) not in taken:
+                chosen_pos.append(int(pos))
+
+    chosen = {int(train_idx[p]) for p in chosen_pos}
+    new_train = [i for i in train if i not in chosen]
+    new_test = test + sorted(chosen)
+    return new_train, new_test
+
+
+def _test_target_distance(
+    test: list[int],
+    y: np.ndarray | None,
+    target_test: int,
+    n_samples: int,
+) -> float:
+    """Selection score for the k-search: how far a candidate test set is from
+    the paper's target.
+
+    With labels, this is the L1 distance between the test set's per-class count
+    vector and the target vector ``target_test * class_proportions`` -- capturing
+    both the target test size and the target class distribution in one number.
+    Without labels, it reduces to the absolute test-size deviation. Lower is
+    better; the split search keeps the k with the smallest score.
+    """
+    if y is None:
+        return float(abs(len(test) - target_test))
+    classes = np.unique(y)
+    global_counts = np.array([np.sum(y == c) for c in classes], dtype=float)
+    target = target_test * global_counts / n_samples
+    if len(test) == 0:
+        achieved = np.zeros(len(classes))
+    else:
+        achieved = np.array([np.sum(y[test] == c) for c in classes], dtype=float)
+    return float(np.abs(achieved - target).sum())
 
 
 def _assign_subset_sum(
@@ -177,6 +275,30 @@ def _assign_subset_sum(
     return train, test
 
 
+def _assign_for_strategy(
+    strategy: str,
+    embeddings: np.ndarray,
+    cluster_to_indices: dict[int, list[int]],
+    y: np.ndarray | None,
+    target_train: int,
+    target_test: int,
+    n_samples: int,
+    fill_individual: bool,
+) -> tuple[list[int], list[int]]:
+    """Dispatch a single clustering to the requested train/test assignment."""
+    if strategy == "size":
+        return _assign_by_size(cluster_to_indices, target_train)
+    if strategy == "centroid":
+        return _assign_by_centroid(embeddings, cluster_to_indices, target_train)
+    if strategy == "closest":
+        return _assign_closest(
+            embeddings, cluster_to_indices, target_test,
+            y=y, fill_individual=fill_individual,
+        )
+    # subset_sum
+    return _assign_subset_sum(cluster_to_indices, y, target_test, n_samples)
+
+
 def cluster_split(
     embeddings: ArrayLike,
     train_size: float | int = 0.7,
@@ -186,6 +308,8 @@ def cluster_split(
     *,
     strategy: str = "size",
     y: ArrayLike | None = None,
+    cluster_range: tuple[int, int] | None = None,
+    fill_individual: bool = False,
     **cluster_kwargs: Any,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -213,7 +337,23 @@ def cluster_split(
             - ``"closest"``: seed the most isolated cluster and grow it by
               nearest-neighbor into a single coherent test "pocket" (adversarial).
         y: class labels of shape (n_samples,). Required for ``strategy="subset_sum"``;
-            ignored by the other strategies.
+            for the other strategies it is optional and, when given, drives the
+            class-distribution selection criterion of the ``cluster_range`` search
+            and the class-aware individual fill.
+        cluster_range: ``None`` (default) uses the fixed ``n_clusters`` path
+            unchanged. When set to ``(low, high)`` (the paper uses ``(3, 50)``),
+            the split search is repeated for every ``k`` in that inclusive range
+            (KMeans only) and the best split is kept -- the one whose test set is
+            closest to the paper's target. With ``y`` the criterion is the L1
+            distance between the test set's per-class count vector and the target
+            ``target_test * class_proportions`` (matching both target size and
+            class distribution); without ``y`` it is the absolute test-size
+            deviation. Ties are broken toward the smaller ``k``.
+        fill_individual: ``False`` (default) keeps whole-cluster test sets. When
+            ``True`` and ``strategy="closest"``, the grown cluster pocket is
+            topped up to exactly ``target_test`` with individual examples nearest
+            (cosine) to the test-pocket centroid -- the paper's final
+            individual-example fill step. Ignored by the other strategies.
         **cluster_kwargs: passed to the clustering algorithm
 
     Returns:
@@ -221,22 +361,32 @@ def cluster_split(
         test_indices: ndarray of indices for test set
 
     Raises:
-        ValueError: on an unknown ``method`` or ``strategy``, or if
-            ``strategy="subset_sum"`` is used without a valid ``y``.
+        ValueError: on an unknown ``method`` or ``strategy``; if
+            ``strategy="subset_sum"`` is used without a valid ``y``; or if
+            ``cluster_range`` is combined with a non-KMeans ``method`` or is not a
+            valid ``(low, high)`` pair.
 
     References:
-        The ``"subset_sum"`` and ``"closest"`` strategies adapt SUBSET-SUM-SPLIT
+        The ``"subset_sum"`` and ``"closest"`` strategies implement SUBSET-SUM-SPLIT
         and CLOSEST-SPLIT from Züfle, Dankers & Titov (2023), "Latent Feature-based
         Data Splits to Improve Generalisation Evaluation," GenBench Workshop @ EMNLP,
-        pp. 112-129. https://aclanthology.org/2023.genbench-1.9 . They cluster a
-        model's hidden representations and assign whole clusters to test to expose
-        latent-space "blind spots"; their analysis finds that the resulting
-        difficulty does not correlate with surface-level properties (e.g. length),
-        complementing the surface-based :mod:`splytters.sorters`. This
-        implementation deviates from the paper: it clusters at the caller's fixed
-        ``n_clusters`` rather than searching k = 3..50, selects the subset-sum
-        subset greedily, uses a centroid-distance pocket heuristic for
-        ``"closest"``, and does not add a final individual-example fill step.
+        pp. 112-129, https://aclanthology.org/2023.genbench-1.9 , when the
+        paper-faithful options are used, and are a lightweight adaptation otherwise.
+        They cluster a model's hidden representations and assign whole clusters to
+        test to expose latent-space "blind spots"; their analysis finds that the
+        resulting difficulty does not correlate with surface-level properties (e.g.
+        length), complementing the surface-based :mod:`splytters.sorters`.
+
+        The paper searches the number of clusters over k = 3..50 and keeps the
+        split whose test set best matches a fixed target size and the dataset's
+        class distribution (Section 3, "Splitting methods"); pass
+        ``cluster_range=(3, 50)`` with ``y`` to reproduce that search. For
+        CLOSEST-SPLIT the paper then fills the remaining test slots with individual
+        examples nearest to the test centroids; pass ``fill_individual=True`` to
+        reproduce that step. With the defaults (``cluster_range=None``,
+        ``fill_individual=False``) this remains a lightweight adaptation: it
+        clusters at the caller's fixed ``n_clusters``, selects the subset-sum subset
+        greedily, and grows the ``"closest"`` pocket by whole clusters only.
 
         The label-balanced idea behind ``"subset_sum"`` traces to the earlier
         ClusterDataSplit of Wecker, Friedrich & Adel (2020), "ClusterDataSplit:
@@ -269,43 +419,66 @@ def cluster_split(
 
     n_samples = len(embeddings)
 
-    if strategy == "subset_sum":
-        if y is None:
-            raise ValueError("strategy='subset_sum' requires class labels `y`")
+    if strategy == "subset_sum" and y is None:
+        raise ValueError("strategy='subset_sum' requires class labels `y`")
+    if y is not None:
         y = np.asarray(y)
         if len(y) != n_samples:
             raise ValueError(
                 f"y has length {len(y)} but embeddings has {n_samples} rows"
             )
 
-    if method == "kmeans":
-        clusterer = KMeans(
-            n_clusters=n_clusters,
-            random_state=random_state,
-            n_init="auto",
-            **cluster_kwargs,
-        )
-    elif method == "dbscan":
-        clusterer = DBSCAN(**cluster_kwargs)
-    else:
+    if method not in {"kmeans", "dbscan"}:
         raise ValueError(f"Unknown clustering method: {method}")
-
-    labels = clusterer.fit_predict(embeddings)
-    cluster_to_indices: dict[int, list[int]] = defaultdict(list)
-    for idx, label in enumerate(labels):
-        cluster_to_indices[int(label)].append(idx)
 
     target_train = resolve_n_train(n_samples, train_size)
     target_test = n_samples - target_train
 
-    if strategy == "size":
-        train, test = _assign_by_size(cluster_to_indices, target_train)
-    elif strategy == "centroid":
-        train, test = _assign_by_centroid(embeddings, cluster_to_indices, target_train)
-    elif strategy == "closest":
-        train, test = _assign_closest(embeddings, cluster_to_indices, target_test)
-    else:  # subset_sum
-        train, test = _assign_subset_sum(cluster_to_indices, y, target_test, n_samples)
+    def cluster_at(k: int) -> dict[int, list[int]]:
+        if method == "kmeans":
+            clusterer: Any = KMeans(
+                n_clusters=k,
+                random_state=random_state,
+                n_init="auto",
+                **cluster_kwargs,
+            )
+        else:  # dbscan (ignores k)
+            clusterer = DBSCAN(**cluster_kwargs)
+        labels = clusterer.fit_predict(embeddings)
+        mapping: dict[int, list[int]] = defaultdict(list)
+        for idx, label in enumerate(labels):
+            mapping[int(label)].append(idx)
+        return mapping
+
+    def assign(mapping: dict[int, list[int]]) -> tuple[list[int], list[int]]:
+        return _assign_for_strategy(
+            strategy, embeddings, mapping, y,
+            target_train, target_test, n_samples, fill_individual,
+        )
+
+    if cluster_range is None:
+        train, test = assign(cluster_at(n_clusters))
+    else:
+        if method != "kmeans":
+            raise ValueError("cluster_range requires method='kmeans'")
+        low, high = cluster_range
+        if not (isinstance(low, int) and isinstance(high, int)) or low < 2 or low > high:
+            raise ValueError(
+                f"cluster_range must be a (low, high) pair with 2 <= low <= high; "
+                f"got {cluster_range!r}"
+            )
+        high = min(high, n_samples)  # cannot ask KMeans for more clusters than points
+        low = min(low, high)  # keep the range non-empty after clamping
+        best: tuple[list[int], list[int]] | None = None
+        best_score = float("inf")
+        for k in range(low, high + 1):
+            cand_train, cand_test = assign(cluster_at(k))
+            score = _test_target_distance(cand_test, y, target_test, n_samples)
+            if score < best_score:  # strict: ties keep the smaller k
+                best_score = score
+                best = (cand_train, cand_test)
+        assert best is not None  # range is non-empty (low <= high after clamp)
+        train, test = best
 
     return as_index_array(train), as_index_array(test)
 
