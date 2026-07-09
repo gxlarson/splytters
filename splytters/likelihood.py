@@ -24,7 +24,7 @@ their fn. 3) -- this helper always uses total log-likelihood.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -241,7 +241,7 @@ def _bucketed_split(
 
     train: list[int] = []
     test: list[int] = []
-    for bucket, n_train_b in zip(buckets, per_bucket_train):
+    for bucket, n_train_b in zip(buckets, per_bucket_train, strict=True):
         # Ascending by (score, index) within the bucket: lowest likelihood first.
         order = bucket[np.lexsort((bucket, scores[bucket]))]
         n_test_b = len(bucket) - int(n_train_b)

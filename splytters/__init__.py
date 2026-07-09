@@ -50,9 +50,6 @@ from splytters.embedders import list_embedders
 # Grouping-aware splits (keep related samples / near-duplicates on one side).
 from splytters.grouped import deduplicated_split, group_split
 
-# Likelihood Splits (Godbole & Jia 2023): lowest-log-likelihood examples -> eval.
-from splytters.likelihood import likelihood_split
-
 # Framework interop (pandas / torch / HuggingFace datasets). Heavy deps are
 # imported lazily inside each helper, so this import stays dependency-light.
 from splytters.interop import (
@@ -60,6 +57,9 @@ from splytters.interop import (
     split_dataset,
     to_torch_subsets,
 )
+
+# Likelihood Splits (Godbole & Jia 2023): lowest-log-likelihood examples -> eval.
+from splytters.likelihood import likelihood_split
 from splytters.overlap import (
     centroid_matched_split,
     cluster_leak_split,
