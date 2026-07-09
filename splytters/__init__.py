@@ -50,6 +50,9 @@ from splytters.embedders import list_embedders
 # Grouping-aware splits (keep related samples / near-duplicates on one side).
 from splytters.grouped import deduplicated_split, group_split
 
+# Likelihood Splits (Godbole & Jia 2023): lowest-log-likelihood examples -> eval.
+from splytters.likelihood import likelihood_split
+
 # Framework interop (pandas / torch / HuggingFace datasets). Heavy deps are
 # imported lazily inside each helper, so this import stays dependency-light.
 from splytters.interop import (
@@ -137,6 +140,8 @@ __all__ = [
     "deduplicated_split",
     # Curriculum (ordering-driven; pair with a splytters.sorters ranking)
     "sorted_stratified_split",
+    # Likelihood Splits (Godbole & Jia 2023; log-likelihood driven eval set)
+    "likelihood_split",
     # Stratify any embedding splitter / sorter by class (coverage-safe wrappers)
     "per_class_split",
     "per_class_sort",
