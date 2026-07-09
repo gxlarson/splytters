@@ -375,3 +375,62 @@ features.
    - Wecker et al. SDS K-means;
    - paper-faithful likelihood split helper with length bucketing;
    - Napoli and White constrained kernel-k-means / LP splitting.
+
+---
+
+## Review by Claude Opus 4.8 — 2026-07-09
+
+_This section was authored by **Claude Opus 4.8** (Anthropic, via Claude Code). I
+cross-checked the audit above against the current `splytters` source. I verified the
+**code-side** claims directly; I did **not** independently re-read the cited papers, so
+the paper-internal descriptions above are taken on trust here (see suggestion 2)._
+
+### Verdict
+
+Accurate, well-scoped, and mergeable as a notes artifact. Every code-side claim I
+spot-checked holds up, and the two headline "overclaim" findings are real and actionable.
+
+### Verified against the code
+
+- **Finding 1 (`cluster_split`)** — confirmed. The docstring in `splytters/adversarial.py`
+  literally says the `"subset_sum"`/`"closest"` strategies *"implement SUBSET-SUM-SPLIT and
+  CLOSEST-SPLIT from Züfle…"*, while the code uses a caller-fixed `n_clusters`, greedy subset
+  selection, and a centroid-distance pocket — no `k = 3..50` search and no individual-example
+  fill step. The recommended "implements → approximates / inspired by" is the correct fix.
+- **Finding 2 (`cluster_kfold`)** — confirmed. Docstring says *"Implements the challenging
+  clustering-based cross-validation of Wecker…"*, but the code is ordinary KMeans/DBSCAN plus
+  greedy whole-cluster fold assignment — not SDS K-means, label-specific capacities, or the
+  swap-based update. Overclaim is real.
+- **Finding 4 (`minority_split`)** — confirmed "unusually honest": the docstring explicitly
+  calls `deepcluster-lite` *"a light surrogate for the paper's DEEP CLUSTER"* and names k-means
+  as *"the clusterer the paper rejects."* Keep as-is.
+- **Finding 9 (`perplexity_score`)** — confirmed: default is `scoring="perplexity"` with a
+  `"log_likelihood"` option available, exactly as described.
+
+### Suggestions
+
+1. **Reconcile the MMD citation year.** Finding 3 cites *"Napoli and White (2025)"* but lists
+   `arXiv:2405.19461`, a **May 2024** identifier. Likely a venue-vs-arXiv year difference — but
+   in a *faithfulness* document, double-check the **author names and year** against the
+   OpenReview/venue record. Author/year is the easiest detail to get wrong and the most
+   conspicuous in this particular doc.
+2. **State the audit's own provenance.** The doc confidently describes each paper's internal
+   algorithm (Züfle's `k = 3..50` search, Wecker's label-capacity swaps, Napoli–White's kernel
+   k-means + LP). Add one line on how those were established — read from the linked PDF vs
+   inferred from the abstract — since the doc's credibility rests on its sources being checked.
+3. **Remove the duplicate "Recommended PR" block.** The interim one (after Finding 3) is
+   superseded by "Updated recommended PR sequence" at the end and reads as contradictory;
+   delete it or explicitly label it "partial (first pass)".
+4. **Make coverage explicit.** It says "first-pass." Add a short **"Methods not yet audited"**
+   list so a reader knows the boundary of this pass (is every cited splitter/sorter covered, or
+   just these 11?).
+5. **Make the doc-fix PR trivial.** For Findings 1 & 2, quote the exact current docstring
+   sentence and the proposed replacement inline, so the follow-up PR is copy-paste.
+6. **File location.** Consider `docs/` or `notes/` rather than the repo root to keep the top
+   level clean (minor).
+
+### Bottom line
+
+Approve the direction. The doc is honest and its two actionable findings check out. Merge
+(ideally after fixing suggestion 1 and removing the duplicate block in suggestion 3), then do
+the small docstring-accuracy PR it recommends for `cluster_split` and `cluster_kfold`.
