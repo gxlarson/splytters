@@ -281,7 +281,11 @@ def mmd_minimized_split(
       assignment step is a linear program (LP); it maximizes the kernel scatter
       (anti-clustering) so the two sides resemble each other. Pass optional ``y``
       and/or ``groups`` to enforce per-label / per-group distribution
-      constraints; the size constraint comes from ``train_size``.
+      constraints; the size constraint comes from ``train_size``. Note: while
+      the resulting MMD is far below a random split's, in practice it is
+      typically around 2x the MMD reached by the default swap optimizer, so
+      prefer ``method="swap"`` when the absolute lowest MMD matters and
+      ``method="kernel_kmeans"`` when the label/group constraints do.
 
     Args:
         embeddings: array-like of shape (n_samples, embedding_dim)

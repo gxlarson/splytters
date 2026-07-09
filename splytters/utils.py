@@ -418,7 +418,11 @@ def constrained_kernel_kmeans_split(
     is a convex program: a full assignment step oscillates between the two
     segregated vertices, so this uses a damped Frank-Wolfe update
     ``v <- (1 - gamma) v + gamma * u*`` with ``gamma = 2 / (k + 2)`` (``u*`` the
-    LP vertex), then rounds the fractional membership at the end.
+    LP vertex), then rounds the fractional membership at the end. The rounded
+    result lands far below a random split's MMD but, in practice, typically
+    around 2x the MMD reached by the swap optimizer -- prefer the swap method
+    when the absolute lowest MMD matters and this path when the label/group
+    constraints do.
 
     NOTE: the paper's Nyström scaling (Algorithm 1, Step 1; an ``O(qn)`` random
     submatrix approximation of the kernel for very large ``n``) is not implemented
