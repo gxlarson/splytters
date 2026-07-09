@@ -23,6 +23,7 @@ from sklearn.utils import check_random_state
 from splytters.utils import (
     as_index_array,
     compute_centroid,
+    constrained_kernel_kmeans_split,
     optimized_split,
     resolve_n_train,
     validate_split_inputs,
@@ -2266,6 +2267,9 @@ def mmd_maximized_split(
     kernel: str = "rbf",
     gamma: float | None = None,
     random_state: int = 42,
+    method: str = "swap",
+    y: ArrayLike | None = None,
+    groups: ArrayLike | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Maximize Maximum Mean Discrepancy (MMD) between train and test.
@@ -2276,38 +2280,80 @@ def mmd_maximized_split(
     model selection under domain shift -- a maximally-shifted validation set
     tends to select more robust hyperparameters.
 
+    Two methods are available:
+
+    - ``method="swap"`` (default): the historical swap-optimized approximation of
+      the max-MMD objective -- a random split refined by accepting train/test
+      swaps that raise the MMD.
+    - ``method="kernel_kmeans"``: the paper-faithful method of Napoli & White
+      (see References) -- constrained kernel k-means with ``k = 2`` whose
+      assignment step is a linear program (LP). Pass optional ``y`` and/or
+      ``groups`` to enforce the paper's per-label / per-group distribution
+      constraints in both sides of the split; the size constraint comes from
+      ``train_size``.
+
     Args:
         embeddings: array-like of shape (n_samples, embedding_dim)
         train_size: fraction in (0, 1) or absolute count for the training set
-        n_iterations: number of optimization iterations
+        n_iterations: swap attempts (``method="swap"``) or maximum Lloyd-style
+            iterations (``method="kernel_kmeans"``)
         kernel: kernel type ('rbf' or 'linear')
         gamma: RBF kernel parameter (default: 1/n_features)
         random_state: for reproducibility
+        method: ``"swap"`` (default) or ``"kernel_kmeans"``
+        y: optional labels; only valid with ``method="kernel_kmeans"``, where it
+            constrains per-label proportions in train and test
+        groups: optional group ids; only valid with ``method="kernel_kmeans"``,
+            where it constrains per-group proportions in train and test
 
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
 
     References:
-        Implements the *objective* of Napoli & White (TMLR 2025; arXiv 2024),
-        "Clustering-Based Validation Splits for Model Selection under Domain
-        Shift" (https://openreview.net/forum?id=Q692C0WtiD): the train/validation
-        split should maximize the MMD between the two sets. NOTE: this is a
-        swap-optimized approximation of the max-MMD objective (like
-        ``mmd_minimized_split``); it does not implement their full method -- a
-        constrained kernel k-means (max-MMD is shown equivalent to kernel
-        k-means with k=2) solved by linear programming to preserve class/group
-        balance, with convergence guarantees and Nyström scaling. For
-        class-balanced clustering splits, see
-        ``cluster_split(strategy="subset_sum")`` and :func:`cluster_kfold`.
+        Napoli & White (TMLR 2025; arXiv 2024), "Clustering-Based Validation
+        Splits for Model Selection under Domain Shift"
+        (https://openreview.net/forum?id=Q692C0WtiD): the train/validation split
+        should maximize the MMD between the two sets. Under
+        ``method="kernel_kmeans"`` this implements their method -- maximizing MMD
+        is equivalent to minimizing the ``k = 2`` kernel k-means scatter
+        (their Theorem 1), solved by a Lloyd-style alternation whose constrained
+        assignment step is an LP over size/label/group balance (their
+        Algorithm 1, Eq. 12-16). The default ``method="swap"`` remains a
+        swap-optimized approximation of the same objective. Their Nyström scaling
+        for very large ``n`` is not implemented (out of scope). For class-balanced
+        clustering splits, see ``cluster_split(strategy="subset_sum")`` and
+        :func:`cluster_kfold`.
 
-    Seed stability: varies with the seed like a random split -- the swap
-    optimization starts from a random split and many assignments reach a similar
-    MMD, so the chosen test set differs run to run.
+    Seed stability: with ``method="swap"``, varies with the seed like a random
+    split -- the swap optimization starts from a random split and many
+    assignments reach a similar MMD. With ``method="kernel_kmeans"`` the result
+    is deterministic given ``random_state`` (which seeds only the initial
+    partition).
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     if kernel not in {"rbf", "linear"}:
         raise ValueError(f"kernel must be 'rbf' or 'linear', got {kernel!r}")
+    if method not in {"swap", "kernel_kmeans"}:
+        raise ValueError(
+            f"method must be 'swap' or 'kernel_kmeans', got {method!r}"
+        )
+    if method == "swap" and (y is not None or groups is not None):
+        raise ValueError(
+            "y and groups are only supported with method='kernel_kmeans'"
+        )
+    if method == "kernel_kmeans":
+        return constrained_kernel_kmeans_split(
+            embeddings,
+            train_size,
+            kernel=kernel,
+            gamma=gamma,
+            y=y,
+            groups=groups,
+            random_state=random_state,
+            n_iterations=n_iterations,
+            maximize_mmd=True,
+        )
 
     n_dims = embeddings.shape[1]
 
