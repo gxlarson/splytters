@@ -3,4 +3,6 @@ method                     test_frac pure_frac  entropy  test_acc  acc_drop
 kmeans                         0.405     0.000    1.067     0.253    -0.641
 ward                           0.485     0.000    1.286     0.516    -0.368
 deepcluster-lite               0.400     0.000    1.053     0.351    -0.544
-deepcluster-semifaithful       0.470     0.000    1.227     0.487    -0.400
+deepcluster-faithful           0.064     0.000    0.202     0.423    -0.448
+kmeans@ft_cls                  0.007     0.000    0.042     0.302    -0.651
+ward@ft_cls                    0.008     0.100    0.042     0.348    -0.609
