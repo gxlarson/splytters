@@ -434,3 +434,57 @@ spot-checked holds up, and the two headline "overclaim" findings are real and ac
 Approve the direction. The doc is honest and its two actionable findings check out. Merge
 (ideally after fixing suggestion 1 and removing the duplicate block in suggestion 3), then do
 the small docstring-accuracy PR it recommends for `cluster_split` and `cluster_kfold`.
+
+---
+
+## Review notes (Claude Fable 5, 2026-07-09)
+
+This audit was independently verified by Claude Fable 5: every "Current
+implementation" claim was checked against the repository source, and every
+paper claim (URLs, authors, years, method descriptions) was checked against
+the papers and repositories themselves. Overall verdict: accurate. One
+factual error and two precision caveats were found.
+
+### Corrections
+
+- Finding 2 repo URL: `clusterdatasplit_eval4nlp-2020156` returns a 404. The
+  correct URL is https://github.com/boschresearch/clusterdatasplit_eval4nlp-2020
+  (archived May 2024). The stray "156" is a PDF copy-paste artifact: the
+  paper's footnote URL is line-wrapped and immediately followed by the page
+  number 156.
+
+### Precision caveats
+
+- Finding 3: "Napoli and White (2025)" refers to the TMLR publication year;
+  the arXiv preprint (2405.19461) is from May 2024, and its v1 carried the
+  subtitle "...for Domain Generalisation" before the camera-ready title
+  change. The "no paper-listed code" claim was confirmed: no repository
+  appears in the paper text or via search.
+- Finding 10: the code cites Larson et al. (2019) only by ACL URL and figure
+  number; the author names do not appear in the docstrings.
+
+### Confirmations
+
+- The two headline overclaims are real: `cluster_split` (adversarial.py:228)
+  says the strategies "implement" SUBSET-SUM-SPLIT and CLOSEST-SPLIT, and
+  `cluster_kfold` (adversarial.py:396) says "Implements" Wecker et al.
+  (2020), while both bodies are the simplified heuristics this audit
+  describes (fixed `n_clusters` with no `k = 3..50` search, greedy
+  assignment, no per-example fill; ordinary KMeans/DBSCAN with greedy
+  whole-cluster fold packing, no SDS K-means, capacities, or swaps).
+- The paper method descriptions in findings 1, 2, 3, 4, 5, 7, and 9 match
+  the papers' full texts, including the fine details (Züfle et al.'s
+  multidimensional subset-sum over class-count vectors and closest-split
+  individual-example fill; Wecker et al.'s 1-on-1 swap update; Søgaard et
+  al.'s BallTree / random-centroid procedure; Godbole and Jia's footnote
+  that perplexity over-corrects toward short examples).
+- The "honest docstring" assessments (findings 3-11) are correct, and the
+  deviations noted for `wasserstein_adversarial_split` (bounding-box anchor
+  rather than a data-point centroid; single split rather than repeated runs)
+  match the code exactly.
+- All other GitHub repositories, ACL Anthology links, arXiv IDs, and the
+  Siegelmann and Sontag DOI resolve to the claimed resources.
+
+Note: this section also resolves suggestion 1 from the Opus 4.8 review above
+(the Napoli and White year is the TMLR 2025 publication; the arXiv preprint
+is 2024).
