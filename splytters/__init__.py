@@ -57,6 +57,9 @@ from splytters.interop import (
     split_dataset,
     to_torch_subsets,
 )
+
+# Likelihood Splits (Godbole & Jia 2023): lowest-log-likelihood examples -> eval.
+from splytters.likelihood import likelihood_split
 from splytters.overlap import (
     centroid_matched_split,
     cluster_leak_split,
@@ -137,6 +140,8 @@ __all__ = [
     "deduplicated_split",
     # Curriculum (ordering-driven; pair with a splytters.sorters ranking)
     "sorted_stratified_split",
+    # Likelihood Splits (Godbole & Jia 2023; log-likelihood driven eval set)
+    "likelihood_split",
     # Stratify any embedding splitter / sorter by class (coverage-safe wrappers)
     "per_class_split",
     "per_class_sort",
