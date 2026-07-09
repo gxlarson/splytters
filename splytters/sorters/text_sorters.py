@@ -264,6 +264,9 @@ def perplexity_score(
             "pass both `model` and `tokenizer`, or neither (to default to GPT-2)."
         )
 
+    if not texts:
+        return []
+
     import torch
     from transformers import GPT2LMHeadModel, GPT2TokenizerFast
 
