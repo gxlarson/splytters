@@ -1075,6 +1075,119 @@ class TestMmdMinimizedSplit:
             mmd_minimized_split(embeddings_2d, kernel="bogus")
 
 
+class TestMmdKernelKmeansMethod:
+    """The paper-faithful constrained kernel k-means / LP method of
+    Napoli & White (TMLR 2025; arXiv 2024), method="kernel_kmeans"."""
+
+    @staticmethod
+    def _mmd(emb, train, test):
+        return TestMMDMaximizedSplit._mmd(emb, train, test)
+
+    @staticmethod
+    def _labels(n):
+        return np.array([i % 2 for i in range(n)])
+
+    def test_maximized_valid_split(self, embeddings_2d):
+        train, test = mmd_maximized_split(embeddings_2d, method="kernel_kmeans")
+        assert_valid_split(train, test, len(embeddings_2d))
+
+    def test_minimized_valid_split(self, embeddings_2d):
+        train, test = mmd_minimized_split(embeddings_2d, method="kernel_kmeans")
+        assert_valid_split(train, test, len(embeddings_2d))
+
+    def test_respects_absolute_train_size(self, embeddings_2d):
+        train, test = mmd_maximized_split(
+            embeddings_2d, train_size=60, method="kernel_kmeans"
+        )
+        assert len(train) == 60
+        assert len(test) == len(embeddings_2d) - 60
+
+    def test_maximized_beats_random(self, embeddings_2d):
+        # On a synthetic two-cluster dataset, the kernel k-means (k=2) split
+        # should reach a higher MMD than a random split.
+        train, test = mmd_maximized_split(embeddings_2d, method="kernel_kmeans")
+        achieved = self._mmd(embeddings_2d, train, test)
+
+        rng = np.random.RandomState(0)
+        n = len(embeddings_2d)
+        n_train = int(0.7 * n)
+        random_mmds = []
+        for _ in range(20):
+            idx = rng.permutation(n)
+            random_mmds.append(
+                self._mmd(embeddings_2d, idx[:n_train], idx[n_train:])
+            )
+        assert achieved >= max(random_mmds)
+
+    def test_minimized_below_random(self, embeddings_2d):
+        train, test = mmd_minimized_split(embeddings_2d, method="kernel_kmeans")
+        achieved = self._mmd(embeddings_2d, train, test)
+        rng = np.random.RandomState(0)
+        n = len(embeddings_2d)
+        n_train = int(0.7 * n)
+        idx = rng.permutation(n)
+        random_mmd = self._mmd(embeddings_2d, idx[:n_train], idx[n_train:])
+        assert achieved <= random_mmd
+
+    def test_label_proportions_constrained(self, embeddings_2d):
+        y = self._labels(len(embeddings_2d))
+        train, test = mmd_maximized_split(
+            embeddings_2d, method="kernel_kmeans", y=y
+        )
+        # Each label's train/test proportion should match the global fraction.
+        for label in np.unique(y):
+            members = np.sum(y == label)
+            in_test = np.sum(y[test] == label)
+            assert abs(in_test / members - 0.3) <= 1.0 / members + 1e-9
+
+    def test_group_proportions_constrained(self, embeddings_2d):
+        groups = np.array([i % 5 for i in range(len(embeddings_2d))])
+        train, test = mmd_minimized_split(
+            embeddings_2d, method="kernel_kmeans", groups=groups
+        )
+        for g in np.unique(groups):
+            members = np.sum(groups == g)
+            in_test = np.sum(groups[test] == g)
+            assert abs(in_test / members - 0.3) <= 1.0 / members + 1e-9
+
+    def test_deterministic(self, embeddings_2d):
+        a = mmd_maximized_split(
+            embeddings_2d, method="kernel_kmeans", random_state=5
+        )
+        b = mmd_maximized_split(
+            embeddings_2d, method="kernel_kmeans", random_state=5
+        )
+        assert _splits_equal(a, b)
+
+    def test_minimized_deterministic(self, embeddings_2d):
+        a = mmd_minimized_split(
+            embeddings_2d, method="kernel_kmeans", random_state=5
+        )
+        b = mmd_minimized_split(
+            embeddings_2d, method="kernel_kmeans", random_state=5
+        )
+        assert _splits_equal(a, b)
+
+    def test_y_groups_rejected_for_swap(self, embeddings_2d):
+        y = self._labels(len(embeddings_2d))
+        with pytest.raises(ValueError, match="kernel_kmeans"):
+            mmd_maximized_split(embeddings_2d, method="swap", y=y)
+        with pytest.raises(ValueError, match="kernel_kmeans"):
+            mmd_minimized_split(embeddings_2d, method="swap", groups=y)
+
+    def test_invalid_method_raises(self, embeddings_2d):
+        with pytest.raises(ValueError, match="method must be"):
+            mmd_maximized_split(embeddings_2d, method="bogus")
+        with pytest.raises(ValueError, match="method must be"):
+            mmd_minimized_split(embeddings_2d, method="bogus")
+
+    def test_linear_kernel(self, embeddings_2d):
+        train, test = mmd_maximized_split(
+            embeddings_2d, method="kernel_kmeans", kernel="linear"
+        )
+        assert_valid_split(train, test, len(embeddings_2d))
+
+
 # ===========================================================================
 # Overlap splitters
 # ===========================================================================
