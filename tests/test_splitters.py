@@ -329,6 +329,130 @@ class TestClusterKFold:
             cluster_kfold(embeddings_2d, labels, method="nope")
 
 
+class TestClusterKFoldSDS:
+    """SDS K-means folds (Wecker, Friedrich & Adel, 2020)."""
+
+    @pytest.fixture
+    def labels(self):
+        return np.array([0, 1] * 50)
+
+    def test_returns_valid_fold_ids(self, embeddings_2d, labels):
+        folds = cluster_kfold(embeddings_2d, labels, n_folds=5, method="sds_kmeans")
+        assert folds.shape == (len(embeddings_2d),)
+        assert set(folds.tolist()) == set(range(5))
+
+    def test_folds_are_equal_size(self, embeddings_2d, labels):
+        # Capacities are chosen so cluster sizes are exactly balanced when n
+        # divides evenly; otherwise they differ by at most one.
+        folds = cluster_kfold(embeddings_2d, labels, n_folds=5, method="sds_kmeans")
+        sizes = np.bincount(folds, minlength=5)
+        assert sizes.max() - sizes.min() <= 1
+        assert sizes.sum() == len(embeddings_2d)
+
+    def test_uneven_split_sizes_within_one(self, embeddings_2d, labels):
+        folds = cluster_kfold(embeddings_2d, labels, n_folds=4, method="sds_kmeans")
+        sizes = np.bincount(folds, minlength=4)
+        # 100 / 4 = 25 exactly.
+        assert sizes.max() - sizes.min() <= 1
+
+    def test_folds_track_global_label_distribution(self, embeddings_2d):
+        # Imbalanced, multi-class labels: each fold's per-label counts should be
+        # within one of count/n_folds.
+        y = np.array([0] * 60 + [1] * 30 + [2] * 10)
+        rng = np.random.RandomState(0)
+        y = y[rng.permutation(len(y))]
+        n_folds = 4
+        folds = cluster_kfold(embeddings_2d, y, n_folds=n_folds, method="sds_kmeans")
+        for c in np.unique(y):
+            total = int((y == c).sum())
+            per_fold = [int(((folds == k) & (y == c)).sum()) for k in range(n_folds)]
+            assert max(per_fold) - min(per_fold) <= 1
+            assert sum(per_fold) == total
+
+    def test_deterministic(self, embeddings_2d, labels):
+        a = cluster_kfold(
+            embeddings_2d, labels, n_folds=4, method="sds_kmeans", random_state=7
+        )
+        b = cluster_kfold(
+            embeddings_2d, labels, n_folds=4, method="sds_kmeans", random_state=7
+        )
+        assert np.array_equal(a, b)
+
+    def test_partition_via_predefined_split(self, embeddings_2d, labels):
+        from sklearn.model_selection import PredefinedSplit
+
+        folds = cluster_kfold(embeddings_2d, labels, n_folds=5, method="sds_kmeans")
+        ps = PredefinedSplit(folds)
+        assert ps.get_n_splits() == 5
+        seen: set[int] = set()
+        for _, test_idx in ps.split():
+            assert not (seen & set(test_idx.tolist())), "test folds overlap"
+            seen |= set(test_idx.tolist())
+        assert seen == set(range(len(embeddings_2d)))
+
+    def test_n_clusters_is_ignored(self, embeddings_2d, labels):
+        # sds_kmeans always uses exactly n_folds clusters, so a small n_clusters
+        # (which the greedy path rejects) is simply ignored.
+        folds = cluster_kfold(
+            embeddings_2d, labels, n_folds=5, n_clusters=3, method="sds_kmeans"
+        )
+        assert set(folds.tolist()) == set(range(5))
+
+    def test_rejects_unknown_kwarg(self, embeddings_2d, labels):
+        with pytest.raises(TypeError, match="unexpected keyword"):
+            cluster_kfold(
+                embeddings_2d, labels, method="sds_kmeans", eps=0.5
+            )
+
+    def test_swap_round_improves_partition(self, monkeypatch):
+        """The 1-on-1 swap update must actually refine the initial assignment.
+
+        On overlapping (non-separated) Gaussian data the capacity-constrained
+        first assignment is suboptimal, and the swap rounds should strictly
+        lower the inertia objective. Guard against the swap step silently
+        becoming a no-op: run the full pipeline once as-is and once with
+        _sds_swap_round patched to do nothing, and require the with-swaps
+        partition to differ and score strictly better.
+        """
+        import splytters.adversarial as adv
+
+        rng = np.random.RandomState(3)
+        # Two heavily overlapping blobs: plenty of points end up closer to
+        # another fold's centroid after the capacity-constrained first
+        # assignment, so swaps have work to do.
+        X = np.vstack(
+            [rng.randn(60, 2) + [0.5, 0], rng.randn(60, 2) + [-0.5, 0]]
+        )
+        y = np.array([0, 1] * 60)
+        n_folds = 4
+
+        with_swaps = cluster_kfold(
+            X, y, n_folds=n_folds, method="sds_kmeans", random_state=11
+        )
+
+        def no_swap(points, centroids, assign):
+            return assign, 0
+
+        monkeypatch.setattr(adv, "_sds_swap_round", no_swap)
+        without_swaps = cluster_kfold(
+            X, y, n_folds=n_folds, method="sds_kmeans", random_state=11
+        )
+        monkeypatch.undo()
+
+        assert not np.array_equal(with_swaps, without_swaps), (
+            "swap round had no effect on the returned partition"
+        )
+
+        def inertia_of(assign):
+            a = assign.astype(np.int64)
+            centers = adv._sds_update_centers(X, a, n_folds)
+            return adv._sds_inertia(X, a, centers, n_folds)
+
+        assert inertia_of(with_swaps) < inertia_of(without_swaps), (
+            "swap rounds should strictly lower cluster-internal variance"
+        )
+
+
 class TestMinoritySplit:
     """Bias-amplified split via per-cluster minority labels (Reif & Schwartz, 2023)."""
 

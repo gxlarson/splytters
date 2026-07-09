@@ -16,7 +16,7 @@ from numpy.typing import ArrayLike
 from scipy.linalg import eigh as dense_eigh
 from scipy.sparse.csgraph import laplacian
 from scipy.spatial.distance import cdist
-from sklearn.cluster import DBSCAN, AgglomerativeClustering, KMeans
+from sklearn.cluster import DBSCAN, AgglomerativeClustering, KMeans, kmeans_plusplus
 from sklearn.neural_network import MLPClassifier
 from sklearn.utils import check_random_state
 
@@ -352,6 +352,241 @@ def centroid_adversarial_split(
     )
 
 
+def _sds_capacities(label_counts: np.ndarray, n_folds: int) -> np.ndarray:
+    """Label-specific cluster capacities for SDS K-means.
+
+    Distributes every label's examples over the ``n_folds`` clusters as evenly
+    as possible, so each cluster ends up ~``n/n_folds`` in size while its label
+    makeup mirrors the global label distribution. The reference implementation
+    (``KMeansDistribution.max_ids_labels``) leaves this to the caller; here it is
+    derived automatically -- the "Same-Size K-means" special case the paper's
+    code describes as running SDS with balanced per-label targets.
+
+    Each label's remainder (``count % n_folds`` extra examples) is handed to the
+    clusters with the smallest running total so overall cluster sizes stay
+    balanced. Returns an ``(n_labels, n_folds)`` integer array whose row ``j``
+    sums to ``label_counts[j]`` and whose columns sum to the cluster sizes.
+    """
+    n_labels = len(label_counts)
+    caps = np.zeros((n_labels, n_folds), dtype=np.int64)
+    fold_total = np.zeros(n_folds, dtype=np.int64)
+    for j, count in enumerate(label_counts):
+        base = int(count) // n_folds
+        remainder = int(count) % n_folds
+        caps[j, :] = base
+        fold_total += base
+        if remainder > 0:
+            # Give the +1 slots to the currently-smallest folds (ties by index).
+            order = np.lexsort((np.arange(n_folds), fold_total))
+            chosen = order[:remainder]
+            caps[j, chosen] += 1
+            fold_total[chosen] += 1
+    return caps
+
+
+def _sds_first_assignment(
+    points: np.ndarray, centroids: np.ndarray, cap: np.ndarray
+) -> np.ndarray:
+    """Capacity-constrained initial assignment for one label.
+
+    Reproduces ``first_assignment``/``find_stop`` from the reference code. Points
+    are ordered by an "order measure" -- squared distance to the nearest open
+    cluster minus the distance to the farthest open cluster (most decisive first)
+    -- and assigned to their nearest open cluster until a cluster reaches its
+    capacity ``cap[c]`` for this label. The full cluster is then removed and the
+    remaining points are re-scored against the still-open centroids, repeating
+    until every point of the label is placed.
+    """
+    n = len(points)
+    assign = np.full(n, -1, dtype=np.int64)
+    counts = np.zeros(len(centroids), dtype=np.int64)
+    # Clusters with zero capacity for this label are never eligible.
+    available = np.where(cap > 0)[0]
+    remaining = np.arange(n)
+    while remaining.size > 0:
+        dists = cdist(points[remaining], centroids[available], metric="sqeuclidean")
+        order_measure = dists.min(axis=1) - dists.max(axis=1)
+        closest_local = dists.argmin(axis=1)
+        sorted_local = np.argsort(order_measure, kind="stable")
+
+        filled: list[int] = []
+        assigned_local: list[int] = []
+        for local in sorted_local:
+            cluster = int(available[closest_local[local]])
+            assign[remaining[local]] = cluster
+            counts[cluster] += 1
+            assigned_local.append(int(local))
+            if counts[cluster] == cap[cluster]:
+                filled.append(cluster)
+                break
+
+        keep = np.ones(remaining.size, dtype=bool)
+        keep[assigned_local] = False
+        remaining = remaining[keep]
+        if filled:
+            available = available[~np.isin(available, filled)]
+    return assign
+
+
+def _sds_update_centers(
+    embeddings: np.ndarray, assign: np.ndarray, n_folds: int
+) -> np.ndarray:
+    """Recompute cluster centroids as the mean of their assigned points."""
+    centers = np.zeros((n_folds, embeddings.shape[1]), dtype=np.float64)
+    for cluster in range(n_folds):
+        mask = assign == cluster
+        if mask.any():
+            centers[cluster] = embeddings[mask].mean(axis=0)
+    return centers
+
+
+def _sds_swap_round(
+    points: np.ndarray, centroids: np.ndarray, assign: np.ndarray
+) -> tuple[np.ndarray, int]:
+    """One label's 1-on-1 swap update (reference ``update_distances``/``swap``).
+
+    Builds every (point, other-cluster) candidate whose squared-distance
+    difference to the other cluster is negative (strictly closer than the current
+    cluster), sorts them by that difference (most beneficial first), then greedily
+    matches reversible pairs: a point in cluster ``a`` that wants ``b`` is swapped
+    with a point in cluster ``b`` that wants ``a``. Each point swaps at most once
+    per round. Because both members move strictly closer, every accepted swap
+    lowers overall cluster-internal variance while leaving cluster sizes (and thus
+    per-label capacities) unchanged. Returns the updated assignment and the number
+    of swaps performed.
+    """
+    n = len(points)
+    dists = cdist(points, centroids, metric="sqeuclidean")
+    current_dist = dists[np.arange(n), assign]
+    diff = dists - current_dist[:, None]
+    rows, cols = np.where(diff < 0)
+    if rows.size == 0:
+        return assign, 0
+
+    order = np.argsort(diff[rows, cols], kind="stable")
+    rows = rows[order]
+    cols = cols[order]
+
+    point_used = np.zeros(n, dtype=bool)
+    new_assign = assign.copy()
+    n_swaps = 0
+    m = rows.size
+    for a in range(m):
+        p = rows[a]
+        if point_used[p]:
+            continue
+        desired = cols[a]
+        current = assign[p]
+        for b in range(a + 1, m):
+            q = rows[b]
+            if point_used[q]:
+                continue
+            if assign[q] == desired and cols[b] == current:
+                new_assign[p] = desired
+                new_assign[q] = current
+                point_used[p] = True
+                point_used[q] = True
+                n_swaps += 1
+                break
+    return new_assign, n_swaps
+
+
+def _sds_inertia(
+    embeddings: np.ndarray, assign: np.ndarray, centers: np.ndarray, n_folds: int
+) -> float:
+    """Reference objective: sum over clusters of the mean squared distance to
+    the cluster centroid (``calculate_cluster_inertia``)."""
+    total = 0.0
+    for cluster in range(n_folds):
+        mask = assign == cluster
+        if mask.any():
+            d = cdist(embeddings[mask], centers[cluster : cluster + 1], "sqeuclidean")
+            total += float(d.mean())
+    return total
+
+
+def _sds_single_round(
+    embeddings: np.ndarray,
+    y_idx: np.ndarray,
+    n_folds: int,
+    caps: np.ndarray,
+    seed: int,
+    max_iter: int,
+) -> tuple[float, np.ndarray]:
+    """One full SDS K-means run from a single k-means++ initialization."""
+    n_labels = caps.shape[0]
+    label_points = [np.where(y_idx == j)[0] for j in range(n_labels)]
+
+    centers, _ = kmeans_plusplus(embeddings, n_folds, random_state=seed)
+
+    # Initial capacity-constrained assignment, done independently per label.
+    assign = np.full(len(embeddings), -1, dtype=np.int64)
+    for j, pts in enumerate(label_points):
+        if pts.size:
+            assign[pts] = _sds_first_assignment(embeddings[pts], centers, caps[j])
+
+    # Update step: recompute centers, then swap within each label until a full
+    # pass produces no swaps (or max_iter is reached).
+    for _ in range(max_iter):
+        centers = _sds_update_centers(embeddings, assign, n_folds)
+        total_swaps = 0
+        for pts in label_points:
+            if pts.size == 0:
+                continue
+            new_assign, n_swaps = _sds_swap_round(embeddings[pts], centers, assign[pts])
+            assign[pts] = new_assign
+            total_swaps += n_swaps
+        if total_swaps == 0:
+            break
+
+    centers = _sds_update_centers(embeddings, assign, n_folds)
+    return _sds_inertia(embeddings, assign, centers, n_folds), assign
+
+
+def _sds_kmeans_folds(
+    embeddings: np.ndarray,
+    y: np.ndarray,
+    n_folds: int,
+    random_state: int,
+    n_init: int = 8,
+    max_iter: int = 100,
+    **unexpected: Any,
+) -> np.ndarray:
+    """Size- and Distribution-Sensitive K-means folds (Wecker et al., 2020).
+
+    The ``n_folds`` clusters ARE the folds: each is sized ~``n/n_folds`` with
+    per-label capacities from the global label distribution. Runs ``n_init``
+    initializations and keeps the one with the lowest inertia.
+    """
+    if unexpected:
+        raise TypeError(
+            f"cluster_kfold(method='sds_kmeans') got unexpected keyword(s): "
+            f"{sorted(unexpected)}. Supported: n_init, max_iter."
+        )
+    X = np.asarray(embeddings, dtype=np.float64)
+    _, y_idx = np.unique(y, return_inverse=True)
+    y_idx = np.asarray(y_idx).reshape(-1)
+    n_labels = int(y_idx.max()) + 1
+    label_counts = np.bincount(y_idx, minlength=n_labels)
+    caps = _sds_capacities(label_counts, n_folds)
+
+    rng = check_random_state(random_state)
+    # Distinct seeds per restart, mirroring the reference's random.sample.
+    seeds = rng.choice(np.arange(1, 100_000), size=n_init, replace=False)
+
+    best_inertia = np.inf
+    best_assign: np.ndarray | None = None
+    for seed in seeds:
+        inertia, assign = _sds_single_round(
+            X, y_idx, n_folds, caps, int(seed), max_iter
+        )
+        if inertia < best_inertia:
+            best_inertia = inertia
+            best_assign = assign
+    assert best_assign is not None
+    return best_assign.astype(np.intp)
+
+
 def cluster_kfold(
     embeddings: ArrayLike,
     y: ArrayLike,
@@ -380,12 +615,19 @@ def cluster_kfold(
         embeddings: array-like of shape (n_samples, embedding_dim)
         y: class labels of shape (n_samples,); used to balance folds by label
         n_folds: number of cross-validation folds (default 5)
-        method: clustering algorithm, 'kmeans' or 'dbscan'
-        n_clusters: number of clusters (kmeans only). Defaults to
+        method: clustering algorithm. ``'kmeans'`` (default) or ``'dbscan'`` use
+            the cluster-coherent greedy fold-packing heuristic described below.
+            ``'sds_kmeans'`` instead runs the paper's SDS K-means, where the
+            ``n_folds`` clusters ARE the folds (see the SDS note in References).
+        n_clusters: number of clusters for the ``'kmeans'`` heuristic. Defaults to
             ``max(10, n_folds * 3)`` -- comfortably above ``n_folds`` so every
-            fold can receive whole clusters.
+            fold can receive whole clusters. Ignored by ``'sds_kmeans'``, which
+            always uses exactly ``n_folds`` clusters.
         random_state: for reproducibility
-        **cluster_kwargs: passed to the clustering algorithm
+        **cluster_kwargs: passed to the clustering algorithm. For
+            ``method='sds_kmeans'`` the accepted keys are ``n_init`` (number of
+            k-means++ initializations, default 8) and ``max_iter`` (max swap
+            rounds, default 100).
 
     Returns:
         fold_ids: integer ndarray of shape (n_samples,), values in
@@ -397,20 +639,46 @@ def cluster_kfold(
             mismatch, an out-of-range ``n_folds``, or fewer clusters than folds.
 
     References:
-        A cluster-coherent, label-aware fold-assignment heuristic inspired by
-        ClusterDataSplit of Wecker, Friedrich & Adel (2020), "ClusterDataSplit:
-        Exploring Challenging Clustering-Based Data Splits for Model Performance
-        Evaluation," Eval4NLP @ COLING -- folds that are lexically distinct from
-        train while preserving label balance.
-        https://aclanthology.org/2020.eval4nlp-1.15
-        It does not implement the paper's SDS K-means (size- and
-        distribution-sensitive clustering with label-specific cluster capacities
-        and swap-based updates); this function instead clusters with
-        off-the-shelf KMeans/DBSCAN and greedily packs whole clusters into folds.
+        Wecker, Friedrich & Adel (2020), "ClusterDataSplit: Exploring Challenging
+        Clustering-Based Data Splits for Model Performance Evaluation,"
+        Eval4NLP @ COLING. https://aclanthology.org/2020.eval4nlp-1.15
+        Reference code (archived):
+        https://github.com/boschresearch/clusterdatasplit_eval4nlp-2020
 
-    Seed stability: structure-stable -- fold assignment varies with the KMeans
-    clustering, though the cluster-coherent, label-balanced structure is
-    preserved.
+        The default ``'kmeans'``/``'dbscan'`` modes are a cluster-coherent,
+        label-aware fold-assignment heuristic inspired by ClusterDataSplit: they
+        cluster with off-the-shelf KMeans/DBSCAN and greedily pack whole clusters
+        into folds that are lexically distinct from train while preserving label
+        balance. They do NOT implement the paper's SDS K-means.
+
+        ``method='sds_kmeans'`` implements the paper's SDS K-means (Size and
+        Distribution Sensitive K-means, an extension of Same-Size K-means). The
+        ``n_folds`` clusters are the folds directly. Each label's examples are
+        spread over the clusters as evenly as possible (label-specific
+        capacities), so every fold is ~``n/n_folds`` in size with a label
+        distribution close to global. Points are placed by an order-measure
+        assignment (nearest-minus-farthest squared distance) that fills clusters
+        up to their per-label capacity, then refined by 1-on-1 swaps: two points
+        in different clusters that each want the other's cluster are exchanged,
+        which lowers overall cluster-internal variance while keeping sizes fixed.
+        Iteration stops when a full pass yields no swaps; the best of ``n_init``
+        k-means++ initializations (by inertia) is returned.
+
+        Fidelity notes vs. the reference code: the reference exposes
+        ``max_ids_labels`` for the caller to specify per-cluster/per-label
+        capacities; here they are derived automatically from the global label
+        distribution (the balanced "Same-Size" special case). The reference uses
+        sklearn's private ``_init_centroids``; this uses the public
+        ``kmeans_plusplus``. Assignment, capacity handling, the distance-sorted
+        1-on-1 swap update, the inertia objective (sum of per-cluster mean
+        squared distance), and the "stop when no swaps" rule follow the reference
+        implementation.
+
+    Seed stability: structure-stable. For the default modes, fold assignment
+    varies with the KMeans clustering, though the cluster-coherent,
+    label-balanced structure is preserved. For ``'sds_kmeans'``, fold SIZES and
+    per-label counts are fixed by the capacities (seed-invariant); only which
+    samples land in which fold varies with the seed.
     """
     embeddings = validate_split_inputs(embeddings, 0.5)  # 0.5: unused placeholder
     y = np.asarray(y)
@@ -420,6 +688,14 @@ def cluster_kfold(
         raise ValueError(f"y has length {len(y)} but embeddings has {n_samples} rows")
     if not 2 <= n_folds <= n_samples:
         raise ValueError(f"n_folds must be in [2, {n_samples}], got {n_folds}")
+
+    if method == "sds_kmeans":
+        # SDS K-means: the n_folds clusters ARE the folds (no separate
+        # clustering + greedy packing). Handled up front so the existing
+        # kmeans/dbscan paths below are untouched.
+        return _sds_kmeans_folds(
+            embeddings, y, n_folds, random_state, **cluster_kwargs
+        )
 
     if n_clusters is None:
         n_clusters = max(10, n_folds * 3)
