@@ -404,6 +404,54 @@ class TestClusterKFoldSDS:
                 embeddings_2d, labels, method="sds_kmeans", eps=0.5
             )
 
+    def test_swap_round_improves_partition(self, monkeypatch):
+        """The 1-on-1 swap update must actually refine the initial assignment.
+
+        On overlapping (non-separated) Gaussian data the capacity-constrained
+        first assignment is suboptimal, and the swap rounds should strictly
+        lower the inertia objective. Guard against the swap step silently
+        becoming a no-op: run the full pipeline once as-is and once with
+        _sds_swap_round patched to do nothing, and require the with-swaps
+        partition to differ and score strictly better.
+        """
+        import splytters.adversarial as adv
+
+        rng = np.random.RandomState(3)
+        # Two heavily overlapping blobs: plenty of points end up closer to
+        # another fold's centroid after the capacity-constrained first
+        # assignment, so swaps have work to do.
+        X = np.vstack(
+            [rng.randn(60, 2) + [0.5, 0], rng.randn(60, 2) + [-0.5, 0]]
+        )
+        y = np.array([0, 1] * 60)
+        n_folds = 4
+
+        with_swaps = cluster_kfold(
+            X, y, n_folds=n_folds, method="sds_kmeans", random_state=11
+        )
+
+        def no_swap(points, centroids, assign):
+            return assign, 0
+
+        monkeypatch.setattr(adv, "_sds_swap_round", no_swap)
+        without_swaps = cluster_kfold(
+            X, y, n_folds=n_folds, method="sds_kmeans", random_state=11
+        )
+        monkeypatch.undo()
+
+        assert not np.array_equal(with_swaps, without_swaps), (
+            "swap round had no effect on the returned partition"
+        )
+
+        def inertia_of(assign):
+            a = assign.astype(np.int64)
+            centers = adv._sds_update_centers(X, a, n_folds)
+            return adv._sds_inertia(X, a, centers, n_folds)
+
+        assert inertia_of(with_swaps) < inertia_of(without_swaps), (
+            "swap rounds should strictly lower cluster-internal variance"
+        )
+
 
 class TestMinoritySplit:
     """Bias-amplified split via per-cluster minority labels (Reif & Schwartz, 2023)."""

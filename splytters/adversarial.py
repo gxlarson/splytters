@@ -571,7 +571,8 @@ def _sds_kmeans_folds(
     caps = _sds_capacities(label_counts, n_folds)
 
     rng = check_random_state(random_state)
-    seeds = rng.randint(1, 100_000, size=n_init)
+    # Distinct seeds per restart, mirroring the reference's random.sample.
+    seeds = rng.choice(np.arange(1, 100_000), size=n_init, replace=False)
 
     best_inertia = np.inf
     best_assign: np.ndarray | None = None
