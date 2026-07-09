@@ -401,8 +401,9 @@ def cluster_kfold(
         ClusterDataSplit of Wecker, Friedrich & Adel (2020), "ClusterDataSplit:
         Exploring Challenging Clustering-Based Data Splits for Model Performance
         Evaluation," Eval4NLP @ COLING -- folds that are lexically distinct from
-        train while preserving label balance. https://aclanthology.org/2020.eval4nlp-1.15
-        . It does not implement the paper's SDS K-means (size- and
+        train while preserving label balance.
+        https://aclanthology.org/2020.eval4nlp-1.15
+        It does not implement the paper's SDS K-means (size- and
         distribution-sensitive clustering with label-specific cluster capacities
         and swap-based updates); this function instead clusters with
         off-the-shelf KMeans/DBSCAN and greedily packs whole clusters into folds.
