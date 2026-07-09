@@ -808,6 +808,10 @@ class TestMMDMaximizedSplit:
         b = mmd_maximized_split(embeddings_2d, random_state=3)
         assert _splits_equal(a, b)
 
+    def test_invalid_kernel_raises(self, embeddings_2d):
+        with pytest.raises(ValueError, match="kernel must be"):
+            mmd_maximized_split(embeddings_2d, kernel="bogus")
+
 
 class TestCentroidAdversarialSplit:
 
@@ -1052,6 +1056,10 @@ class TestMmdMinimizedSplit:
     def test_valid_split(self, embeddings_2d):
         train, test = mmd_minimized_split(embeddings_2d, n_iterations=50)
         assert_valid_split(train, test, len(embeddings_2d))
+
+    def test_invalid_kernel_raises(self, embeddings_2d):
+        with pytest.raises(ValueError, match="kernel must be"):
+            mmd_minimized_split(embeddings_2d, kernel="bogus")
 
 
 # ===========================================================================

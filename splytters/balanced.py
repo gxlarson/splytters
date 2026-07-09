@@ -291,6 +291,9 @@ def mmd_minimized_split(
     optimization reaches different assignments with similarly low MMD.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
+    if kernel not in {"rbf", "linear"}:
+        raise ValueError(f"kernel must be 'rbf' or 'linear', got {kernel!r}")
+
     n_dims = embeddings.shape[1]
 
     _gamma = gamma if gamma is not None else 1.0 / n_dims
