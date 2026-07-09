@@ -19,13 +19,12 @@ import argparse
 from pathlib import Path
 
 import numpy as np
+from deepcluster import deepcluster_labels
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import normalize
 
-from splytters.adversarial import _minority_cluster_labels
 from splytters import minority_route
-
-from deepcluster import deepcluster_labels
+from splytters.adversarial import _minority_cluster_labels
 
 HERE = Path(__file__).parent
 ENCODER = "sentence-transformers/all-distilroberta-v1"
