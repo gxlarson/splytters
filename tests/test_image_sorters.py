@@ -210,12 +210,22 @@ class TestDominantColor:
             for _ in range(4)
         ]
         r1 = dominant_color(imgs)
-        r2 = dominant_color(imgs)
-        # Ranking identical, distances stable to within KMeans float jitter.
-        assert [i for i, _ in r1] == [i for i, _ in r2]
-        np.testing.assert_allclose(
-            [d for _, d in r1], [d for _, d in r2], rtol=1e-3
-        )
+        for _ in range(20):
+            r2 = dominant_color(imgs)
+            assert [i for i, _ in r1] == [i for i, _ in r2]
+            np.testing.assert_allclose([d for _, d in r1], [d for _, d in r2])
+
+    def test_kmeans_method_still_works(self, dominant_images):
+        results = dominant_color(dominant_images, method="kmeans")
+        assert len(results) == len(dominant_images)
+        for idx, distance in results:
+            assert isinstance(idx, int)
+            assert isinstance(distance, float)
+            assert distance >= 0
+
+    def test_invalid_method_raises(self, dominant_images):
+        with pytest.raises(ValueError, match="method must be"):
+            dominant_color(dominant_images, method="bogus")
 
 
 class TestCompressionRatio:

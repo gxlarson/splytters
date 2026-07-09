@@ -151,12 +151,14 @@ def dominant_color(
     target_color: list[int] | None = None,
     low_first: bool = True,
     random_state: int = 42,
+    method: str = "quantize",
 ) -> list[tuple[int, float]]:
     """
     Sort images by their dominant color.
 
-    Uses k-means clustering to find dominant colors, then sorts by
-    distance from a target color (default: neutral gray).
+    Uses deterministic color quantization by default to find dominant colors,
+    then sorts by distance from a target color (default: neutral gray). Pass
+    ``method="kmeans"`` for the legacy k-means estimator.
 
     Useful for adversarial splits: train on images with one color palette,
     test on images with different dominant colors.
@@ -168,10 +170,18 @@ def dominant_color(
         low_first: if True, images closest to target color first;
                    if False, images furthest from target first
         random_state: seed for the pixel subsample and k-means (default 42)
+        method: dominant-color estimator, either "quantize" (deterministic,
+            default) or "kmeans" (legacy k-means behavior)
 
     Returns:
         List of (index, distance) tuples sorted by distance from target color.
+
+    Raises:
+        ValueError: if ``method`` is not "quantize" or "kmeans".
     """
+    if method not in {"quantize", "kmeans"}:
+        raise ValueError(f"method must be 'quantize' or 'kmeans', got {method!r}")
+
     if target_color is None:
         target_color = np.array([128, 128, 128])
     else:
@@ -179,27 +189,38 @@ def dominant_color(
 
     scores = []
     for i, img in enumerate(images):
-        rgb = _to_array(img, mode="RGB")
+        if method == "quantize":
+            pil_img = _load_image(img).convert("RGB")
+            palette_img = pil_img.quantize(colors=n_clusters)
+            color_counts = palette_img.getcolors(maxcolors=pil_img.width * pil_img.height)
+            if not color_counts:  # pragma: no cover - quantized images should fit maxcolors
+                dominant_rgb = np.array([0.0, 0.0, 0.0])
+            else:
+                _, palette_index = max(color_counts, key=lambda p: (p[0], -p[1]))
+                palette = palette_img.getpalette()
+                offset = palette_index * 3
+                dominant_rgb = np.array(palette[offset:offset + 3], dtype=np.float32)
+        else:
+            rgb = _to_array(img, mode="RGB")
 
-        # Reshape to list of pixels
-        pixels = rgb.reshape(-1, 3)
+            # Reshape to list of pixels
+            pixels = rgb.reshape(-1, 3)
 
-        # Sample pixels if image is large (for speed). Use a seeded generator
-        # so the subsample — and therefore the dominant color and the resulting
-        # ranking — is reproducible across calls (the global RNG was not).
-        if len(pixels) > 10000:
-            rng = np.random.default_rng(random_state)
-            indices = rng.choice(len(pixels), 10000, replace=False)
-            pixels = pixels[indices]
+            # Sample pixels if image is large (for speed). Use a seeded generator
+            # so the subsample and resulting ranking are reproducible across calls.
+            if len(pixels) > 10000:
+                rng = np.random.default_rng(random_state)
+                indices = rng.choice(len(pixels), 10000, replace=False)
+                pixels = pixels[indices]
 
-        # Find dominant colors via k-means
-        kmeans = KMeans(n_clusters=n_clusters, n_init="auto", random_state=random_state)
-        kmeans.fit(pixels)
+            # Find dominant colors via k-means
+            kmeans = KMeans(n_clusters=n_clusters, n_init="auto", random_state=random_state)
+            kmeans.fit(pixels)
 
-        # Get the most common cluster (dominant color)
-        labels, counts = np.unique(kmeans.labels_, return_counts=True)
-        dominant_idx = labels[counts.argmax()]
-        dominant_rgb = kmeans.cluster_centers_[dominant_idx]
+            # Get the most common cluster (dominant color)
+            labels, counts = np.unique(kmeans.labels_, return_counts=True)
+            dominant_idx = labels[counts.argmax()]
+            dominant_rgb = kmeans.cluster_centers_[dominant_idx]
 
         # Distance from target color
         distance = np.linalg.norm(dominant_rgb - target_color)
