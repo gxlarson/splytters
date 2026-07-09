@@ -283,9 +283,10 @@ def mmd_minimized_split(
     References:
         The adversarial dual -- *maximizing* train/validation MMD for robust
         model selection under domain shift -- is studied by Napoli & White
-        (2025), "Clustering-Based Validation Splits for Model Selection under
-        Domain Shift," TMLR (https://openreview.net/forum?id=Q692C0WtiD). See
-        :func:`splytters.mmd_maximized_split`.
+        (TMLR 2025; arXiv 2024), "Clustering-Based Validation Splits for Model
+        Selection under Domain Shift" (https://openreview.net/forum?id=Q692C0WtiD).
+        This splitter uses the same swap-optimized approximation of the MMD
+        objective as :func:`splytters.mmd_maximized_split`.
 
     Seed stability: varies with the seed like a random split -- the swap
     optimization reaches different assignments with similarly low MMD.

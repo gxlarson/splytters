@@ -37,7 +37,7 @@ def ngram_jaccard_similarity(
     """
     Compute ngram (w/ jaccard) similarity between two lists of tokens.
 
-    From Figure 5 (top) of:
+    From Figure 5 (top) of Larson et al. (2019):
     https://aclanthology.org/N19-1051.pdf
     """
     t1 = tokenizer(text1)
@@ -68,7 +68,7 @@ def ngram_jaccard_distance(t1: str, t2: str, n: int = 3) -> float:
     """
     Compute ngram (w/ jaccard) distance between two lists of tokens.
 
-    From Figure 5 (top) of:
+    From Figure 5 (top) of Larson et al. (2019):
     https://aclanthology.org/N19-1051.pdf
     """
     sim = ngram_jaccard_similarity(t1, t2, n)

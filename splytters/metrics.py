@@ -53,8 +53,9 @@ def diversity_text(
     ) -> float:
     """Mean pairwise distance over a text corpus (a diversity score).
 
-    See Figure 5 from https://aclanthology.org/N19-1051.pdf — ``D(*,*)`` is
-    ``distance_function`` applied to every pair of samples.
+    See Figure 5 from Larson et al. (2019),
+    https://aclanthology.org/N19-1051.pdf — ``D(*,*)`` is ``distance_function``
+    applied to every pair of samples.
 
     Args:
         data: list of strings.

@@ -225,14 +225,18 @@ def cluster_split(
             ``strategy="subset_sum"`` is used without a valid ``y``.
 
     References:
-        The ``"subset_sum"`` and ``"closest"`` strategies implement SUBSET-SUM-SPLIT
+        The ``"subset_sum"`` and ``"closest"`` strategies adapt SUBSET-SUM-SPLIT
         and CLOSEST-SPLIT from Züfle, Dankers & Titov (2023), "Latent Feature-based
         Data Splits to Improve Generalisation Evaluation," GenBench Workshop @ EMNLP,
         pp. 112-129. https://aclanthology.org/2023.genbench-1.9 . They cluster a
         model's hidden representations and assign whole clusters to test to expose
         latent-space "blind spots"; their analysis finds that the resulting
         difficulty does not correlate with surface-level properties (e.g. length),
-        complementing the surface-based :mod:`splytters.sorters`.
+        complementing the surface-based :mod:`splytters.sorters`. This
+        implementation deviates from the paper: it clusters at the caller's fixed
+        ``n_clusters`` rather than searching k = 3..50, selects the subset-sum
+        subset greedily, uses a centroid-distance pocket heuristic for
+        ``"closest"``, and does not add a final individual-example fill step.
 
         The label-balanced idea behind ``"subset_sum"`` traces to the earlier
         ClusterDataSplit of Wecker, Friedrich & Adel (2020), "ClusterDataSplit:
@@ -393,11 +397,15 @@ def cluster_kfold(
             mismatch, an out-of-range ``n_folds``, or fewer clusters than folds.
 
     References:
-        Implements the challenging clustering-based cross-validation of Wecker,
-        Friedrich & Adel (2020), "ClusterDataSplit: Exploring Challenging
-        Clustering-Based Data Splits for Model Performance Evaluation," Eval4NLP
-        @ COLING -- folds that are lexically distinct from train while preserving
-        label balance. https://aclanthology.org/2020.eval4nlp-1.15
+        A cluster-coherent, label-aware fold-assignment heuristic inspired by
+        ClusterDataSplit of Wecker, Friedrich & Adel (2020), "ClusterDataSplit:
+        Exploring Challenging Clustering-Based Data Splits for Model Performance
+        Evaluation," Eval4NLP @ COLING -- folds that are lexically distinct from
+        train while preserving label balance. https://aclanthology.org/2020.eval4nlp-1.15
+        . It does not implement the paper's SDS K-means (size- and
+        distribution-sensitive clustering with label-specific cluster capacities
+        and swap-based updates); this function instead clusters with
+        off-the-shelf KMeans/DBSCAN and greedily packs whole clusters into folds.
 
     Seed stability: structure-stable -- fold assignment varies with the KMeans
     clustering, though the cluster-coherent, label-balanced structure is
@@ -1831,15 +1839,16 @@ def mmd_maximized_split(
         test_indices: ndarray of indices for test set
 
     References:
-        Implements the *objective* of Napoli & White (2025), "Clustering-Based
-        Validation Splits for Model Selection under Domain Shift," TMLR
-        (https://openreview.net/forum?id=Q692C0WtiD): the train/validation split
-        should maximize the MMD between the two sets. NOTE: this captures that
-        objective via swap optimization (like ``mmd_minimized_split``); it does
-        not implement their full method -- a constrained kernel k-means (max-MMD
-        is shown equivalent to kernel k-means with k=2) solved by linear
-        programming to preserve class/group balance, with convergence guarantees
-        and Nyström scaling. For class-balanced clustering splits, see
+        Implements the *objective* of Napoli & White (TMLR 2025; arXiv 2024),
+        "Clustering-Based Validation Splits for Model Selection under Domain
+        Shift" (https://openreview.net/forum?id=Q692C0WtiD): the train/validation
+        split should maximize the MMD between the two sets. NOTE: this is a
+        swap-optimized approximation of the max-MMD objective (like
+        ``mmd_minimized_split``); it does not implement their full method -- a
+        constrained kernel k-means (max-MMD is shown equivalent to kernel
+        k-means with k=2) solved by linear programming to preserve class/group
+        balance, with convergence guarantees and Nyström scaling. For
+        class-balanced clustering splits, see
         ``cluster_split(strategy="subset_sum")`` and :func:`cluster_kfold`.
 
     Seed stability: varies with the seed like a random split -- the swap
