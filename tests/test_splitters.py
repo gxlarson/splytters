@@ -386,6 +386,73 @@ class TestMinoritySplit:
         with pytest.raises(ValueError, match="Unknown clustering method"):
             minority_split(embeddings_2d, y, method="nope")
 
+    @pytest.mark.parametrize("method", ["ward", "deepcluster-lite"])
+    def test_alt_methods_route_minorities_to_test(self, biased_data, method):
+        X, y = biased_data
+        train, test = minority_split(X, y, n_clusters=2, method=method, random_state=0)
+        # Same planted minorities land in test regardless of clusterer.
+        assert set(test.tolist()) == {18, 19, 38, 39}
+        assert set(train.tolist()) | set(test.tolist()) == set(range(40))
+        assert not (set(train.tolist()) & set(test.tolist()))
+
+    def test_ward_is_deterministic(self, biased_data):
+        X, y = biased_data
+        a = minority_split(X, y, n_clusters=2, method="ward")
+        b = minority_split(X, y, n_clusters=2, method="ward")
+        assert _splits_equal(a, b)
+
+    def test_deepcluster_is_deterministic(self, biased_data):
+        X, y = biased_data
+        a = minority_split(X, y, n_clusters=2, method="deepcluster-lite", random_state=0)
+        b = minority_split(X, y, n_clusters=2, method="deepcluster-lite", random_state=0)
+        assert _splits_equal(a, b)
+
+    def test_deepcluster_rejects_extra_cluster_kwargs(self, biased_data):
+        X, y = biased_data
+        with pytest.raises(ValueError, match="no extra cluster_kwargs"):
+            minority_split(X, y, method="deepcluster-lite", init="k-means++")
+
+    def test_unknown_minority_labels_raises(self, biased_data):
+        X, y = biased_data
+        with pytest.raises(ValueError, match="Unknown minority_labels"):
+            minority_split(X, y, minority_labels="nope")
+
+    def test_route_matches_split_on_same_clustering(self, biased_data):
+        # minority_route on the clustering minority_split computes internally must
+        # reproduce minority_split's own train/test partition exactly.
+        from splytters.adversarial import _minority_cluster_labels, minority_route
+
+        X, y = biased_data
+        labels = _minority_cluster_labels(X, "kmeans", 2, 0)
+        r_tr, r_te = minority_route(labels, y)
+        s_tr, s_te = minority_split(X, y, n_clusters=2, method="kmeans", random_state=0)
+        assert np.array_equal(r_tr, s_tr)
+        assert np.array_equal(r_te, s_te)
+
+    def test_route_validates_length_and_labels(self):
+        from splytters.adversarial import minority_route
+
+        with pytest.raises(ValueError, match="length"):
+            minority_route(np.array([0, 1]), np.array([0, 1, 0]))
+        with pytest.raises(ValueError, match="Unknown minority_labels"):
+            minority_route(np.array([0, 0, 1, 1]), np.array([0, 1, 0, 1]),
+                           minority_labels="nope")
+
+    def test_least_only_sends_fewer_to_test_on_many_labels(self):
+        # One cluster with a clear majority and several rarer labels of unequal
+        # size: all_but_majority sends every non-majority label to test, while
+        # least_only sends only the single rarest label (footnote 10).
+        rng = np.random.RandomState(0)
+        X = rng.randn(40, 2) * 0.1  # one tight blob -> a single cluster
+        y = np.array([0] * 30 + [1] * 6 + [2] * 3 + [3] * 1)
+        _, te_all = minority_split(X, y, n_clusters=1, minority_labels="all_but_majority")
+        _, te_least = minority_split(X, y, n_clusters=1, minority_labels="least_only")
+        # all-but-majority routes labels {1,2,3} = 10 instances to test.
+        assert len(te_all) == 10
+        # least-only routes just label 3 (the single rarest) = 1 instance.
+        assert set(y[te_least].tolist()) == {3}
+        assert len(te_least) == 1
+
 
 class TestMinorityGrowSplit:
     """minority_split seed grown to a target test size by proximity."""
@@ -413,6 +480,37 @@ class TestMinorityGrowSplit:
         train, test = minority_grow_split(X, y, train_size=0.7, n_clusters=2,
                                           random_state=0)
         assert {18, 19, 38, 39}.issubset(set(test.tolist()))
+
+    def test_oversized_seed_is_subsampled_to_target(self):
+        # A many-label single cluster makes 'all_but_majority' seed ~75% of the
+        # data -- far past a train_size=0.7 target of 30%. Grow can't shrink, so
+        # the seed must be subsampled down to exactly the target.
+        rng = np.random.RandomState(0)
+        X = rng.randn(40, 2) * 0.1
+        y = np.array([0] * 10 + [1] * 10 + [2] * 10 + [3] * 10)
+        with warnings.catch_warnings():
+            # Majority label 0 is never a minority, so it stays out of test -- the
+            # missing-class warning is expected here and not what we're testing.
+            warnings.simplefilter("ignore")
+            train, test = minority_grow_split(X, y, train_size=0.7, n_clusters=1,
+                                              random_state=0)
+        assert_valid_split(train, test, len(X))
+        assert len(test) == 12  # 40 - int(40 * 0.7) = 12, not the ~30-sample seed
+        # Round-robin subsampling keeps every class represented in train.
+        assert len(np.unique(y[train])) == 4
+
+    def test_minority_labels_passthrough(self, biased_data):
+        X, y = biased_data
+        # least_only forwards to the seed: the split stays valid and on-target.
+        train, test = minority_grow_split(X, y, train_size=0.7, n_clusters=2,
+                                          minority_labels="least_only", random_state=0)
+        assert_valid_split(train, test, len(X))
+        assert len(test) == 12
+
+    def test_invalid_minority_labels_raises(self, biased_data):
+        X, y = biased_data
+        with pytest.raises(ValueError, match="Unknown minority_labels"):
+            minority_grow_split(X, y, minority_labels="nope")
 
     def test_deterministic(self, biased_data):
         X, y = biased_data
