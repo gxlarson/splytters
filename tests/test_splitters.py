@@ -878,17 +878,30 @@ class TestMinCutSplit:
         with pytest.raises(ValueError, match="Unknown method"):
             min_cut_split(embeddings_small, method="invalid")
 
-    def test_spectral_eigsh_failure_falls_back_to_random(
+    def test_spectral_eig_failure_falls_back_to_random(
         self, embeddings_small, monkeypatch
     ):
         """If eigendecomposition raises, the split falls back to a random one
         and warns that the result is not adversarial."""
         def boom(*args, **kwargs):
-            raise RuntimeError("eigsh failed")
-        monkeypatch.setattr("splytters.adversarial.eigsh", boom)
+            raise RuntimeError("eig failed")
+        monkeypatch.setattr("splytters.adversarial.dense_eigh", boom)
         with pytest.warns(UserWarning, match="NOT adversarial"):
             train, test = min_cut_split(embeddings_small, method="spectral")
         assert_valid_split(train, test, len(embeddings_small), ratio_tol=0.3)
+
+    def test_spectral_illconditioned_graph_terminates(self):
+        """Regression: a large, tightly-clustered graph with near-duplicate rows
+        (the covertype-like case that made sparse ARPACK ``eigsh(which='SM')``
+        hang for hours) must now solve via the dense partial eigendecomposition —
+        it returns a real adversarial split, without the random-fallback warning."""
+        rng = np.random.RandomState(0)
+        X = np.vstack([rng.randn(300, 12) + c * 5 for c in range(6)])  # 1800 pts
+        X += rng.randn(*X.shape) * 1e-6  # near-duplicates stress the solver
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # a fallback warning would raise here
+            train, test = min_cut_split(X, train_size=0.7, method="spectral")
+        assert_valid_split(train, test, len(X), train_size=0.7, ratio_tol=0.05)
 
     def test_stoer_wagner_connected_graph(self, embeddings_small):
         """A zero threshold keeps all edges -> one connected component, so the

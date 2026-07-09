@@ -13,9 +13,8 @@ from typing import Any
 
 import numpy as np
 from numpy.typing import ArrayLike
-from scipy.sparse import csr_matrix
+from scipy.linalg import eigh as dense_eigh
 from scipy.sparse.csgraph import laplacian
-from scipy.sparse.linalg import eigsh
 from scipy.spatial.distance import cdist
 from sklearn.cluster import DBSCAN, AgglomerativeClustering, KMeans
 from sklearn.neural_network import MLPClassifier
@@ -1512,8 +1511,8 @@ def min_cut_split(
         test_indices: ndarray of indices for test set
 
     Seed stability: deterministic (spectral method) -- the split follows the
-    Fiedler vector, whose otherwise-arbitrary sign is oriented deterministically,
-    so it does not depend on the random ``eigsh`` start vector. (Without that
+    Fiedler vector from a dense eigendecomposition (no random start vector), whose
+    otherwise-arbitrary sign is oriented deterministically. (Without that
     orientation the held-out half would flip with the sign, giving disjoint test
     sets between seeds.)
     """
@@ -1551,12 +1550,22 @@ def min_cut_split(
     if method == "spectral":
         # Spectral partitioning using Fiedler vector
         # (eigenvector corresponding to 2nd smallest eigenvalue of Laplacian)
-
-        L = laplacian(csr_matrix(similarities), normed=True)
+        #
+        # Solved with a DENSE partial eigendecomposition (scipy.linalg.eigh,
+        # subset_by_index=[0, 1]) rather than sparse ARPACK (eigsh, which='SM').
+        # ARPACK aimed at the *small* end of the spectrum converges very slowly
+        # and, on larger/messier graphs, effectively hangs — tens of thousands of
+        # iterations pegging a core for hours before it finally raises. The
+        # distance matrix above is already dense and O(n²), so a dense direct
+        # solve costs no extra memory class, always terminates, computes only the
+        # two eigenpairs we need, and is fully deterministic (no random ARPACK
+        # start vector). (A future sparse kNN-graph build — see the cdist TODO
+        # above — should pair with a shift-invert solver to scale past O(n²).)
+        L = laplacian(similarities, normed=True)
 
         try:
-            # Get 2 smallest eigenvalues/vectors
-            eigenvalues, eigenvectors = eigsh(L, k=2, which='SM', tol=1e-6)
+            # Two smallest eigenpairs only (subset_by_index is 0-based, inclusive).
+            eigenvalues, eigenvectors = dense_eigh(L, subset_by_index=[0, 1])
 
             # Fiedler vector (2nd eigenvector)
             fiedler = eigenvectors[:, 1]
