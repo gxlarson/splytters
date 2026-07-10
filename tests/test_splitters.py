@@ -1063,12 +1063,49 @@ class TestDensityAdversarialSplit:
         train, test = density_adversarial_split(embeddings_2d)
         assert_valid_split(train, test, len(embeddings_2d))
 
+    def test_test_samples_are_more_isolated(self, embeddings_2d):
+        """Documented objective: dense-region samples -> train, isolated samples
+        -> test. So the mean local density of the test set must be strictly lower
+        than the train set's. Recompute the density estimate the splitter uses
+        (inverse mean distance to the k nearest neighbours) and compare.
+
+        Kill-check: flipping the density argsort sign in the source (dense points
+        to test) makes test the *denser* set and fails this assertion.
+        """
+        train, test = density_adversarial_split(embeddings_2d, k=10)
+        dists = compute_pairwise_distances(embeddings_2d)
+        np.fill_diagonal(dists, np.inf)
+        k = min(10, len(embeddings_2d) - 1)
+        knn = np.sort(dists, axis=1)[:, :k]
+        densities = 1.0 / (knn.mean(axis=1) + 1e-10)
+        assert densities[test].mean() < densities[train].mean()
+
 
 class TestOutlierAdversarialSplit:
 
     def test_valid_split(self, embeddings_2d):
         train, test = outlier_adversarial_split(embeddings_2d)
         assert_valid_split(train, test, len(embeddings_2d))
+
+    def test_test_samples_are_more_anomalous(self, embeddings_2d):
+        """Documented objective: normal samples -> train, outliers -> test. An
+        IsolationForest ``score_samples`` value is *higher* for more normal
+        points, so the mean anomaly score of the test set must be strictly lower
+        (more anomalous) than the train set's. Recompute with the same detector
+        settings the splitter uses.
+
+        Kill-check: flipping the outlier-score argsort sign in the source routes
+        the *normal* points to test and fails this assertion.
+        """
+        from sklearn.ensemble import IsolationForest
+
+        train, test = outlier_adversarial_split(
+            embeddings_2d, contamination=0.1, random_state=42
+        )
+        detector = IsolationForest(contamination=0.1, random_state=42)
+        detector.fit(embeddings_2d)
+        scores = detector.score_samples(embeddings_2d)
+        assert scores[test].mean() < scores[train].mean()
 
 
 class TestMinCutSplit:
@@ -1252,6 +1289,39 @@ class TestHistogramMatchedSplit:
             embeddings_2d, n_iterations=50
         )
         assert_valid_split(train, test, len(embeddings_2d))
+
+    def test_matches_histograms_better_than_random(self, embeddings_2d):
+        """Documented objective: minimize the summed per-dimension histogram
+        difference between train and test. The matched split must achieve a
+        strictly smaller total histogram difference than a random split with the
+        same seed and sizes.
+
+        Kill-check: negating the score_fn in the source (maximizing the histogram
+        mismatch) pulls the distributions apart and fails this assertion.
+        """
+        n_bins = 10
+        bin_edges = [
+            np.percentile(embeddings_2d[:, d], np.linspace(0, 100, n_bins + 1))
+            for d in range(embeddings_2d.shape[1])
+        ]
+
+        def hist_diff(train, test):
+            total = 0.0
+            for d in range(embeddings_2d.shape[1]):
+                th, _ = np.histogram(
+                    embeddings_2d[train][:, d], bins=bin_edges[d], density=True
+                )
+                sh, _ = np.histogram(
+                    embeddings_2d[test][:, d], bins=bin_edges[d], density=True
+                )
+                total += float(np.sum(np.abs(th - sh)))
+            return total
+
+        m_tr, m_te = histogram_matched_split(
+            embeddings_2d, n_bins=n_bins, n_iterations=500, random_state=0
+        )
+        r_tr, r_te = random_split(embeddings_2d, train_size=0.7, random_state=0)
+        assert hist_diff(m_tr, m_te) < hist_diff(r_tr, r_te)
 
 
 class TestStratifiedRandomSplit:
@@ -1531,6 +1601,28 @@ class TestCentroidMatchedSplit:
     def test_valid_split(self, embeddings_2d):
         train, test = centroid_matched_split(embeddings_2d, n_iterations=50)
         assert_valid_split(train, test, len(embeddings_2d))
+
+    def test_matches_centroids_better_than_random(self, embeddings_2d):
+        """Documented objective: minimize the distance between the train and test
+        centroids. The matched split must achieve a strictly smaller centroid
+        distance than a random split with the same seed and sizes.
+
+        Kill-check: negating the score_fn in the source (maximizing instead of
+        minimizing the centroid gap) pushes the centroids apart and fails this.
+        """
+        def centroid_gap(train, test):
+            return float(
+                np.linalg.norm(
+                    embeddings_2d[train].mean(axis=0)
+                    - embeddings_2d[test].mean(axis=0)
+                )
+            )
+
+        m_tr, m_te = centroid_matched_split(
+            embeddings_2d, n_iterations=300, random_state=0
+        )
+        r_tr, r_te = random_split(embeddings_2d, train_size=0.7, random_state=0)
+        assert centroid_gap(m_tr, m_te) < centroid_gap(r_tr, r_te)
 
 
 class TestStratifiedSimilaritySplit:
