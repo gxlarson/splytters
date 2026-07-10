@@ -4,10 +4,19 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Weekly canary: exercise the latest optional-dep releases even when nothing
+  # merges. On a schedule event only the "full" job runs (see the per-job
+  # `if:` guards below); a failure opens/updates a tracking issue.
+  schedule:
+    - cron: "17 6 * * 1"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+# Least privilege by default; the canary job widens its own scope where needed.
+permissions:
+  contents: read
 
 jobs:
   # Required gate: the splytters package must import and pass with ONLY core
@@ -15,6 +24,8 @@ jobs:
   # — `import splytters.sorters` works without any optional extra installed.
   core:
     name: core (no extras) · py${{ matrix.python-version }}
+    # Push/PR gate only — the weekly schedule run is just the canary.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -33,12 +44,51 @@ jobs:
       - name: Core + interop + report tests
         run: pytest tests/test_splitters.py tests/test_interop.py tests/test_report.py -q
 
+  # Same core gate on Windows: catches path/encoding/line-ending assumptions
+  # the Linux matrix can't. One extra OS is enough signal for this repo, so we
+  # deliberately skip macOS.
+  core-windows:
+    name: core (no extras) · windows · py3.12
+    if: github.event_name != 'schedule'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install (core only)
+        run: pip install -e . pytest
+      - name: Import with no extras installed
+        run: python -c "import splytters, splytters.sorters; print('import ok:', len(splytters.__all__), 'symbols')"
+      - name: Core + interop + report tests
+        run: pytest tests/test_splitters.py tests/test_interop.py tests/test_report.py -q
+
+  # Type-check gate: the package ships py.typed, so keep the public annotations
+  # honest. Config lives in [tool.mypy] (pyproject.toml) — mypy's default
+  # strictness, with the scientific stack's missing stubs silenced and a
+  # documented backlog of not-yet-annotated modules excluded so the gate is
+  # green today. Everything not in that exclude list IS checked.
+  types:
+    name: types (mypy)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e . mypy
+      - run: mypy splytters
+
   # Verify the BUILT wheel installs into a clean environment and imports. The
   # editable (`-e .`) installs above keep the source tree on sys.path, so they
   # can't catch a wheel missing a subpackage / py.typed, or a dependency that
   # won't resolve from scratch.
   package:
     name: package (wheel install smoke)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -73,6 +123,7 @@ jobs:
   # Lint with ruff.
   lint:
     name: lint (ruff)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -85,11 +136,17 @@ jobs:
   # Canary: full install on the latest releases of every optional dependency.
   # Allowed to fail so upstream API drift in torch/librosa/transformers/etc.
   # surfaces as a signal without blocking merges. Pin via a constraints file
-  # for reproducible experiment runs (see CONTRIBUTING.md).
+  # for reproducible experiment runs (see CONTRIBUTING.md). This is the only
+  # job that runs on the weekly schedule.
   full:
     name: full ([dev], latest deps · canary)
     runs-on: ubuntu-latest
     continue-on-error: true
+    # Only this job needs write access, and only to file the weekly failure
+    # issue below — scoped here rather than workflow-wide.
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
@@ -99,7 +156,43 @@ jobs:
       - name: Install with all extras
         run: pip install -e ".[dev]"
       - name: Full suite (excluding slow model-download tests)
+        id: tests
         run: pytest -m "not slow" -q --cov=splytters --cov-report=xml
+      # On a scheduled run, a red canary has no PR to annotate, so surface it as
+      # a tracking issue instead. De-duplicates by title: reopens/comments on an
+      # existing open issue rather than filing a new one every week.
+      - name: Open or update canary failure issue
+        if: failure() && github.event_name == 'schedule' && steps.tests.outcome == 'failure'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const title = "Weekly canary failure: latest optional deps";
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = `The weekly canary (\`full\`, latest optional deps) failed.\n\nRun: ${runUrl}\n\nThis usually means upstream API drift in an optional dependency (torch/librosa/transformers/etc.). It does not block merges.`;
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              labels: "canary",
+              per_page: 100,
+            });
+            const match = existing.data.find((i) => i.title === title);
+            if (match) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: match.number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ["canary"],
+              });
+            }
       - name: Upload coverage to Codecov
         if: always()
         uses: codecov/codecov-action@v7
