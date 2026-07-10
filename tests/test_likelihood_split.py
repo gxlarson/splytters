@@ -98,6 +98,16 @@ def test_bucketing_with_scores_and_no_lengths_raises():
         likelihood_split(scores=[1.0, 2.0, 3.0, 4.0], length_buckets=2, train_size=0.5)
 
 
+def test_default_length_is_whitespace_token_count_not_chars():
+    """Default bucketing length is the whitespace token count (paper's NLTK
+    stand-in), not character length."""
+    from splytters.likelihood import _resolve_lengths
+
+    texts = ["a a a a a", "bb", "c c"]  # tokens: 5, 1, 2 ; chars: 9, 2, 3
+    lengths = _resolve_lengths(None, texts, len(texts))
+    assert list(lengths) == [5.0, 1.0, 2.0]
+
+
 def test_neither_texts_nor_scores_raises():
     with pytest.raises(ValueError, match="exactly one"):
         likelihood_split(train_size=0.5)

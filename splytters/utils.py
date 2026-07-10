@@ -391,8 +391,11 @@ def constrained_kernel_kmeans_split(
        where ``s_j = sum_l U_lj`` is the cluster mass.
     2. **Constrained assignment** -- solve the assignment LP (their Eq. 12-16)
        ``argmin_U sum_ij U_ij D_ij`` subject to ``sum_j U_ij = 1`` (Eq. 14),
-       the group-balance equalities ``sum_{i in g} U_ij = round(h |g|)`` for every
-       group ``g`` and cluster ``j`` (Eq. 15), and the relaxed box constraint
+       the group-balance equalities ``sum_{i in g} U_ij = h_g`` for every group
+       ``g`` and cluster ``j`` (Eq. 15), where the per-group holdout counts
+       ``h_g`` are the paper's ``round(h |g|)`` computed by largest-remainder
+       apportionment so they sum exactly to the requested validation size, and
+       the relaxed box constraint
        ``0 <= U_ij <= 1`` (Eq. 16). The paper drops the integrality constraint
        (Eq. 13) because the constraint matrix meets Hoffman's total-unimodularity
        conditions, so the LP has integral optima.
