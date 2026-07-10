@@ -424,6 +424,43 @@ class TestClusterSplitZuefleOptions:
         )
         assert len(te_fill) >= len(te_nofill)
 
+    def test_fill_anchor_test_mean_valid_and_exact(self, embeddings_2d, labels):
+        """The reference-code anchor produces a valid split of exact target size."""
+        n = len(embeddings_2d)
+        target_test = n - int(round(0.7 * n))
+        train, test = cluster_split(
+            embeddings_2d, n_clusters=8, strategy="closest",
+            y=labels, fill_individual=True, fill_anchor="test_mean",
+        )
+        assert_valid_split(train, test, n, ratio_tol=0.4)
+        assert len(test) == target_test
+
+    def test_fill_anchor_variants_share_pocket(self, embeddings_2d, labels):
+        """Both anchors top up the same whole-cluster pocket; only the added
+        individual examples may differ."""
+        _, te_pocket = cluster_split(
+            embeddings_2d, n_clusters=8, strategy="closest", random_state=42
+        )
+        _, te_paper = cluster_split(
+            embeddings_2d, n_clusters=8, strategy="closest", random_state=42,
+            fill_individual=True, fill_anchor="cluster_centroids",
+        )
+        _, te_ref = cluster_split(
+            embeddings_2d, n_clusters=8, strategy="closest", random_state=42,
+            fill_individual=True, fill_anchor="test_mean",
+        )
+        pocket = set(te_pocket.tolist())
+        assert pocket <= set(te_paper.tolist())
+        assert pocket <= set(te_ref.tolist())
+        assert len(te_paper) == len(te_ref)
+
+    def test_fill_anchor_unknown_raises(self, embeddings_2d, labels):
+        with pytest.raises(ValueError, match="Unknown fill_anchor"):
+            cluster_split(
+                embeddings_2d, strategy="closest", y=labels,
+                fill_individual=True, fill_anchor="bogus",
+            )
+
     def test_cluster_range_and_fill_deterministic(self, embeddings_2d, labels):
         a = cluster_split(
             embeddings_2d, strategy="closest", y=labels,
@@ -435,6 +472,67 @@ class TestClusterSplitZuefleOptions:
         )
         assert np.array_equal(a[0], b[0])
         assert np.array_equal(a[1], b[1])
+
+    def test_subset_sum_hits_exact_class_balanced_target(self, embeddings_2d, labels):
+        """Faithful subset_sum completes to the exact per-class target vector."""
+        from splytters.utils import apportion_train, resolve_n_train
+
+        n = len(embeddings_2d)
+        target_test = n - resolve_n_train(n, 0.7)
+        classes = np.unique(labels)
+        target_vec = apportion_train([int(np.sum(labels == c)) for c in classes], target_test)
+        _, test = cluster_split(
+            embeddings_2d, strategy="subset_sum", y=labels,
+            cluster_range=(3, 15), train_size=0.7,
+        )
+        assert len(test) == target_test
+        counts = [int(np.sum(labels[test] == c)) for c in classes]
+        assert counts == list(target_vec)
+
+    def test_subset_sum_completes_at_fixed_k_too(self, embeddings_2d, labels):
+        """Even without the k-search, subset_sum reaches the exact target size."""
+        from splytters.utils import resolve_n_train
+
+        n = len(embeddings_2d)
+        target_test = n - resolve_n_train(n, 0.7)
+        _, test = cluster_split(
+            embeddings_2d, n_clusters=8, strategy="subset_sum", y=labels, train_size=0.7,
+        )
+        assert len(test) == target_test
+
+    def test_closest_pocket_never_overshoots_target(self, embeddings_2d, labels):
+        """The whole-cluster closest pocket (no fill) stays within the target."""
+        from splytters.utils import resolve_n_train
+
+        n = len(embeddings_2d)
+        target_test = n - resolve_n_train(n, 0.7)
+        _, test = cluster_split(
+            embeddings_2d, strategy="closest", y=labels,
+            cluster_range=(3, 15), train_size=0.7, fill_individual=False,
+        )
+        assert len(test) <= target_test
+
+    def test_subset_sum_dp_finds_exact_cover(self):
+        """The exact DP recovers a subset that perfectly covers the target."""
+        from splytters.adversarial import _subset_sum_select
+
+        vecs = [np.array([3, 0]), np.array([0, 4]), np.array([2, 1]), np.array([5, 5])]
+        sel = _subset_sum_select(vecs, np.array([5, 5]))
+        achieved = sum(vecs[i] for i in sel)
+        assert list(achieved) == [5, 5]
+
+    def test_subset_sum_dp_respects_cap_with_greedy_fallback(self):
+        """Past the state cap the selector returns None (greedy fallback signal)."""
+        import splytters.adversarial as adv
+
+        vecs = [np.array([i % 7 + 1, (i * 3) % 5 + 1]) for i in range(40)]
+        target = np.array([500, 500])
+        orig = adv._SUBSET_SUM_STATE_CAP
+        try:
+            adv._SUBSET_SUM_STATE_CAP = 5
+            assert adv._subset_sum_select(vecs, target) is None
+        finally:
+            adv._SUBSET_SUM_STATE_CAP = orig
 
 
 class TestClusterKFold:

@@ -1,7 +1,7 @@
 """
 Likelihood Splits (Godbole & Jia, 2023).
 
-This module implements the core likelihood-ranking and split-selection rule of
+This module reproduces the core split-construction protocol of
 
     Godbole & Jia (2023), "Benchmarking Long-tail Generalization with
     Likelihood Splits," Findings of the ACL: EACL, pp. 963-983.
@@ -24,6 +24,15 @@ with ``scoring="log_likelihood"``. Note that ``perplexity_score``'s *default*
 scoring is perplexity, which is length-normalized and is deliberately *not* the
 paper's choice (perplexity over-corrects toward short examples in the tail; see
 their fn. 3) -- this helper always uses total log-likelihood.
+
+Scope vs. the paper. This reproduces the frozen-LM, promptless variant of the
+paper's ``ll_split_pt``. It does not implement the paper's other protocol
+elements: (a) a task-specific prompt prepended to each query, (b) scoring the
+*query span only* (``perplexity_score`` scores the whole string you pass, so
+pass the query text alone to approximate this), or (c) the ``ll_split`` k-fold
+cross-fitted fine-tuned scorer. The length-bucket control uses whitespace token
+count by default as a dependency-free stand-in for the paper's NLTK
+``word_tokenize`` count (see :func:`likelihood_split`).
 """
 
 from __future__ import annotations
@@ -123,7 +132,9 @@ def likelihood_split(
     the lowest-likelihood fraction is sent to evaluation. This removes the
     confound that low-likelihood examples tend to be long, so the train/eval
     length distributions match. Lengths come from ``lengths`` if given, otherwise
-    from the character length of ``texts``.
+    from the whitespace token count of ``texts`` (``len(t.split())``) -- a
+    dependency-free approximation of the paper's NLTK ``word_tokenize`` count.
+    Pass ``lengths`` explicitly to reproduce the paper's tokenizer exactly.
 
     Args:
         texts: raw strings to score (mutually exclusive with ``scores``). Scored
@@ -141,8 +152,10 @@ def likelihood_split(
             bucket (the paper's length-controlled variant). ``None`` (default)
             takes the globally lowest-likelihood examples.
         lengths: per-example lengths used for bucketing. Defaults to the
-            character length of ``texts``. Required (with ``length_buckets``)
-            when only ``scores`` are given.
+            whitespace token count of ``texts`` (``len(t.split())``), a
+            dependency-free stand-in for the paper's NLTK token count; pass
+            explicit ``lengths`` to match the paper's tokenizer. Required (with
+            ``length_buckets``) when only ``scores`` are given.
         model: optional HuggingFace causal LM forwarded to ``perplexity_score``
             (defaults to GPT-2). Only used on the ``texts`` path.
         tokenizer: optional HuggingFace tokenizer forwarded to
@@ -165,8 +178,13 @@ def likelihood_split(
         https://github.com/ameyagodbole/long-tail-likelihood-splits . The paper
         scores examples with the total log-likelihood of the query tokens under
         GPT-2 and places the lowest-scoring examples in evaluation, optionally
-        bucketing by length (NLTK token count) to control for the length
-        confound.
+        bucketing by length (NLTK ``word_tokenize`` count of the query) to
+        control for the length confound. This helper reproduces that core
+        protocol with a frozen, promptless GPT-2 scoring the whole passed string;
+        it does not add the paper's task prompt, query-only scoring span, or
+        k-fold cross-fitted fine-tuned scorer (``ll_split``). The length default
+        approximates the NLTK count with a whitespace split; pass ``lengths`` to
+        match the paper exactly.
     """
     score_arr = _resolve_scores(texts, scores, model, tokenizer)
     n_samples = len(score_arr)
@@ -206,7 +224,12 @@ def likelihood_split(
 def _resolve_lengths(
     lengths: ArrayLike | None, texts: Sequence[str] | None, n_samples: int
 ) -> np.ndarray:
-    """Return a 1-D length array, from ``lengths`` or the char length of texts."""
+    """Return a 1-D length array, from ``lengths`` or the token count of texts.
+
+    Defaults to the whitespace token count (``len(t.split())``), a dependency-free
+    approximation of the paper's NLTK ``word_tokenize`` count; callers wanting the
+    exact tokenizer pass ``lengths``.
+    """
     if lengths is not None:
         length_arr = np.asarray(lengths, dtype=float).ravel()
         if len(length_arr) != n_samples:
@@ -216,7 +239,7 @@ def _resolve_lengths(
             )
         return length_arr
     if texts is not None:
-        return np.array([len(t) for t in texts], dtype=float)
+        return np.array([len(t.split()) for t in texts], dtype=float)
     raise ValueError(
         "length_buckets requires `lengths` when only `scores` are given "
         "(no texts to measure length from)."

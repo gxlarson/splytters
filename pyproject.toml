@@ -121,3 +121,32 @@ target-version = "py310"
 select = ["E", "F", "I", "W", "UP", "B"]
 # E741: single-char names like `l` are used in a few tight numeric loops.
 ignore = ["E741"]
+
+[tool.mypy]
+python_version = "3.11"
+# The scientific stack (scipy/sklearn/networkx/soundfile/...) ships no type
+# stubs, and we don't vendor stubs we don't control — so silence the
+# missing-import noise rather than failing on third-party gaps. This is mypy's
+# default strictness otherwise (no --strict); it only checks that the package's
+# own annotations are internally consistent.
+ignore_missing_imports = true
+
+# Type-check backlog: these modules still have annotation mismatches against
+# numpy/pandas array types and the optional model backends (torch/transformers/
+# openai). They are excluded from the gate for now so the gate stays green on
+# the modules that already type-check; drop entries here as annotations are
+# cleaned up. Everything not listed IS gated.
+[[tool.mypy.overrides]]
+module = [
+    "splytters.utils",
+    "splytters.overlap",
+    "splytters.balanced",
+    "splytters.adversarial",
+    "splytters.stratify",
+    "splytters.embedders",
+    "splytters.likelihood",
+    "splytters.sorters.tabular_sorters",
+    "splytters.sorters.image_sorters",
+    "splytters.sorters.text_sorters",
+]
+ignore_errors = true
