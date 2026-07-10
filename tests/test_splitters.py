@@ -339,6 +339,43 @@ class TestClusterSplitFaithfulZuefle:
         )
         assert len(te_fill) >= len(te_nofill)
 
+    def test_fill_anchor_test_mean_valid_and_exact(self, embeddings_2d, labels):
+        """The reference-code anchor produces a valid split of exact target size."""
+        n = len(embeddings_2d)
+        target_test = n - int(round(0.7 * n))
+        train, test = cluster_split(
+            embeddings_2d, n_clusters=8, strategy="closest",
+            y=labels, fill_individual=True, fill_anchor="test_mean",
+        )
+        assert_valid_split(train, test, n, ratio_tol=0.4)
+        assert len(test) == target_test
+
+    def test_fill_anchor_variants_share_pocket(self, embeddings_2d, labels):
+        """Both anchors top up the same whole-cluster pocket; only the added
+        individual examples may differ."""
+        _, te_pocket = cluster_split(
+            embeddings_2d, n_clusters=8, strategy="closest", random_state=42
+        )
+        _, te_paper = cluster_split(
+            embeddings_2d, n_clusters=8, strategy="closest", random_state=42,
+            fill_individual=True, fill_anchor="cluster_centroids",
+        )
+        _, te_ref = cluster_split(
+            embeddings_2d, n_clusters=8, strategy="closest", random_state=42,
+            fill_individual=True, fill_anchor="test_mean",
+        )
+        pocket = set(te_pocket.tolist())
+        assert pocket <= set(te_paper.tolist())
+        assert pocket <= set(te_ref.tolist())
+        assert len(te_paper) == len(te_ref)
+
+    def test_fill_anchor_unknown_raises(self, embeddings_2d, labels):
+        with pytest.raises(ValueError, match="Unknown fill_anchor"):
+            cluster_split(
+                embeddings_2d, strategy="closest", y=labels,
+                fill_individual=True, fill_anchor="bogus",
+            )
+
     def test_cluster_range_and_fill_deterministic(self, embeddings_2d, labels):
         a = cluster_split(
             embeddings_2d, strategy="closest", y=labels,

@@ -415,6 +415,7 @@ def cluster_split(
     y: ArrayLike | None = None,
     cluster_range: tuple[int, int] | None = None,
     fill_individual: bool = False,
+    fill_anchor: str = "cluster_centroids",
     **cluster_kwargs: Any,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -469,6 +470,15 @@ def cluster_split(
             ``target_test * class_proportions`` when ``y`` is given -- the paper's
             final individual-example fill step. Ignored by the other strategies
             (``subset_sum`` always completes to the exact target).
+        fill_anchor: what the fill measures proximity to. The paper's prose and
+            its released code disagree here, so both are offered:
+            - ``"cluster_centroids"`` (default): distance to the *nearest selected
+              test-cluster centroid*, per the paper's wording ("individual
+              examples that are closest to one of the test set centroids").
+            - ``"test_mean"``: distance to the single mean of all embeddings
+              currently in the test pocket, which is what the authors' released
+              code (``closest_clusters.py``) actually computes.
+            Only used with ``strategy="closest"`` and ``fill_individual=True``.
         **cluster_kwargs: passed to the clustering algorithm
 
     Returns:
@@ -476,7 +486,7 @@ def cluster_split(
         test_indices: ndarray of indices for test set
 
     Raises:
-        ValueError: on an unknown ``method`` or ``strategy``; if
+        ValueError: on an unknown ``method``, ``strategy``, or ``fill_anchor``; if
             ``strategy="subset_sum"`` is used without a valid ``y``; or if
             ``cluster_range`` is combined with a non-KMeans ``method`` or is not a
             valid ``(low, high)`` pair.
@@ -500,12 +510,19 @@ def cluster_split(
         target. CLOSEST-SPLIT seeds the cluster farthest from the centroid of all
         centroids, grows the pocket by single-linkage nearest neighbour, then
         (with ``fill_individual=True``) fills to the exact target with the
-        individual examples closest to a selected test-cluster centroid. To
-        reproduce the paper's cluster-count search, pass ``cluster_range=(3, 50)``:
-        it keeps the ``k`` requiring the fewest individually-added examples
-        (Section "Splitting methods"). Both strategies enforce equal train/test
-        class distributions as a hard constraint (the test set exactly matches
-        ``target_test * class_proportions``).
+        individual examples closest to the ``fill_anchor``. On the fill anchor
+        the paper and its released code diverge: the paper's prose says examples
+        "closest to one of the test set centroids" (the default,
+        ``fill_anchor="cluster_centroids"``), while the released code measures
+        distance to the mean of all current test embeddings
+        (``fill_anchor="test_mean"``). To reproduce the paper's cluster-count
+        search, pass ``cluster_range=(3, 50)``: it keeps the ``k`` requiring the
+        fewest individually-added examples (Section "Splitting methods").
+        ``subset_sum`` enforces equal train/test class distributions as a hard
+        constraint (the test set exactly matches
+        ``target_test * class_proportions``); ``closest`` tracks that target
+        class-aware during the fill but pocket growth is capped by total size
+        only, so a class can overshoot its per-class target by a small margin.
 
         Precondition for full faithfulness: the paper extracts the ``[CLS]``
         representations of a language model *finetuned on the task* (its RQ1 shows
@@ -556,6 +573,12 @@ def cluster_split(
 
     if method not in {"kmeans", "dbscan"}:
         raise ValueError(f"Unknown clustering method: {method}")
+
+    if fill_anchor not in {"cluster_centroids", "test_mean"}:
+        raise ValueError(
+            f"Unknown fill_anchor: {fill_anchor!r}. "
+            "Choose 'cluster_centroids' (paper prose) or 'test_mean' (reference code)"
+        )
 
     target_train = resolve_n_train(n_samples, train_size)
     target_test = n_samples - target_train
@@ -618,8 +641,15 @@ def cluster_split(
     ) -> tuple[list[int], list[int]]:
         """Apply the paper's per-example completion to the chosen split."""
         if strategy == "closest" and fill_individual:
+            # "test_mean" passes None so the fill falls back to the mean of the
+            # current test pocket -- the released reference-code behavior.
             return _fill_individual_examples(
-                embeddings, tr, te, target_test, y=y, test_centroids=aid
+                embeddings,
+                tr,
+                te,
+                target_test,
+                y=y,
+                test_centroids=aid if fill_anchor == "cluster_centroids" else None,
             )
         if strategy == "subset_sum":
             return _complete_subset_sum(
