@@ -48,6 +48,7 @@ from splytters.utils import (
     compute_split_centroids,
     compute_split_similarity,
     greedy_assign_to_target,
+    optimized_split,
     random_split,
     resolve_n_train,
     validate_split_inputs,
@@ -111,6 +112,48 @@ def assert_valid_split(train, test, n_samples, train_size=0.7, ratio_tol=0.15):
 def _splits_equal(a, b):
     """Compare two (train, test) splits of ndarrays for exact equality."""
     return np.array_equal(a[0], b[0]) and np.array_equal(a[1], b[1])
+
+
+def _naive_mmd_swap_reference(
+    embeddings,
+    *,
+    train_size=0.7,
+    n_iterations=100,
+    kernel="rbf",
+    gamma=None,
+    random_state=42,
+    minimize=True,
+):
+    """Historical implementation: rebuild three kernel blocks after every swap."""
+    from scipy.spatial.distance import cdist
+
+    kernel_gamma = gamma if gamma is not None else 1.0 / embeddings.shape[1]
+
+    def kernel_fn(X, Y):
+        if kernel == "linear":
+            return X @ Y.T
+        return np.exp(-kernel_gamma * cdist(X, Y, metric="sqeuclidean"))
+
+    def score_fn(X, train, test):
+        train_data, test_data = X[train], X[test]
+        K_tt = kernel_fn(train_data, train_data)
+        K_ss = kernel_fn(test_data, test_data)
+        K_ts = kernel_fn(train_data, test_data)
+        m, n = len(train_data), len(test_data)
+        return (
+            K_tt.sum() / (m * m)
+            + K_ss.sum() / (n * n)
+            - 2 * K_ts.sum() / (m * n)
+        )
+
+    return optimized_split(
+        embeddings,
+        train_size,
+        n_iterations,
+        score_fn,
+        random_state,
+        minimize=minimize,
+    )
 
 
 # ===========================================================================
@@ -217,6 +260,17 @@ class TestClusterSplit:
         with pytest.raises(ValueError, match="Unknown clustering method"):
             cluster_split(embeddings_small, method="invalid")
 
+    @pytest.mark.parametrize("strategy", ["size", "centroid"])
+    def test_collapsed_kmeans_falls_back_to_nonempty_split(self, strategy):
+        """Valid but indistinguishable embeddings must not empty either side."""
+        X = np.zeros((8, 2))
+        with pytest.warns(UserWarning, match="whole-cluster assignment"):
+            train, test = cluster_split(
+                X, train_size=0.5, n_clusters=2, strategy=strategy,
+                random_state=3,
+            )
+        assert_valid_split(train, test, len(X), train_size=0.5, ratio_tol=0.01)
+
 
 class TestClusterSplitStrategies:
     """The strategy= assignment policies on cluster_split."""
@@ -262,8 +316,8 @@ class TestClusterSplitStrategies:
         assert abs(test_p - global_p) < 0.2
 
 
-class TestClusterSplitFaithfulZuefle:
-    """Paper-faithful opt-in modes: cluster_range k-search and individual fill.
+class TestClusterSplitZuefleOptions:
+    """Züfle-inspired opt-ins: cluster-range search and individual fill.
 
     Züfle, Dankers & Titov (2023), "Latent Feature-based Data Splits to Improve
     Generalisation Evaluation" (GenBench @ EMNLP). The defaults must reproduce
@@ -1026,6 +1080,31 @@ class TestMMDMaximizedSplit:
         with pytest.raises(ValueError, match="kernel must be"):
             mmd_maximized_split(embeddings_2d, kernel="bogus")
 
+    @pytest.mark.parametrize("kernel", ["rbf", "linear"])
+    def test_incremental_swap_matches_naive_reference(self, kernel):
+        X = np.random.RandomState(9).normal(size=(40, 6))
+        expected = _naive_mmd_swap_reference(
+            X, n_iterations=75, kernel=kernel, random_state=4, minimize=False
+        )
+        actual = mmd_maximized_split(
+            X, n_iterations=75, kernel=kernel, random_state=4
+        )
+        assert _splits_equal(actual, expected)
+
+    def test_rbf_kernel_is_built_once(self, embeddings_small, monkeypatch):
+        import splytters.utils
+
+        real_cdist = splytters.utils.cdist
+        calls = []
+
+        def spy_cdist(*args, **kwargs):
+            calls.append(1)
+            return real_cdist(*args, **kwargs)
+
+        monkeypatch.setattr(splytters.utils, "cdist", spy_cdist)
+        mmd_maximized_split(embeddings_small, n_iterations=25)
+        assert len(calls) == 1
+
 
 class TestCentroidAdversarialSplit:
 
@@ -1062,6 +1141,18 @@ class TestDensityAdversarialSplit:
     def test_valid_split(self, embeddings_2d):
         train, test = density_adversarial_split(embeddings_2d)
         assert_valid_split(train, test, len(embeddings_2d))
+
+    def test_k_must_be_positive(self, embeddings_small):
+        with pytest.raises(ValueError, match="k must be a positive integer"):
+            density_adversarial_split(embeddings_small, k=0)
+
+    def test_does_not_materialize_pairwise_distances(self, embeddings_small, monkeypatch):
+        def fail_cdist(*args, **kwargs):
+            raise AssertionError("density splitter should use a k-NN query")
+
+        monkeypatch.setattr("splytters.adversarial.cdist", fail_cdist)
+        train, test = density_adversarial_split(embeddings_small, k=3)
+        assert_valid_split(train, test, len(embeddings_small))
 
     def test_test_samples_are_more_isolated(self, embeddings_2d):
         """Documented objective: dense-region samples -> train, isolated samples
@@ -1192,6 +1283,18 @@ class TestMinCutSplit:
         )
         assert_valid_split(train, test, len(X), ratio_tol=0.5)
 
+    def test_stoer_wagner_disconnected_graph_hits_exact_train_size(self):
+        """Disconnected components must not cap train at the largest component."""
+        pytest.importorskip("networkx")
+        X = np.arange(20, dtype=float).reshape(10, 2)
+        train, test = min_cut_split(
+            X, train_size=0.7, method="stoer_wagner",
+            similarity_threshold=1.1, random_state=0,
+        )
+        assert len(train) == 7
+        assert len(test) == 3
+        assert_valid_split(train, test, len(X), train_size=0.7, ratio_tol=0.01)
+
     def test_stoer_wagner_missing_networkx_raises(self, embeddings_small, monkeypatch):
         """Without networkx, the stoer_wagner method raises a clear ImportError."""
         import builtins
@@ -1226,6 +1329,15 @@ class TestNormalizedCutSplit:
         b = normalized_cut_split(X, train_size=0.5)
         assert _splits_equal(a, b)
         assert_valid_split(a[0], a[1], len(X), train_size=0.5, ratio_tol=0.2)
+
+    def test_constant_embeddings_return_deterministic_fallback(self):
+        X = np.zeros((6, 2))
+        with pytest.warns(UserWarning, match="no positive pairwise distances"):
+            a = normalized_cut_split(X, train_size=0.5)
+        with pytest.warns(UserWarning, match="no positive pairwise distances"):
+            b = normalized_cut_split(X, train_size=0.5)
+        assert _splits_equal(a, b)
+        assert_valid_split(a[0], a[1], len(X), train_size=0.5, ratio_tol=0.01)
 
 
 class TestWassersteinAdversarialSplit:
@@ -1347,6 +1459,18 @@ class TestDensityBalancedSplit:
         train, test = density_balanced_split(embeddings_2d)
         assert_valid_split(train, test, len(embeddings_2d), ratio_tol=0.2)
 
+    def test_n_bins_must_be_positive(self, embeddings_small):
+        with pytest.raises(ValueError, match="n_bins must be a positive integer"):
+            density_balanced_split(embeddings_small, n_bins=0)
+
+    def test_does_not_materialize_pairwise_distances(self, embeddings_small, monkeypatch):
+        def fail_cdist(*args, **kwargs):
+            raise AssertionError("density splitter should use a k-NN query")
+
+        monkeypatch.setattr("splytters.utils.cdist", fail_cdist)
+        train, test = density_balanced_split(embeddings_small, n_bins=3)
+        assert_valid_split(train, test, len(embeddings_small), ratio_tol=0.2)
+
 
 class TestMmdMinimizedSplit:
 
@@ -1358,9 +1482,20 @@ class TestMmdMinimizedSplit:
         with pytest.raises(ValueError, match="kernel must be"):
             mmd_minimized_split(embeddings_2d, kernel="bogus")
 
+    @pytest.mark.parametrize("kernel", ["rbf", "linear"])
+    def test_incremental_swap_matches_naive_reference(self, kernel):
+        X = np.random.RandomState(11).normal(size=(40, 6))
+        expected = _naive_mmd_swap_reference(
+            X, n_iterations=75, kernel=kernel, random_state=5, minimize=True
+        )
+        actual = mmd_minimized_split(
+            X, n_iterations=75, kernel=kernel, random_state=5
+        )
+        assert _splits_equal(actual, expected)
+
 
 class TestMmdKernelKmeansMethod:
-    """The paper-faithful constrained kernel k-means / LP method of
+    """The paper-derived constrained kernel k-means / LP method of
     Napoli & White (TMLR 2025; arXiv 2024), method="kernel_kmeans"."""
 
     @staticmethod
@@ -1449,15 +1584,20 @@ class TestMmdKernelKmeansMethod:
             assert c.min() < -1e-6
 
     def test_lp_solution_respects_group_masses(self, embeddings_2d, monkeypatch):
-        # Exercise the LP constraints (paper Eq. 15) independently of the
-        # per-group rounding: capture every raw linprog solution and check that
-        # its per-group validation mass is exactly the apportioned target.
+        # Exercise the disjunctive LP constraints (paper Eq. 15) independently
+        # of per-group rounding. Each raw solution must constrain either column
+        # 0 or column 1 to the apportioned validation target.
         import scipy.optimize
 
         real_linprog = scipy.optimize.linprog
         solutions = []
+        orientations = []
 
         def spy_linprog(c, *args, **kwargs):
+            A_eq = kwargs["A_eq"]
+            constraint_columns = np.unique(A_eq[len(embeddings_2d):].indices % 2)
+            assert len(constraint_columns) == 1
+            orientations.append(int(constraint_columns[0]))
             res = real_linprog(c, *args, **kwargs)
             solutions.append(res.x.copy())
             return res
@@ -1471,6 +1611,7 @@ class TestMmdKernelKmeansMethod:
             embeddings_2d, method="kernel_kmeans", y=y, groups=groups
         )
         assert len(solutions) > 0
+        assert set(orientations) == {0, 1}
 
         # Reconstruct the per-group validation targets the same way the helper
         # does: largest-remainder apportionment of train slots over Y x D.
@@ -1490,12 +1631,17 @@ class TestMmdKernelKmeansMethod:
             U = x.reshape(n, 2)
             # Every point assigned exactly once (Eq. 14).
             np.testing.assert_allclose(U.sum(axis=1), 1.0, atol=1e-8)
-            # Per-group validation mass hits the target exactly (Eq. 15).
-            for k in unique_keys:
-                mass = U[members[k], 1].sum()
-                assert abs(mass - val_targets[k]) < 1e-8, (
-                    f"group {k}: LP val mass {mass} != target {val_targets[k]}"
-                )
+            matching_columns = []
+            for column in (0, 1):
+                if all(
+                    abs(U[members[k], column].sum() - val_targets[k]) < 1e-8
+                    for k in unique_keys
+                ):
+                    matching_columns.append(column)
+            assert matching_columns, (
+                "neither LP orientation satisfies the apportioned "
+                "per-group validation targets"
+            )
 
         # Rounded output matches the same targets (sanity tie-in).
         for k in unique_keys:
@@ -1594,6 +1740,31 @@ class TestNeighborCoverageSplit:
     def test_valid_split(self, embeddings_small):
         train, test = neighbor_coverage_split(embeddings_small, k=2)
         assert_valid_split(train, test, len(embeddings_small), ratio_tol=0.3)
+
+    def test_enforces_documented_coverage_when_feasible(self):
+        """Regression for a feasible split where the old swap fallback failed."""
+        from scipy.spatial.distance import cdist
+
+        X = np.random.RandomState(0).normal(size=(4, 1))
+        train, test = neighbor_coverage_split(
+            X, train_size=0.5, k=1, random_state=6,
+        )
+        distances = cdist(X, X)
+        np.fill_diagonal(distances, np.inf)
+        threshold = np.median(distances[np.isfinite(distances)])
+        coverage = (distances[np.ix_(test, train)] <= threshold).sum(axis=1)
+        assert np.all(coverage >= 1)
+
+    def test_infeasible_coverage_raises(self, embeddings_small):
+        with pytest.raises(ValueError, match="no feasible neighbor-coverage split"):
+            neighbor_coverage_split(embeddings_small, train_size=0.5, k=6)
+
+
+class TestStratifiedSimilarityValidation:
+
+    def test_n_bins_must_be_positive(self, embeddings_small):
+        with pytest.raises(ValueError, match="n_bins must be a positive integer"):
+            stratified_similarity_split(embeddings_small, n_bins=0)
 
 
 class TestCentroidMatchedSplit:

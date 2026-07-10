@@ -1,7 +1,7 @@
 """
 Likelihood Splits (Godbole & Jia, 2023).
 
-This module implements the split-construction protocol of
+This module implements the core likelihood-ranking and split-selection rule of
 
     Godbole & Jia (2023), "Benchmarking Long-tail Generalization with
     Likelihood Splits," Findings of the ACL: EACL, pp. 963-983.
@@ -13,6 +13,11 @@ higher-likelihood examples become training. An optional length-bucketed control
 variant buckets examples by length and takes the lowest-likelihood fraction
 *within each bucket*, which removes the confound that low-likelihood examples
 tend to be long (the paper's "-len" splits).
+
+It does not orchestrate the paper's task-specific language-model training,
+prompt construction, train/dev/test sizing, or per-label classification split;
+callers can provide scores, token lengths, and external stratification for those
+experiment-level choices.
 
 The scoring itself reuses :func:`splytters.sorters.text_sorters.perplexity_score`
 with ``scoring="log_likelihood"``. Note that ``perplexity_score``'s *default*

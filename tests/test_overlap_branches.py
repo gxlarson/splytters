@@ -1,7 +1,7 @@
 """Branch-coverage tests for overlap splitters.
 
 Targets the optimization/edge paths that the happy-path tests in
-test_splitters.py don't reach: the neighbor-coverage swap logic, empty
+test_splitters.py don't reach: neighbor-coverage feasibility, empty
 distance bins in stratified-similarity, and the greedy swap loop in
 max-coverage.
 """
@@ -31,17 +31,17 @@ def two_clusters():
     return np.vstack([a, b])
 
 
-class TestNeighborCoverageSwap:
+class TestNeighborCoverageFeasibility:
 
-    def test_high_k_triggers_swap_logic(self, two_clusters):
-        """A large k forces the 'not enough similar in train' swap branch."""
-        train, test = neighbor_coverage_split(two_clusters, train_size=0.6, k=40)
+    def test_high_feasible_k_satisfies_contract(self, two_clusters):
+        """The exact feasibility path handles a demanding but achievable k."""
+        train, test = neighbor_coverage_split(two_clusters, train_size=0.6, k=30)
         _disjoint_and_complete(train, test, len(two_clusters))
 
-    def test_extreme_k_no_viable_swap(self, two_clusters):
-        """k above any achievable redundancy exercises the no-swap fallback."""
-        train, test = neighbor_coverage_split(two_clusters, train_size=0.6, k=1000)
-        _disjoint_and_complete(train, test, len(two_clusters))
+    def test_extreme_k_reports_infeasible_contract(self, two_clusters):
+        """An impossible coverage promise must raise instead of silently lying."""
+        with pytest.raises(ValueError, match="no feasible neighbor-coverage split"):
+            neighbor_coverage_split(two_clusters, train_size=0.6, k=1000)
 
 
 class TestStratifiedSimilarityEmptyBins:
