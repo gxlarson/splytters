@@ -2090,17 +2090,20 @@ def min_cut_split(
             range(n_train, n_samples)
         )
     sigma = float(np.median(positive_distances))
-    similarities = np.exp(-distances**2 / (2 * sigma**2))
+    # Divide before squaring: ``distances**2`` and ``sigma**2`` can overflow
+    # independently even when their ratio is well-defined.
+    with np.errstate(over="ignore", invalid="ignore", under="ignore"):
+        similarities = np.exp(-0.5 * (distances / sigma) ** 2)
     similarities[~np.isfinite(similarities)] = 0.0
     np.fill_diagonal(similarities, 0)  # No self-loops
 
     # Threshold to create sparse graph
     if similarity_threshold is None:
         nonzero_sims = similarities[similarities > 0]
-        if len(nonzero_sims) > 0:
-            similarity_threshold = np.median(nonzero_sims)
-        else:
-            similarity_threshold = 0.0
+        # A finite positive distance always contributes exp(-0.5) at the
+        # median scale, so the earlier ``positive_distances`` guard makes this
+        # non-empty.
+        similarity_threshold = np.median(nonzero_sims)
 
     similarities[similarities < similarity_threshold] = 0
 
@@ -2257,7 +2260,8 @@ def normalized_cut_split(
             range(n_train, n_samples)
         )
     sigma = float(np.median(positive_distances))
-    W = np.exp(-distances**2 / (2 * sigma**2))
+    with np.errstate(over="ignore", invalid="ignore", under="ignore"):
+        W = np.exp(-0.5 * (distances / sigma) ** 2)
     W[~np.isfinite(W)] = 0.0
     np.fill_diagonal(W, 0)
 

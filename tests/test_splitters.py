@@ -48,6 +48,8 @@ from splytters.utils import (
     compute_split_centroids,
     compute_split_similarity,
     greedy_assign_to_target,
+    kneighbors_excluding_self,
+    optimized_mmd_split,
     optimized_split,
     random_split,
     resolve_n_train,
@@ -174,6 +176,35 @@ class TestComputePairwiseDistances:
     def test_zero_diagonal(self, embeddings_small):
         D = compute_pairwise_distances(embeddings_small)
         np.testing.assert_allclose(np.diag(D), 0, atol=1e-10)
+
+
+class TestNeighborQueryGuards:
+
+    def test_singleton_neighbor_query_is_rejected(self):
+        with pytest.raises(ValueError, match="at least 2 samples"):
+            kneighbors_excluding_self(np.zeros((1, 2)), k=1)
+
+    def test_backend_that_omits_other_neighbors_is_rejected(self, monkeypatch):
+        """A malformed neighbor response must not silently include self."""
+        import sklearn.neighbors
+
+        class BrokenNearestNeighbors:
+            def __init__(self, *, n_neighbors, metric):
+                self.n_neighbors = n_neighbors
+
+            def fit(self, points):
+                return self
+
+            def kneighbors(self, points):
+                n_samples = len(points)
+                indices = np.repeat(
+                    np.arange(n_samples)[:, None], self.n_neighbors, axis=1
+                )
+                return np.zeros_like(indices, dtype=float), indices
+
+        monkeypatch.setattr(sklearn.neighbors, "NearestNeighbors", BrokenNearestNeighbors)
+        with pytest.raises(RuntimeError, match="only 0 non-self neighbors"):
+            kneighbors_excluding_self(np.arange(6, dtype=float).reshape(3, 2), k=1)
 
 
 class TestComputeCentroid:
@@ -1080,6 +1111,10 @@ class TestMMDMaximizedSplit:
         with pytest.raises(ValueError, match="kernel must be"):
             mmd_maximized_split(embeddings_2d, kernel="bogus")
 
+    def test_incremental_helper_rejects_invalid_kernel(self, embeddings_2d):
+        with pytest.raises(ValueError, match="kernel must be"):
+            optimized_mmd_split(embeddings_2d, 0.7, 1, kernel="bogus")
+
     @pytest.mark.parametrize("kernel", ["rbf", "linear"])
     def test_incremental_swap_matches_naive_reference(self, kernel):
         X = np.random.RandomState(9).normal(size=(40, 6))
@@ -1307,6 +1342,15 @@ class TestMinCutSplit:
         monkeypatch.setattr(builtins, "__import__", fake_import)
         with pytest.raises(ImportError, match="networkx is required"):
             min_cut_split(embeddings_small, method="stoer_wagner")
+
+    def test_constant_embeddings_return_deterministic_fallback(self):
+        X = np.zeros((6, 2))
+        with pytest.warns(UserWarning, match="no positive pairwise distances"):
+            a = min_cut_split(X, train_size=0.5)
+        with pytest.warns(UserWarning, match="no positive pairwise distances"):
+            b = min_cut_split(X, train_size=0.5)
+        assert _splits_equal(a, b)
+        assert_valid_split(a[0], a[1], len(X), train_size=0.5, ratio_tol=0.01)
 
 
 class TestNormalizedCutSplit:
