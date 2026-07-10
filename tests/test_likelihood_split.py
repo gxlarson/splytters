@@ -93,6 +93,78 @@ def test_length_bucketing_pulls_low_scorers_from_every_bucket():
     assert sorted(train.tolist()) == [0, 2, 4]
 
 
+def test_texts_path_matches_equivalent_scores(monkeypatch):
+    """The ``texts`` path scores via ``perplexity_score`` (imported lazily inside
+    ``_resolve_scores``) and reindexes its ranked ``[(idx, score), ...]`` output
+    back to positional order. Mock the scorer -- transformers/torch cannot run
+    here -- with a deliberately shuffled ranking, and assert the resulting split
+    is identical to the equivalent precomputed ``scores=`` call.
+
+    Patches the name on ``splytters.sorters.text_sorters`` because the helper
+    does ``from splytters.sorters.text_sorters import perplexity_score`` at call
+    time, so that module attribute is the lookup target.
+    """
+    import splytters.sorters.text_sorters as ts
+
+    texts = ["a", "b", "c", "d", "e"]
+    # Positional (per-example) total log-likelihoods; higher == more likely.
+    positional = [10.0, 1.0, 8.0, 2.0, 9.0]
+    # perplexity_score returns (index, score) tuples in ranked (non-positional)
+    # order -- here ascending by score -- which _resolve_scores must scatter back
+    # to positional order before splitting.
+    ranked = [(1, 1.0), (3, 2.0), (2, 8.0), (4, 9.0), (0, 10.0)]
+
+    def fake_perplexity_score(text_list, model=None, tokenizer=None, scoring=None):
+        assert list(text_list) == texts
+        assert scoring == "log_likelihood"  # the paper's score, never perplexity
+        return ranked
+
+    monkeypatch.setattr(ts, "perplexity_score", fake_perplexity_score)
+
+    t_train, t_test = likelihood_split(texts=texts, train_size=0.6)
+    s_train, s_test = likelihood_split(scores=positional, train_size=0.6)
+    assert np.array_equal(t_train, s_train)
+    assert np.array_equal(t_test, s_test)
+    # Lowest-likelihood examples (idx 1, 3) land in test, matching the scores path.
+    assert sorted(t_test.tolist()) == [1, 3]
+
+
+def test_texts_path_length_buckets_uses_char_length(monkeypatch):
+    """With ``length_buckets`` and no explicit ``lengths``, the texts branch of
+    ``_resolve_lengths`` measures character length of the texts. Feed texts whose
+    char lengths reproduce the bucketing test's lengths and assert the split
+    matches the equivalent ``scores=`` + explicit ``lengths=`` call.
+    """
+    import splytters.sorters.text_sorters as ts
+
+    # Char lengths 1,2,3,4 (short bucket) and 10,11,12,13 (long bucket).
+    texts = [
+        "a", "bb", "ccc", "dddd",
+        "x" * 10, "x" * 11, "x" * 12, "x" * 13,
+    ]
+    positional = [4.0, 3.0, 2.0, 1.0, 0.4, 0.3, 0.2, 0.1]
+    # Shuffled ranking (ascending by score) to also exercise the reindex.
+    ranked = sorted(enumerate(positional), key=lambda p: p[1])
+
+    def fake_perplexity_score(text_list, model=None, tokenizer=None, scoring=None):
+        assert scoring == "log_likelihood"
+        return ranked
+
+    monkeypatch.setattr(ts, "perplexity_score", fake_perplexity_score)
+
+    t_train, t_test = likelihood_split(
+        texts=texts, length_buckets=2, train_size=0.75
+    )
+    s_train, s_test = likelihood_split(
+        scores=positional, lengths=[len(t) for t in texts],
+        length_buckets=2, train_size=0.75,
+    )
+    assert np.array_equal(t_train, s_train)
+    assert np.array_equal(t_test, s_test)
+    # Each length bucket contributes its lowest scorer: idx 3 (short), 7 (long).
+    assert sorted(t_test.tolist()) == [3, 7]
+
+
 def test_bucketing_with_scores_and_no_lengths_raises():
     with pytest.raises(ValueError, match="lengths"):
         likelihood_split(scores=[1.0, 2.0, 3.0, 4.0], length_buckets=2, train_size=0.5)
