@@ -7,6 +7,10 @@ on:
   release:
     types: [published]
 
+# Least privilege by default; the publish job widens id-token for OIDC below.
+permissions:
+  contents: read
+
 jobs:
   publish:
     name: Build and publish
