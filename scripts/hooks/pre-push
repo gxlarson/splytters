@@ -1,0 +1,72 @@
+#!/bin/sh
+# Pre-push hook: blocks pushes whose outgoing commits add likely credentials
+# (API keys, tokens, private keys). Defense-in-depth alongside GitHub's
+# server-side secret scanning push protection.
+#
+# Activate once per clone:
+#   git config core.hooksPath scripts/hooks
+#
+# If it flags a confirmed false positive, fix the line or bypass a single
+# push with: git push --no-verify
+
+zero=0000000000000000000000000000000000000000
+sq="'"
+
+patfile=$(mktemp) || exit 1
+trap 'rm -f "$patfile"' EXIT
+
+# Extended regexes (grep -E), one per line. Covers AWS, GitHub, OpenAI,
+# Anthropic, Google, Slack tokens, private key headers, and generic
+# long values assigned to secret-ish variable names.
+cat >"$patfile" <<EOF
+AKIA[0-9A-Z]{16}
+(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}
+github_pat_[A-Za-z0-9_]{22,}
+sk-ant-[A-Za-z0-9_-]{20,}
+sk-[A-Za-z0-9_-]{32,}
+AIza[0-9A-Za-z_-]{35}
+xox[abprs]-[0-9A-Za-z-]{10,}
+-----BEGIN( RSA| EC| DSA| OPENSSH| PGP)? PRIVATE KEY( BLOCK)?-----
+(api[_-]?key|apikey|access[_-]?token|auth[_-]?token|client[_-]?secret|secret[_-]?key|password|passwd)["$sq]?[[:space:]]*[:=][[:space:]]*["$sq][A-Za-z0-9+/_=-]{16,}["$sq]
+EOF
+
+blocked=0
+
+# stdin: one line per ref being pushed:
+#   <local ref> <local sha> <remote ref> <remote sha>
+while read -r local_ref local_sha remote_ref remote_sha; do
+    # Deleting a remote ref pushes no content.
+    [ "$local_sha" = "$zero" ] && continue
+
+    if [ "$remote_sha" = "$zero" ]; then
+        # New remote branch: scan commits not already on any remote.
+        range="$local_sha --not --remotes"
+    else
+        range="$remote_sha..$local_sha"
+    fi
+
+    # shellcheck disable=SC2086 # intentional word splitting of $range
+    for commit in $(git rev-list $range </dev/null); do
+        # Only added lines; skip this hook file itself (it contains the
+        # patterns as literals).
+        hits=$(git show --no-color --unified=0 --format= "$commit" \
+                -- . ":(exclude)scripts/hooks/pre-push" </dev/null |
+            grep '^+' | grep -v '^+++' | grep -E -f "$patfile")
+        if [ -n "$hits" ]; then
+            blocked=1
+            echo "pre-push: possible secret in commit $commit ($local_ref):" >&2
+            printf '%s\n' "$hits" | head -10 >&2
+        fi
+    done
+done
+
+if [ "$blocked" -ne 0 ]; then
+    cat >&2 <<'MSG'
+
+Push blocked: outgoing commits appear to contain credentials.
+Remove the secret (amend/rewrite the offending commits), then push again.
+If this is a confirmed false positive, bypass once with: git push --no-verify
+MSG
+    exit 1
+fi
+exit 0

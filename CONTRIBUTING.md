@@ -27,6 +27,22 @@ pip install -e . pytest
 pytest tests/test_splitters.py tests/test_interop.py tests/test_report.py
 ```
 
+### Git hooks (recommended)
+
+The repo ships a `pre-push` hook that scans outgoing commits for credential
+patterns (AWS/GitHub/OpenAI/Anthropic/Google/Slack keys, private key blocks,
+generic secret assignments) and blocks the push before anything leaves your
+machine. It is plain POSIX `sh` with no extra dependencies and works in Git
+Bash on Windows. Activate it once per clone:
+
+```bash
+git config core.hooksPath scripts/hooks
+```
+
+If it flags a confirmed false positive, bypass a single push with
+`git push --no-verify`. GitHub-side secret scanning push protection is also
+enabled on the repository as a second layer.
+
 ## Running tests
 
 ```bash
