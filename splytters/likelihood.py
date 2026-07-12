@@ -14,6 +14,11 @@ variant buckets examples by length and takes the lowest-likelihood fraction
 *within each bucket*, which removes the confound that low-likelihood examples
 tend to be long (the paper's "-len" splits).
 
+It does not orchestrate the paper's task-specific language-model training,
+prompt construction, train/dev/test sizing, or per-label classification split;
+callers can provide scores, token lengths, and external stratification for those
+experiment-level choices.
+
 The scoring itself reuses :func:`splytters.sorters.text_sorters.perplexity_score`
 with ``scoring="log_likelihood"``. Note that ``perplexity_score``'s *default*
 scoring is perplexity, which is length-normalized and is deliberately *not* the

@@ -25,7 +25,8 @@ from splytters.utils import (
     as_index_array,
     compute_centroid,
     constrained_kernel_kmeans_split,
-    optimized_split,
+    kneighbors_excluding_self,
+    optimized_mmd_split,
     resolve_n_train,
     validate_split_inputs,
 )
@@ -404,6 +405,15 @@ def _complete_subset_sum(
     return new_train, new_test
 
 
+def _seeded_exact_fallback_split(
+    n_samples: int, target_train: int, random_state: int
+) -> tuple[list[int], list[int]]:
+    """Return a seeded exact-size split when cluster coherence is impossible."""
+    indices = np.arange(n_samples)
+    check_random_state(random_state).shuffle(indices)
+    return indices[:target_train].tolist(), indices[target_train:].tolist()
+
+
 def cluster_split(
     embeddings: ArrayLike,
     train_size: float | int = 0.7,
@@ -490,6 +500,11 @@ def cluster_split(
             ``strategy="subset_sum"`` is used without a valid ``y``; or if
             ``cluster_range`` is combined with a non-KMeans ``method`` or is not a
             valid ``(low, high)`` pair.
+
+    Warns:
+        UserWarning: if whole-cluster assignment would leave train or test empty.
+            The function returns a seeded exact-size sample split because no
+            cluster-coherent non-empty split exists.
 
     References:
         The ``"subset_sum"`` and ``"closest"`` strategies implement SUBSET-SUM-SPLIT
@@ -681,6 +696,19 @@ def cluster_split(
         train, test, _, aid = best
 
     train, test = complete(train, test, aid)
+
+    if not train or not test:
+        warnings.warn(
+            "cluster_split's whole-cluster assignment left train or test empty; "
+            "falling back to a seeded exact-size sample split because preserving "
+            "the effective clusters cannot satisfy the non-empty split contract.",
+            UserWarning,
+            stacklevel=2,
+        )
+        train, test = _seeded_exact_fallback_split(
+            n_samples, target_train, random_state
+        )
+
     return as_index_array(train), as_index_array(test)
 
 
@@ -2077,14 +2105,12 @@ def density_adversarial_split(
     """
     embeddings = validate_split_inputs(embeddings, train_size)
 
-    # TODO: Replace full pairwise matrix with NearestNeighbors(k) to reduce
-    # memory from O(n²) to O(nk). Only k distances per point are needed here.
-    distances = cdist(embeddings, embeddings, metric=metric)
-    np.fill_diagonal(distances, np.inf)
+    if not isinstance(k, (int, np.integer)) or isinstance(k, bool) or k < 1:
+        raise ValueError(f"k must be a positive integer, got {k!r}")
 
     # Compute density as inverse of mean distance to k nearest neighbors
     k = min(k, len(embeddings) - 1)
-    knn_distances = np.sort(distances, axis=1)[:, :k]
+    knn_distances, _ = kneighbors_excluding_self(embeddings, k, metric)
     densities = 1.0 / (knn_distances.mean(axis=1) + 1e-10)
 
     # Sort by density (highest density first -> train)
@@ -2144,6 +2170,66 @@ def outlier_adversarial_split(
     )
 
 
+def _resize_cut_partition(
+    similarities: np.ndarray,
+    initial_train: set[int],
+    target_train: int,
+) -> tuple[list[int], list[int]]:
+    """Greedily resize a cut while minimizing each move's cut increase."""
+    n_samples = len(similarities)
+    train = set(initial_train)
+    test = set(range(n_samples)) - train
+
+    while len(train) > target_train:
+        # Moving i train -> test adds its edges to the remaining train and
+        # removes its edges to the current test.
+        candidate = min(
+            train,
+            key=lambda i: (
+                float(similarities[i, list(train - {i})].sum())
+                - float(similarities[i, list(test)].sum()),
+                i,
+            ),
+        )
+        train.remove(candidate)
+        test.add(candidate)
+
+    while len(train) < target_train:
+        # Moving i test -> train adds its edges to the remaining test and
+        # removes its edges to the current train.
+        candidate = min(
+            test,
+            key=lambda i: (
+                float(similarities[i, list(test - {i})].sum())
+                - float(similarities[i, list(train)].sum()),
+                i,
+            ),
+        )
+        test.remove(candidate)
+        train.add(candidate)
+
+    return sorted(train), sorted(test)
+
+
+def _best_resized_cut(
+    similarities: np.ndarray,
+    partition: tuple[set[int], set[int]],
+    target_train: int,
+) -> tuple[list[int], list[int]]:
+    """Resize both cut orientations and return the lower-weight boundary."""
+    candidates = [
+        _resize_cut_partition(similarities, partition[0], target_train),
+        _resize_cut_partition(similarities, partition[1], target_train),
+    ]
+
+    def cut_weight(split: tuple[list[int], list[int]]) -> tuple[float, list[int]]:
+        train, test = split
+        weight = float(similarities[np.ix_(train, test)].sum())
+        return weight, train
+
+    return min(candidates, key=cut_weight)
+
+
 def min_cut_split(
     embeddings: ArrayLike,
     train_size: float | int = 0.7,
@@ -2164,18 +2250,20 @@ def min_cut_split(
         similarity_threshold: only connect samples above this kernel similarity
                               (default: median similarity)
         metric: distance metric
-        method: 'spectral' (fast, approximate) or 'stoer_wagner' (exact, slow)
+        method: ``'spectral'`` (fast approximation) or ``'stoer_wagner'``
+            (exact unconstrained cut used as a seed, then greedily resized to the
+            requested train size; the resized fixed-size cut is approximate)
         random_state: for reproducibility
 
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
 
-    Seed stability: deterministic (spectral method) -- the split follows the
-    Fiedler vector from a dense eigendecomposition (no random start vector), whose
-    otherwise-arbitrary sign is oriented deterministically. (Without that
-    orientation the held-out half would flip with the sign, giving disjoint test
-    sets between seeds.)
+    Seed stability: deterministic for successful spectral and Stoer-Wagner paths.
+    The spectral split follows a Fiedler vector from a dense eigendecomposition
+    (no random start vector), whose otherwise-arbitrary sign is oriented
+    deterministically. The only seeded branch is the warned random fallback after
+    a spectral solver failure.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     n_samples = len(embeddings)
@@ -2192,19 +2280,34 @@ def min_cut_split(
     distances = cdist(embeddings, embeddings, metric=metric)
 
     # Convert distance to similarity using Gaussian kernel
-    sigma = np.median(distances[distances > 0])
-    if sigma == 0:
-        sigma = 1.0
-    similarities = np.exp(-distances**2 / (2 * sigma**2))
+    positive_distances = distances[np.isfinite(distances) & (distances > 0)]
+    if len(positive_distances) == 0:
+        warnings.warn(
+            "min_cut_split found no positive pairwise distances; returning a "
+            "deterministic index split because the similarity graph has no "
+            "geometric separation.",
+            UserWarning,
+            stacklevel=2,
+        )
+        n_train = resolve_n_train(n_samples, train_size)
+        return as_index_array(range(n_train)), as_index_array(
+            range(n_train, n_samples)
+        )
+    sigma = float(np.median(positive_distances))
+    # Divide before squaring: ``distances**2`` and ``sigma**2`` can overflow
+    # independently even when their ratio is well-defined.
+    with np.errstate(over="ignore", invalid="ignore", under="ignore"):
+        similarities = np.exp(-0.5 * (distances / sigma) ** 2)
+    similarities[~np.isfinite(similarities)] = 0.0
     np.fill_diagonal(similarities, 0)  # No self-loops
 
     # Threshold to create sparse graph
     if similarity_threshold is None:
         nonzero_sims = similarities[similarities > 0]
-        if len(nonzero_sims) > 0:
-            similarity_threshold = np.median(nonzero_sims)
-        else:
-            similarity_threshold = 0.0
+        # A finite positive distance always contributes exp(-0.5) at the
+        # median scale, so the earlier ``positive_distances`` guard makes this
+        # non-empty.
+        similarity_threshold = np.median(nonzero_sims)
 
     similarities[similarities < similarity_threshold] = 0
 
@@ -2263,7 +2366,9 @@ def min_cut_split(
         test_indices = sorted_indices[n_train:]
 
     elif method == "stoer_wagner":
-        # Exact min-cut using Stoer-Wagner algorithm (slower)
+        # Stoer-Wagner gives the exact unconstrained global min-cut. Enforcing an
+        # arbitrary train_size is a different, cardinality-constrained problem,
+        # so use the exact cut as a seed and resize both orientations greedily.
         try:
             import networkx as nx
 
@@ -2276,45 +2381,24 @@ def min_cut_split(
                     if similarities[i, j] > 0:
                         G.add_edge(i, j, weight=similarities[i, j])
 
-            # Check if graph is connected
+            n_train = resolve_n_train(n_samples, train_size)
+
+            # Stoer-Wagner requires connectivity. On a disconnected graph, any
+            # connected component is already one side of a zero-weight cut.
             if not nx.is_connected(G):
-                # Find connected components and use largest
                 components = list(nx.connected_components(G))
-                components.sort(key=len, reverse=True)
-
-                # Assign smaller components to test, sample from largest for train
-                train_indices = []
-                test_indices = []
-
-                for comp in components[1:]:
-                    test_indices.extend(comp)
-
-                main_component = list(components[0])
-                rng = check_random_state(random_state)
-                rng.shuffle(main_component)
-
-                n_train_needed = resolve_n_train(n_samples, train_size) - len(
-                    train_indices
+                components.sort(key=lambda comp: (-len(comp), min(comp)))
+                seed = components[0]
+                other = set(range(n_samples)) - seed
+                train_indices, test_indices = _best_resized_cut(
+                    similarities, (set(seed), other), n_train
                 )
-                n_train_needed = max(0, min(n_train_needed, len(main_component)))
-
-                train_indices.extend(main_component[:n_train_needed])
-                test_indices.extend(main_component[n_train_needed:])
 
             else:
-                # Run Stoer-Wagner
-                cut_value, partition = nx.stoer_wagner(G)
-                set1, set2 = list(partition[0]), list(partition[1])
-
-                # Adjust to match train_size
-                n_train = resolve_n_train(n_samples, train_size)
-
-                if len(set1) >= n_train:
-                    train_indices = set1[:n_train]
-                    test_indices = set1[n_train:] + set2
-                else:
-                    train_indices = set1 + set2[:n_train - len(set1)]
-                    test_indices = set2[n_train - len(set1):]
+                _, partition = nx.stoer_wagner(G)
+                train_indices, test_indices = _best_resized_cut(
+                    similarities, (set(partition[0]), set(partition[1])), n_train
+                )
 
         except ImportError as err:
             raise ImportError(
@@ -2366,10 +2450,23 @@ def normalized_cut_split(
     # TODO: Build sparse similarity graph directly via kneighbors_graph instead
     # of materializing the full O(n²) distance matrix.
     distances = cdist(embeddings, embeddings, metric=metric)
-    sigma = np.median(distances[distances > 0])
-    if sigma == 0:
-        sigma = 1.0
-    W = np.exp(-distances**2 / (2 * sigma**2))
+    positive_distances = distances[np.isfinite(distances) & (distances > 0)]
+    if len(positive_distances) == 0:
+        warnings.warn(
+            "normalized_cut_split found no positive pairwise distances; "
+            "returning a deterministic index split because the similarity "
+            "graph has no geometric separation.",
+            UserWarning,
+            stacklevel=2,
+        )
+        n_train = resolve_n_train(n_samples, train_size)
+        return as_index_array(range(n_train)), as_index_array(
+            range(n_train, n_samples)
+        )
+    sigma = float(np.median(positive_distances))
+    with np.errstate(over="ignore", invalid="ignore", under="ignore"):
+        W = np.exp(-0.5 * (distances / sigma) ** 2)
+    W[~np.isfinite(W)] = 0.0
     np.fill_diagonal(W, 0)
 
     # Compute symmetric normalized Laplacian (D^{-1/2} W D^{-1/2}).
@@ -2487,9 +2584,9 @@ def mmd_maximized_split(
     - ``method="swap"`` (default): the historical swap-optimized approximation of
       the max-MMD objective -- a random split refined by accepting train/test
       swaps that raise the MMD.
-    - ``method="kernel_kmeans"``: the paper-faithful method of Napoli & White
-      (see References) -- constrained kernel k-means with ``k = 2`` whose
-      assignment step is a linear program (LP). Pass optional ``y`` and/or
+    - ``method="kernel_kmeans"``: a full-kernel implementation derived from
+      Napoli & White (see References) -- constrained kernel k-means with ``k = 2``
+      whose assignment step is a linear program (LP). Pass optional ``y`` and/or
       ``groups`` to enforce the paper's per-label / per-group distribution
       constraints in both sides of the split; the size constraint comes from
       ``train_size``.
@@ -2517,15 +2614,15 @@ def mmd_maximized_split(
         Splits for Model Selection under Domain Shift"
         (https://openreview.net/forum?id=Q692C0WtiD): the train/validation split
         should maximize the MMD between the two sets. Under
-        ``method="kernel_kmeans"`` this implements their method -- maximizing MMD
-        is equivalent to minimizing the ``k = 2`` kernel k-means scatter
-        (their Theorem 1), solved by a Lloyd-style alternation whose constrained
-        assignment step is an LP over size/label/group balance (their
-        Algorithm 1, Eq. 12-16). The default ``method="swap"`` remains a
-        swap-optimized approximation of the same objective. Their Nyström scaling
-        for very large ``n`` is not implemented (out of scope). For class-balanced
-        clustering splits, see ``cluster_split(strategy="subset_sum")`` and
-        :func:`cluster_kfold`.
+        ``method="kernel_kmeans"`` implements their kernel k-means objective and
+        solves both disjunctive LP orientations from Eq. 15 before keeping the
+        lower-cost assignment. Maximizing MMD is equivalent to minimizing the
+        ``k = 2`` kernel k-means scatter (their Theorem 1). This full-kernel variant
+        uses exact-size largest-remainder group targets and omits their Nyström
+        approximation for very large ``n``; those departures are documented in
+        :func:`splytters.utils.constrained_kernel_kmeans_split`. The default
+        ``method="swap"`` remains a swap-optimized approximation of the same
+        objective.
 
     Seed stability: with ``method="swap"``, varies with the seed like a random
     split -- the swap optimization starts from a random split and many
@@ -2557,31 +2654,14 @@ def mmd_maximized_split(
             maximize_mmd=True,
         )
 
-    n_dims = embeddings.shape[1]
-
-    _gamma = gamma if gamma is not None else 1.0 / n_dims
-
-    def _rbf_kernel(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
-        return np.exp(-_gamma * cdist(X, Y, metric="sqeuclidean"))
-
-    def _linear_kernel(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
-        return X @ Y.T
-
-    kernel_fn = _rbf_kernel if kernel == "rbf" else _linear_kernel
-
-    def score_fn(X: np.ndarray, train: list[int], test: list[int]) -> float:
-        train_data, test_data = X[train], X[test]
-        K_tt = kernel_fn(train_data, train_data)
-        K_ss = kernel_fn(test_data, test_data)
-        K_ts = kernel_fn(train_data, test_data)
-        m, n = len(train_data), len(test_data)
-        return (K_tt.sum() / (m * m) +
-                K_ss.sum() / (n * n) -
-                2 * K_ts.sum() / (m * n))
-
-    # minimize=False -> push the two distributions apart (adversarial dual).
-    return optimized_split(
-        embeddings, train_size, n_iterations, score_fn, random_state, minimize=False
+    return optimized_mmd_split(
+        embeddings,
+        train_size,
+        n_iterations,
+        kernel=kernel,
+        gamma=gamma,
+        random_state=random_state,
+        minimize=False,
     )
 
 

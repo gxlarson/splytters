@@ -169,6 +169,56 @@ def compute_pairwise_distances(X: ArrayLike, metric: str = "euclidean") -> np.nd
     return cdist(X, X, metric=metric)
 
 
+def kneighbors_excluding_self(
+    X: ArrayLike, k: int, metric: str = "euclidean"
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return each sample's ``k`` nearest *other* samples.
+
+    ``NearestNeighbors.kneighbors(X)`` does not guarantee that the query sample
+    appears in column zero when several points tie at distance zero. Query one
+    extra neighbor, remove the query by its index, and only then take the first
+    ``k`` results. This keeps duplicate embeddings correct without materializing
+    an ``n x n`` distance matrix.
+
+    Args:
+        X: array-like of shape ``(n_samples, n_features)``.
+        k: positive number of non-self neighbors, clamped to ``n_samples - 1``.
+        metric: metric accepted by :class:`sklearn.neighbors.NearestNeighbors`.
+
+    Returns:
+        ``(distances, indices)`` arrays of shape ``(n_samples, effective_k)``.
+    """
+    from sklearn.neighbors import NearestNeighbors
+
+    points = np.asarray(X)
+    n_samples = len(points)
+    if not isinstance(k, (int, np.integer)) or isinstance(k, bool) or k < 1:
+        raise ValueError(f"k must be a positive integer, got {k!r}")
+    if n_samples < 2:
+        raise ValueError("at least 2 samples are required for a neighbor query")
+
+    effective_k = min(int(k), n_samples - 1)
+    query_k = min(effective_k + 1, n_samples)
+    distances, indices = NearestNeighbors(
+        n_neighbors=query_k, metric=metric
+    ).fit(points).kneighbors(points)
+
+    out_distances = np.empty((n_samples, effective_k), dtype=float)
+    out_indices = np.empty((n_samples, effective_k), dtype=np.intp)
+    for i in range(n_samples):
+        keep = indices[i] != i
+        row_distances = distances[i, keep][:effective_k]
+        row_indices = indices[i, keep][:effective_k]
+        if len(row_indices) != effective_k:  # defensive: sklearn returns query_k
+            raise RuntimeError(
+                f"neighbor query returned only {len(row_indices)} non-self "
+                f"neighbors for sample {i}; expected {effective_k}"
+            )
+        out_distances[i] = row_distances
+        out_indices[i] = row_indices
+    return out_distances, out_indices
+
+
 def compute_centroid(X: ArrayLike) -> np.ndarray:
     """Compute centroid of embeddings."""
     X = np.asarray(X)
@@ -361,6 +411,119 @@ def optimized_split(
     return as_index_array(sorted(train_indices)), as_index_array(sorted(test_indices))
 
 
+def optimized_mmd_split(
+    embeddings: np.ndarray,
+    train_size: float | int,
+    n_iterations: int,
+    *,
+    kernel: str = "rbf",
+    gamma: float | None = None,
+    random_state: int = 42,
+    minimize: bool = True,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Optimize biased empirical MMD with exact incremental swap updates.
+
+    The kernel matrix is invariant across swap attempts, so compute it once and
+    maintain the train/train, test/test, and train/test kernel sums. A proposed
+    swap is then scored from row sums instead of rebuilding three kernel matrices.
+    Accepted swaps update those row sums in ``O(n)``; rejected swaps preserve the
+    historical set-mutation order so seeded results stay backward compatible.
+    """
+    n_samples, n_dims = embeddings.shape
+    if kernel == "rbf":
+        kernel_gamma = gamma if gamma is not None else 1.0 / n_dims
+        K = np.exp(
+            -kernel_gamma * cdist(
+                embeddings, embeddings, metric="sqeuclidean"
+            )
+        )
+    elif kernel == "linear":
+        K = embeddings @ embeddings.T
+    else:
+        raise ValueError(f"kernel must be 'rbf' or 'linear', got {kernel!r}")
+
+    rng = check_random_state(random_state)
+    all_indices = np.arange(n_samples)
+    rng.shuffle(all_indices)
+    n_train = resolve_n_train(n_samples, train_size)
+    n_test = n_samples - n_train
+    train_indices = set(all_indices[:n_train].tolist())
+    test_indices = set(all_indices[n_train:].tolist())
+
+    train_array = np.fromiter(train_indices, dtype=np.intp, count=n_train)
+    test_array = np.fromiter(test_indices, dtype=np.intp, count=n_test)
+    row_to_train = K[:, train_array].sum(axis=1)
+    row_to_test = K[:, test_array].sum(axis=1)
+    sum_train_train = float(row_to_train[train_array].sum())
+    sum_test_test = float(row_to_test[test_array].sum())
+    sum_train_test = float(row_to_test[train_array].sum())
+
+    def score(within_train: float, within_test: float, cross: float) -> float:
+        return (
+            within_train / (n_train * n_train)
+            + within_test / (n_test * n_test)
+            - 2.0 * cross / (n_train * n_test)
+        )
+
+    current_score = score(sum_train_train, sum_test_test, sum_train_test)
+    diagonal = np.diag(K)
+
+    for _ in range(n_iterations):
+        train_sample = rng.choice(list(train_indices))
+        test_sample = rng.choice(list(test_indices))
+        cross_pair = K[train_sample, test_sample]
+
+        new_train_train = (
+            sum_train_train
+            - 2.0 * row_to_train[train_sample]
+            + diagonal[train_sample]
+            + 2.0 * (row_to_train[test_sample] - cross_pair)
+            + diagonal[test_sample]
+        )
+        new_test_test = (
+            sum_test_test
+            - 2.0 * row_to_test[test_sample]
+            + diagonal[test_sample]
+            + 2.0 * (row_to_test[train_sample] - cross_pair)
+            + diagonal[train_sample]
+        )
+        new_train_test = (
+            sum_train_test
+            - row_to_test[train_sample]
+            - row_to_train[test_sample]
+            + cross_pair
+            + row_to_test[test_sample]
+            - diagonal[test_sample]
+            + row_to_train[train_sample]
+            - diagonal[train_sample]
+            + cross_pair
+        )
+        new_score = score(new_train_train, new_test_test, new_train_test)
+
+        # Match optimized_split's mutation/reversion order so a fixed seed draws
+        # the same later candidates even when a proposed swap is rejected.
+        train_indices.remove(train_sample)
+        train_indices.add(test_sample)
+        test_indices.remove(test_sample)
+        test_indices.add(train_sample)
+
+        improved = new_score < current_score if minimize else new_score > current_score
+        if improved:
+            row_to_train += K[:, test_sample] - K[:, train_sample]
+            row_to_test += K[:, train_sample] - K[:, test_sample]
+            sum_train_train = new_train_train
+            sum_test_test = new_test_test
+            sum_train_test = new_train_test
+            current_score = new_score
+        else:
+            train_indices.remove(test_sample)
+            train_indices.add(train_sample)
+            test_indices.remove(train_sample)
+            test_indices.add(test_sample)
+
+    return as_index_array(sorted(train_indices)), as_index_array(sorted(test_indices))
+
+
 def constrained_kernel_kmeans_split(
     embeddings: np.ndarray,
     train_size: float | int,
@@ -374,9 +537,10 @@ def constrained_kernel_kmeans_split(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Constrained kernel k-means (k=2) train/validation split via an LP.
 
-    Faithful implementation of the partitioning method of Napoli & White
-    (TMLR 2025; arXiv 2024), "Clustering-Based Validation Splits for Model
-    Selection under Domain Shift" (https://openreview.net/forum?id=Q692C0WtiD).
+    Full-kernel, paper-derived implementation of the partitioning method of
+    Napoli & White (TMLR 2025; arXiv 2024), "Clustering-Based Validation Splits
+    for Model Selection under Domain Shift"
+    (https://openreview.net/forum?id=Q692C0WtiD).
 
     The paper (their Theorem 1, Eq. 8-11) proves that maximizing the MMD between
     the two sets is equivalent to *minimizing* the kernel k-means objective
@@ -391,12 +555,11 @@ def constrained_kernel_kmeans_split(
        where ``s_j = sum_l U_lj`` is the cluster mass.
     2. **Constrained assignment** -- solve the assignment LP (their Eq. 12-16)
        ``argmin_U sum_ij U_ij D_ij`` subject to ``sum_j U_ij = 1`` (Eq. 14),
-       the group-balance equalities ``sum_{i in g} U_ij = h_g`` for every group
-       ``g`` and cluster ``j`` (Eq. 15), where the per-group holdout counts
-       ``h_g`` are the paper's ``round(h |g|)`` computed by largest-remainder
-       apportionment so they sum exactly to the requested validation size, and
-       the relaxed box constraint
-       ``0 <= U_ij <= 1`` (Eq. 16). The paper drops the integrality constraint
+       the group-balance equalities ``sum_{i in g} U_ij = round(h |g|)`` for every
+       group ``g`` and either cluster ``j`` (the disjunction in Eq. 15), and the
+       relaxed box constraint ``0 <= U_ij <= 1`` (Eq. 16). As prescribed by the
+       paper, both cluster orientations are solved and the lower-cost LP is kept.
+       The paper drops the integrality constraint
        (Eq. 13) because the constraint matrix meets Hoffman's total-unimodularity
        conditions, so the LP has integral optima.
 
@@ -427,10 +590,12 @@ def constrained_kernel_kmeans_split(
     when the absolute lowest MMD matters and this path when the label/group
     constraints do.
 
-    NOTE: the paper's Nyström scaling (Algorithm 1, Step 1; an ``O(qn)`` random
-    submatrix approximation of the kernel for very large ``n``) is not implemented
-    here -- this helper materializes the full ``n x n`` kernel and is intended for
-    moderate ``n``.
+    Fidelity notes: the paper's Nyström scaling (Algorithm 1, Step 1; an
+    ``O(qn)`` random submatrix approximation for very large ``n``) is not
+    implemented here, so this helper materializes the full ``n x n`` kernel and
+    is intended for moderate ``n``. It also uses largest-remainder apportionment
+    rather than independently rounding every group target, guaranteeing that the
+    group constraints sum to the caller's exact requested validation size.
 
     Args:
         embeddings: validated float ndarray of shape (n_samples, n_features).
@@ -497,33 +662,44 @@ def constrained_kernel_kmeans_split(
             chosen = rng.choice(members, size=vt, replace=False)
             v[chosen] = 1.0
 
-    # Precompute the equality-constraint system for the assignment LP. Variables
-    # are ordered u[2*i + j] for point i, cluster j.
+    # Precompute both Eq. 15 orientations. Variables are ordered u[2*i + j] for
+    # point i, cluster j. The paper treats the constrained validation cluster as
+    # disjunctive because cluster labels are arbitrary, so every assignment step
+    # solves one LP with column 0 constrained and one with column 1 constrained.
     n_vars = 2 * n_samples
-    rows: list[int] = []
-    cols: list[int] = []
-    data: list[float] = []
-    b_eq: list[float] = []
-    # Eq. 14: each point assigned once.
-    for i in range(n_samples):
-        rows += [i, i]
-        cols += [2 * i, 2 * i + 1]
-        data += [1.0, 1.0]
-        b_eq.append(1.0)
-    # Eq. 15: per-group validation mass fixed (train mass then follows from
-    # Eq. 14, so only the validation-cluster equality is needed per group).
-    r = n_samples
-    for members, vt in zip(group_members, val_targets, strict=True):
-        for i in members:
-            rows.append(r)
-            cols.append(2 * i + 1)
-            data.append(1.0)
-        b_eq.append(float(vt))
-        r += 1
-    A_eq = sparse.csr_matrix(
-        (data, (rows, cols)), shape=(n_samples + len(unique_keys), n_vars)
-    )
-    b_eq_arr = np.asarray(b_eq)
+
+    def assignment_constraints(
+        validation_column: int,
+    ) -> tuple[sparse.csr_matrix, np.ndarray]:
+        rows: list[int] = []
+        cols: list[int] = []
+        data: list[float] = []
+        b_eq: list[float] = []
+        # Eq. 14: each point assigned once.
+        for i in range(n_samples):
+            rows += [i, i]
+            cols += [2 * i, 2 * i + 1]
+            data += [1.0, 1.0]
+            b_eq.append(1.0)
+        # Eq. 15: per-group validation mass fixed in this orientation. The other
+        # cluster's mass follows from Eq. 14.
+        row = n_samples
+        for members, vt in zip(group_members, val_targets, strict=True):
+            for i in members:
+                rows.append(row)
+                cols.append(2 * i + validation_column)
+                data.append(1.0)
+            b_eq.append(float(vt))
+            row += 1
+        matrix = sparse.csr_matrix(
+            (data, (rows, cols)),
+            shape=(n_samples + len(unique_keys), n_vars),
+        )
+        return matrix, np.asarray(b_eq)
+
+    constraint_systems = [
+        (column, *assignment_constraints(column)) for column in (0, 1)
+    ]
 
     def round_membership(weights: np.ndarray) -> set[int]:
         """Round fractional weights to an exact, feasible validation set: within
@@ -575,12 +751,29 @@ def constrained_kernel_kmeans_split(
         c = D.reshape(-1).copy()
         if not maximize_mmd:
             c = -c
-        res = linprog(
-            c, A_eq=A_eq, b_eq=b_eq_arr, bounds=(0.0, 1.0), method="highs"
+        lp_solutions = []
+        # Both orientations are part of the paper's max-MMD algorithm. The
+        # min-MMD Frank-Wolfe dual is library-specific and keeps a fixed
+        # validation column so its damped iterates do not relabel every step.
+        systems_to_solve = (
+            constraint_systems if maximize_mmd else constraint_systems[1:]
         )
-        if not res.success:  # pragma: no cover - LP is always feasible here
-            raise RuntimeError(f"assignment LP failed: {res.message}")
-        vertex = res.x.reshape(n_samples, 2)[:, 1]
+        for validation_column, A_eq, b_eq_arr in systems_to_solve:
+            res = linprog(
+                c, A_eq=A_eq, b_eq=b_eq_arr,
+                bounds=(0.0, 1.0), method="highs",
+            )
+            if not res.success:  # pragma: no cover - LP is always feasible here
+                raise RuntimeError(
+                    f"assignment LP failed for validation column "
+                    f"{validation_column}: {res.message}"
+                )
+            lp_solutions.append((float(res.fun), validation_column, res.x))
+
+        _, validation_column, solution = min(
+            lp_solutions, key=lambda item: (item[0], item[1])
+        )
+        vertex = solution.reshape(n_samples, 2)[:, validation_column]
 
         gamma = 1.0 if maximize_mmd else 2.0 / (k + 2)
         v = (1.0 - gamma) * v + gamma * vertex

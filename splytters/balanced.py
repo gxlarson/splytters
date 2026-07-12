@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import numpy as np
 from numpy.typing import ArrayLike
-from scipy.spatial.distance import cdist
 from scipy.stats import ks_2samp
 from sklearn.utils import check_random_state
 
@@ -17,6 +16,8 @@ from splytters.utils import (
     apportion_train,
     as_index_array,
     constrained_kernel_kmeans_split,
+    kneighbors_excluding_self,
+    optimized_mmd_split,
     optimized_split,
     resolve_n_train,
     validate_split_inputs,
@@ -222,14 +223,16 @@ def density_balanced_split(
     n_samples = len(embeddings)
     rng = check_random_state(random_state)
 
-    # TODO: Replace full pairwise matrix with NearestNeighbors(k) to reduce
-    # memory from O(n²) to O(nk). Only k distances per point are needed here.
-    distances = cdist(embeddings, embeddings, metric="euclidean")
-    np.fill_diagonal(distances, np.inf)
+    if (
+        not isinstance(n_bins, (int, np.integer))
+        or isinstance(n_bins, bool)
+        or n_bins < 1
+    ):
+        raise ValueError(f"n_bins must be a positive integer, got {n_bins!r}")
 
     # Compute density (inverse of mean distance to 10 nearest neighbors)
     k = min(10, n_samples - 1)
-    knn_distances = np.sort(distances, axis=1)[:, :k]
+    knn_distances, _ = kneighbors_excluding_self(embeddings, k)
     densities = 1.0 / (knn_distances.mean(axis=1) + 1e-10)
 
     # Bin by density
@@ -347,28 +350,12 @@ def mmd_minimized_split(
             maximize_mmd=False,
         )
 
-    n_dims = embeddings.shape[1]
-
-    _gamma = gamma if gamma is not None else 1.0 / n_dims
-
-    def _rbf_kernel(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
-        return np.exp(-_gamma * cdist(X, Y, metric="sqeuclidean"))
-
-    def _linear_kernel(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
-        return X @ Y.T
-
-    kernel_fn = _rbf_kernel if kernel == "rbf" else _linear_kernel
-
-    def score_fn(X: np.ndarray, train: list[int], test: list[int]) -> float:
-        train_data, test_data = X[train], X[test]
-        K_tt = kernel_fn(train_data, train_data)
-        K_ss = kernel_fn(test_data, test_data)
-        K_ts = kernel_fn(train_data, test_data)
-        m, n = len(train_data), len(test_data)
-        return (K_tt.sum() / (m * m) +
-                K_ss.sum() / (n * n) -
-                2 * K_ts.sum() / (m * n))
-
-    return optimized_split(
-        embeddings, train_size, n_iterations, score_fn, random_state
+    return optimized_mmd_split(
+        embeddings,
+        train_size,
+        n_iterations,
+        kernel=kernel,
+        gamma=gamma,
+        random_state=random_state,
+        minimize=True,
     )

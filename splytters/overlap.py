@@ -91,8 +91,9 @@ def neighbor_coverage_split(
     """
     Ensure each test sample has k similar samples in train.
 
-    Iteratively assigns samples to test only if they have enough
-    similar samples already in train, maximizing coverage.
+    Solves a binary feasibility problem whose constraints require every test
+    sample to have at least ``k`` train neighbors within the median pairwise
+    distance. Raises when no split of the requested size can meet that promise.
 
     Args:
         embeddings: array-like of shape (n_samples, embedding_dim)
@@ -105,12 +106,15 @@ def neighbor_coverage_split(
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
 
-    Seed stability: varies with the seed like a random split -- it starts from a
-    random train set and admits/swaps points stochastically.
+    Seed stability: varies with the seed. The constraints are fixed, while a
+    seeded random linear objective selects among multiple feasible solutions.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     n_samples = len(embeddings)
     rng = check_random_state(random_state)
+
+    if not isinstance(k, (int, np.integer)) or isinstance(k, bool) or k < 1:
+        raise ValueError(f"k must be a positive integer, got {k!r}")
 
     # TODO: Replace full pairwise matrix with chunked or BallTree.query_radius
     # computation to reduce memory from O(n²). Only threshold-based neighbor
@@ -122,50 +126,50 @@ def neighbor_coverage_split(
     finite_dists = distances[distances < np.inf]
     threshold = np.median(finite_dists)
 
-    # Start with random train set
-    all_indices = np.arange(n_samples)
-    rng.shuffle(all_indices)
-
     n_train = resolve_n_train(n_samples, train_size)
-    train_set = set(all_indices[:n_train])
-    remaining = list(all_indices[n_train:])
-
-    # Iteratively improve: swap samples to maximize coverage
-    test_indices = []
-
-    for idx in remaining:
-        # Count similar samples in train
-        similar_in_train = sum(
-            1 for t_idx in train_set
-            if distances[idx, t_idx] <= threshold
+    if k > n_train:
+        raise ValueError(
+            "no feasible neighbor-coverage split: "
+            f"k={k} exceeds the {n_train} available train samples"
         )
 
-        if similar_in_train >= k:
-            test_indices.append(idx)
-        else:
-            # Find a train sample to swap
-            # Prefer train samples that have many similar train neighbors
-            train_list = list(train_set)
-            swap_candidate = None
-            max_redundancy = -1
+    # Binary variable x_i is 1 when sample i is in train. For every sample i,
+    #     sum_{j in N(i)} x_j + k*x_i >= k
+    # activates the coverage requirement only when i is in test (x_i == 0).
+    # Together with sum_i x_i == n_train this is the exact documented contract.
+    from scipy import sparse
+    from scipy.optimize import Bounds, LinearConstraint, milp
 
-            for t_idx in train_list:
-                redundancy = sum(
-                    1 for other in train_set
-                    if other != t_idx and distances[t_idx, other] <= threshold
-                )
-                if redundancy > max_redundancy:
-                    max_redundancy = redundancy
-                    swap_candidate = t_idx
+    neighbor_matrix = (distances <= threshold).astype(float)
+    coverage_matrix = neighbor_matrix + k * np.eye(n_samples)
+    constraint_matrix = sparse.vstack(
+        [np.ones((1, n_samples)), sparse.csr_matrix(coverage_matrix)],
+        format="csr",
+    )
+    lower = np.concatenate(([n_train], np.full(n_samples, float(k))))
+    upper = np.concatenate(([n_train], np.full(n_samples, np.inf)))
 
-            if swap_candidate is not None and max_redundancy > k:
-                train_set.remove(swap_candidate)
-                train_set.add(idx)
-                test_indices.append(swap_candidate)
-            else:
-                test_indices.append(idx)
+    # The objective only breaks ties between feasible solutions. Seeded random
+    # costs retain this splitter's documented seed variation.
+    result = milp(
+        c=rng.uniform(size=n_samples),
+        integrality=np.ones(n_samples),
+        bounds=Bounds(0.0, 1.0),
+        constraints=LinearConstraint(constraint_matrix, lower, upper),
+    )
+    if not result.success or result.x is None:
+        raise ValueError(
+            "no feasible neighbor-coverage split for the requested train_size, "
+            f"k={k}, and median-distance neighborhood graph"
+        )
 
-    return as_index_array(train_set), as_index_array(test_indices)
+    train_mask = result.x >= 0.5
+    train_indices = np.flatnonzero(train_mask)
+    test_indices = np.flatnonzero(~train_mask)
+    coverage = neighbor_matrix[np.ix_(test_indices, train_indices)].sum(axis=1)
+    if len(train_indices) != n_train or np.any(coverage < k):
+        raise RuntimeError("neighbor-coverage MILP returned an invalid solution")
+    return as_index_array(train_indices), as_index_array(test_indices)
 
 
 def centroid_matched_split(
@@ -232,6 +236,13 @@ def stratified_similarity_split(
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     rng = check_random_state(random_state)
+
+    if (
+        not isinstance(n_bins, (int, np.integer))
+        or isinstance(n_bins, bool)
+        or n_bins < 1
+    ):
+        raise ValueError(f"n_bins must be a positive integer, got {n_bins!r}")
 
     # Compute distances from centroid
     centroid = compute_centroid(embeddings)
