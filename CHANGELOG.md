@@ -4,6 +4,41 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Faithfulness fixes to the Züfle et al. (2023) cluster-split strategies and the
+Godbole & Jia (2023) likelihood split after a re-audit against the source
+papers and their reference code. Two changes affect results for existing
+callers; see **Changed**.
+
+### Changed
+- `likelihood_split`: the default length metric for `length_buckets` (when
+  bucketing from `texts`) is now whitespace token count, approximating the
+  paper's NLTK `word_tokenize` count, instead of character count. Bucketed
+  splits may differ from previous releases; pass
+  `lengths=[len(t) for t in texts]` to restore the old character-based
+  bucketing exactly.
+- `cluster_split` with `strategy="subset_sum"` or `strategy="closest"` returns
+  different (more paper-faithful) splits than previous releases:
+  `"subset_sum"` now solves the multidimensional subset-sum exactly and always
+  completes to the exact class-balanced target; `"closest"` now seeds the
+  cluster farthest from the mean of centroids and grows by single-linkage,
+  matching the reference code. The `"size"` and `"centroid"` strategies are
+  unchanged.
+
+### Fixed
+- `cluster_split(cluster_range=...)` with `strategy="closest"` and
+  `fill_individual=True` no longer degenerates to the smallest `k`: the
+  k-search now scores the pre-fill assignment on the paper's criterion (fewest
+  individually-added examples) instead of the topped-up test set.
+
+### Added
+- `cluster_split(fill_anchor=...)`: the paper's prose and its released code
+  disagree on what the CLOSEST-SPLIT individual fill measures proximity to, so
+  both are offered — `"cluster_centroids"` (default, the paper's wording:
+  nearest selected test-cluster centroid) and `"test_mean"` (the released
+  reference code: mean of all current test embeddings).
+
 ## [0.2.1] — 2026-07-06
 
 Bug-fix roll-up from a full-package code review. Most changes are fixes to

@@ -20,8 +20,9 @@ scoring is perplexity, which is length-normalized and is deliberately *not* the
 paper's choice (perplexity over-corrects toward short examples in the tail; see
 their fn. 3) -- this helper always uses total log-likelihood.
 
-Scope vs. the paper. This reproduces the frozen-LM, promptless variant of the
-paper's ``ll_split_pt``. It does not implement the paper's other protocol
+Scope vs. the paper. This reproduces frozen-LM likelihood scoring -- the
+promptless base that the paper's ``ll_split_pt`` setting builds a task prompt
+on top of. It does not implement the paper's other protocol
 elements: (a) a task-specific prompt prepended to each query, (b) scoring the
 *query span only* (``perplexity_score`` scores the whole string you pass, so
 pass the query text alone to approximate this), or (c) the ``ll_split`` k-fold
