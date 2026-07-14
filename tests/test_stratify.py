@@ -100,6 +100,25 @@ class TestPerClassSplit:
         assert {0, 1} <= set(y[train].tolist())
         assert {0, 1} <= set(y[test].tolist())
 
+    def test_fallback_clamps_absolute_train_size(self):
+        """An absolute train_size >= a class size must fall back (not re-raise).
+
+        Class 1 has 5 samples but train_size=10; the fallback random_split would
+        itself re-raise "train_size out of range" unless the count is clamped to
+        the class's [1, size - 1] range. on_error='raise' still surfaces it.
+        """
+        rng = np.random.RandomState(3)
+        X = np.vstack([rng.randn(40, 6), rng.randn(5, 6) + 20])
+        y = np.array([0] * 40 + [1] * 5)
+        # on_error='raise' surfaces the out-of-range train_size for the 5-sample class.
+        with pytest.raises(ValueError):
+            per_class_split(random_split, X, y, 10, on_error="raise")
+        # ...while the default fallback clamps and keeps both classes covered.
+        train, test = per_class_split(random_split, X, y, 10)
+        assert _is_partition(train, test, len(X))
+        assert {0, 1} <= set(y[train].tolist())
+        assert {0, 1} <= set(y[test].tolist())
+
     def test_singleton_class_goes_to_train(self):
         rng = np.random.RandomState(2)
         X = np.vstack([rng.randn(10, 4), rng.randn(1, 4) + 9])

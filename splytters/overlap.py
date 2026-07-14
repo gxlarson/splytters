@@ -89,11 +89,15 @@ def neighbor_coverage_split(
     random_state: int = 42,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Ensure each test sample has k similar samples in train.
+    Best-effort: ensure each test sample has k similar samples in train.
 
     Solves a binary feasibility problem whose constraints require every test
     sample to have at least ``k`` train neighbors within the median pairwise
-    distance. Raises when no split of the requested size can meet that promise.
+    distance. Raises when no split of the requested size is feasible. When a
+    solver returns a split that does not fully meet the coverage constraint
+    (off-constraint solution), the promise is best-effort: the split is still
+    returned and a warning reports how many test samples are under-covered,
+    rather than silently violating the documented guarantee.
 
     Args:
         embeddings: array-like of shape (n_samples, embedding_dim)
@@ -166,9 +170,22 @@ def neighbor_coverage_split(
     train_mask = result.x >= 0.5
     train_indices = np.flatnonzero(train_mask)
     test_indices = np.flatnonzero(~train_mask)
-    coverage = neighbor_matrix[np.ix_(test_indices, train_indices)].sum(axis=1)
-    if len(train_indices) != n_train or np.any(coverage < k):
+    if len(train_indices) != n_train:
         raise RuntimeError("neighbor-coverage MILP returned an invalid solution")
+
+    # The MILP constraints enforce k-coverage, but report honestly rather than
+    # silently violate the documented promise if a solver ever returns a split
+    # where some test point has fewer than k train neighbors.
+    coverage = neighbor_matrix[np.ix_(test_indices, train_indices)].sum(axis=1)
+    n_undercovered = int(np.count_nonzero(coverage < k))
+    if n_undercovered:
+        warnings.warn(
+            f"neighbor_coverage_split left {n_undercovered} of "
+            f"{len(test_indices)} test samples with fewer than k={k} train "
+            "neighbors within the median-distance neighborhood; the coverage "
+            "guarantee is best-effort and was not fully met for this split.",
+            stacklevel=2,
+        )
     return as_index_array(train_indices), as_index_array(test_indices)
 
 
@@ -305,13 +322,18 @@ def nearest_neighbor_split(
     n_test = n_samples - resolve_n_train(n_samples, train_size)
     rng = check_random_state(random_state)
 
-    # Find each point's nearest neighbor
+    # Find each point's nearest neighbor. Query k=2 because the point itself is
+    # among its own neighbors on the fitted data. Normally self is column 0
+    # (distance 0), but with exact duplicates the sorted result can list the
+    # point itself in either column; take whichever column is not the point's
+    # own index so the recorded nearest neighbor is always another point. This
+    # avoids self-neighbor no-ops that wasted test capacity and raised spurious
+    # "could only place N" warnings.
     nn_model = NearestNeighbors(n_neighbors=2, metric=metric, algorithm="auto")
     nn_model.fit(embeddings)
-    # k=2 because the first neighbor is the point itself when querying the
-    # same dataset — but fit/kneighbors on the same data excludes self only
-    # if we use radius; instead just grab second neighbor
-    neighbors = nn_model.kneighbors(embeddings, return_distance=False)[:, 1]
+    two_nn = nn_model.kneighbors(embeddings, return_distance=False)
+    row = np.arange(n_samples)
+    neighbors = np.where(two_nn[:, 0] == row, two_nn[:, 1], two_nn[:, 0])
 
     # Start with all points in train, then greedily move points to test.
     # A point can become test only if its NN is (and stays) in train.

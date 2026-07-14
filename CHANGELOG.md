@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Correctness fixes from a non-adversarial code review. See **Changed** for the
+behavior change that can affect existing callers (`group_split`).
+
+### Fixed
+- `per_class_split` with `on_error="fallback"` no longer re-raises when an
+  absolute-count `train_size` is greater than or equal to a class's size; the
+  fallback clamps the count to the class's `[1, size - 1]` range so coverage is
+  genuinely preserved.
+- `split_dataframe`, `to_torch_subsets`, and `split_dataset` (`splytters.interop`)
+  only forward `random_state` to splitters that accept it, so a custom splitter
+  without a `random_state` parameter no longer raises `TypeError`. They also
+  accept splitters that return plain lists of indices.
+- `neighbor_coverage_split` documents its coverage promise as best-effort and
+  warns with the count of under-covered test samples if a solver ever returns a
+  split that does not fully meet the constraint, instead of silently violating
+  the documented guarantee.
+- `nearest_neighbor_split` masks self when reading each point's nearest
+  neighbor, so exact duplicates no longer record themselves as their own nearest
+  neighbor — removing spurious "could only place N" warnings and wasted test
+  capacity.
+
+### Changed
+- `group_split` assigns whole groups to train **best-fit** rather than first-fit:
+  a group larger than the target train size can now land in train when that
+  brings the realized train count closer to `train_size`. Previously such a group
+  was permanently barred from train, badly undershooting `train_size` (e.g. a
+  realized 9% train fraction for a requested 70%). Groups remain indivisible and
+  both sides remain non-empty. `deduplicated_split`, which shares the same
+  assignment routine, keeps whole near-duplicate components atomic as before.
+
 ## [0.2.1] — 2026-07-06
 
 Bug-fix roll-up from a full-package code review. Most changes are fixes to

@@ -25,8 +25,9 @@ from splytters.utils import as_index_array, resolve_n_train, validate_split_inpu
 def _assign_whole_groups(
     group_to_indices: dict, target_train: int, rng
 ) -> tuple[list[int], list[int]]:
-    """Greedily assign whole groups to train (up to ``target_train``), rest to
-    test, so no group is split across sides. Guarantees both sides non-empty.
+    """Best-fit assign whole groups to train to approach ``target_train`` by
+    sample count, rest to test, so no group is split across sides. Guarantees
+    both sides non-empty.
     """
     groups = [np.asarray(idxs) for idxs in group_to_indices.values()]
     order = rng.permutation(len(groups))
@@ -35,18 +36,29 @@ def _assign_whole_groups(
     test_groups: list[int] = []
     filled = 0
     for j in order:
-        if filled + len(groups[j]) <= target_train:
+        size = len(groups[j])
+        # Best-fit: keep the group in train only if doing so lands the running
+        # train count strictly closer to the target than leaving it out. A group
+        # larger than the whole target is still admitted when it gets us closer,
+        # instead of being permanently barred (first-fit grossly undershot
+        # train_size whenever a group exceeded the target).
+        if abs(filled + size - target_train) < abs(filled - target_train):
             train_groups.append(j)
-            filled += len(groups[j])
+            filled += size
         else:
             test_groups.append(j)
 
-    # Pathological case (e.g. one group larger than target_train): make sure
-    # train isn't empty by pulling the smallest test group over.
-    if not train_groups and test_groups:
+    # Both sides must stay non-empty. If best-fit swept every group to one side
+    # (e.g. a single dominant group, or a target that swallows them all), move
+    # the smallest group across; whole groups remain intact either way.
+    if not train_groups:
         smallest = min(test_groups, key=lambda j: len(groups[j]))
         test_groups.remove(smallest)
         train_groups.append(smallest)
+    elif not test_groups:
+        smallest = min(train_groups, key=lambda j: len(groups[j]))
+        train_groups.remove(smallest)
+        test_groups.append(smallest)
 
     train = [i for j in train_groups for i in groups[j].tolist()]
     test = [i for j in test_groups for i in groups[j].tolist()]
@@ -64,7 +76,8 @@ def group_split(
 
     All samples sharing a group id (e.g. the same user, document, patient, or
     source) are kept together in either train or test. Whole groups are assigned
-    greedily to approach ``train_size`` by sample count. The analogue of
+    best-fit to approach ``train_size`` by sample count (a group larger than the
+    target can still land in train when that gets the count closer). The analogue of
     scikit-learn's :class:`~sklearn.model_selection.GroupShuffleSplit`, but on
     embeddings and returning index arrays.
 

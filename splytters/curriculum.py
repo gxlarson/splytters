@@ -57,7 +57,16 @@ def sorted_stratified_split(
             so the lowest-scoring samples are the train-preferred "first" ones.
         y: class labels aligned to the original samples (length n_samples). The
             split is performed independently within each class.
-        train_size: fraction in (0, 1) or absolute count, applied *per class*.
+        train_size: fraction in (0, 1) or absolute count, applied *per class*. A
+            fractional ``train_size`` is clamped per class to ``[1, class_size -
+            1]`` so no class collapses either side (each class keeps at least one
+            train and one test sample where it has >= 2 members). An absolute
+            count is used as-is (only bounded to ``[0, class_size]``), so it is
+            not clamped away from the ends. This makes singleton classes
+            asymmetric: with a fractional ``train_size`` a size-1 class resolves
+            to ``n_train = 0`` and goes to *test*, whereas an integer
+            ``train_size >= 1`` resolves to ``n_train = 1`` and sends it to
+            *train*.
         largest_first: if True, reverse ``order`` so the highest-scoring samples
             are train-preferred.
 

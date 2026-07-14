@@ -11,8 +11,11 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
+
 from splytters._types import Splitter
 from splytters.adversarial import cluster_split
+from splytters.utils import accepts_random_state
 
 
 def split_dataframe(
@@ -42,8 +45,9 @@ def split_dataframe(
         raise ValueError(
             f"df has {len(df)} rows but embeddings has {len(embeddings)}"
         )
+    extra = {"random_state": random_state} if accepts_random_state(splitter) else {}
     train_idx, test_idx = splitter(
-        embeddings, train_size=train_size, random_state=random_state, **splitter_kwargs
+        embeddings, train_size=train_size, **extra, **splitter_kwargs
     )
     return df.iloc[train_idx], df.iloc[test_idx]
 
@@ -67,12 +71,13 @@ def to_torch_subsets(
         raise ValueError(
             f"dataset has {len(dataset)} items but embeddings has {len(embeddings)}"
         )
+    extra = {"random_state": random_state} if accepts_random_state(splitter) else {}
     train_idx, test_idx = splitter(
-        embeddings, train_size=train_size, random_state=random_state, **splitter_kwargs
+        embeddings, train_size=train_size, **extra, **splitter_kwargs
     )
     return (
-        Subset(dataset, train_idx.tolist()),
-        Subset(dataset, test_idx.tolist()),
+        Subset(dataset, np.asarray(train_idx).tolist()),
+        Subset(dataset, np.asarray(test_idx).tolist()),
     )
 
 
@@ -96,12 +101,13 @@ def split_dataset(
         raise ValueError(
             f"dataset has {len(ds)} rows but embeddings has {len(embeddings)}"
         )
+    extra = {"random_state": random_state} if accepts_random_state(splitter) else {}
     train_idx, test_idx = splitter(
-        embeddings, train_size=train_size, random_state=random_state, **splitter_kwargs
+        embeddings, train_size=train_size, **extra, **splitter_kwargs
     )
     return DatasetDict(
         {
-            "train": ds.select(train_idx.tolist()),
-            "test": ds.select(test_idx.tolist()),
+            "train": ds.select(np.asarray(train_idx).tolist()),
+            "test": ds.select(np.asarray(test_idx).tolist()),
         }
     )
