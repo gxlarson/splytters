@@ -6,6 +6,7 @@ distance bins in stratified-similarity, and the greedy swap loop in
 max-coverage.
 """
 
+import warnings
 from types import SimpleNamespace
 
 import numpy as np
@@ -13,6 +14,7 @@ import pytest
 
 from splytters.overlap import (
     max_coverage_split,
+    nearest_neighbor_split,
     neighbor_coverage_split,
     stratified_similarity_split,
 )
@@ -68,6 +70,41 @@ class TestNeighborCoverageFeasibility:
         X = np.arange(8, dtype=float).reshape(4, 2)
         with pytest.raises(RuntimeError, match="invalid solution"):
             neighbor_coverage_split(X, train_size=0.5, k=1)
+
+    def test_undercovered_split_warns_best_effort(self, monkeypatch):
+        """A solver returning a correctly-sized but under-covered split must warn
+        (best-effort) instead of silently violating the coverage promise."""
+        import scipy.optimize
+
+        # x has the right train count (3) but leaves both test points with fewer
+        # than k=3 train neighbors within the median-distance neighborhood.
+        monkeypatch.setattr(
+            scipy.optimize,
+            "milp",
+            lambda **_: SimpleNamespace(
+                success=True, x=np.array([1.0, 1.0, 1.0, 0.0, 0.0])
+            ),
+        )
+        X = np.array([0.0, 0.1, 0.2, 0.3, 50.0])[:, None]
+        with pytest.warns(UserWarning, match="fewer than k=3 train neighbors"):
+            train, test = neighbor_coverage_split(X, train_size=0.6, k=3)
+        _disjoint_and_complete(train, test, len(X))
+
+
+class TestNearestNeighborDuplicates:
+
+    @pytest.mark.parametrize("seed", [3, 4, 9])
+    def test_duplicates_do_not_self_neighbor(self, seed):
+        """With exact duplicates, a point must never record itself as its own
+        nearest neighbor. Before the self-mask fix the higher-indexed twin's
+        recorded NN was itself, which wasted a test slot and raised a spurious
+        "could only place N" warning on this easily satisfiable case."""
+        X = np.zeros((3, 2))  # three exact duplicates
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # any warning fails the test
+            train, test = nearest_neighbor_split(X, train_size=0.34, random_state=seed)
+        _disjoint_and_complete(train, test, len(X))
+        assert len(test) == 2  # full requested test size is placed
 
 
 class TestStratifiedSimilarityEmptyBins:

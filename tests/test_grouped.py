@@ -56,6 +56,19 @@ class TestGroupSplit:
         with pytest.raises(ValueError, match="at least 2"):
             group_split(X, np.zeros(10, dtype=int))
 
+    def test_large_group_best_fit_lands_in_train(self):
+        """A group larger than the target must not be permanently barred from
+        train. With a 10-sample group and a 1-sample group at train_size=0.7,
+        best-fit puts the big group in train (realized fraction 10/11 is far
+        closer to 0.7 than the 1/11 the old first-fit produced)."""
+        X = np.random.RandomState(0).randn(11, 4)
+        groups = np.array([0] * 10 + [1])
+        train, test = group_split(X, groups, train_size=0.7)
+        assert _valid(train, test, len(X))
+        assert set(groups[train]) == {0}  # the 10-sample group is in train
+        realized = len(train) / len(X)
+        assert abs(realized - 0.7) < abs(0.09 - 0.7)
+
 
 class TestDeduplicatedSplit:
 
