@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- `column_rank` (tabular) now keeps NaN rows at the end for both sort
+  directions. The previous `na_option='bottom'` gave NaN the maximum rank, so
+  with `low_first=False` NaN rows sorted to the *front*; a direction-aware
+  sentinel (matching `column_zscore`) now sorts them last regardless.
+- `column_zscore` and `column_absolute_zscore` (tabular) return `0.0` for
+  single-row input. pandas' ddof=1 `std()` on one row is `NaN`, which slipped
+  past the `std == 0` guard and yielded `NaN` scores; the guard now also covers
+  `NaN`.
+- `outlier_score(method="zscore")` (tabular) maps the all-NaN z-scores of a
+  constant column to `0.0` before averaging, so an all-constant frame scores a
+  uniform `0.0` instead of returning all-`NaN` and emitting a `RuntimeWarning`.
+- Lazy modality-sorter imports now raise an actionable error when the optional
+  dependency is missing, naming the pip extra to install
+  (e.g. `pip install splytters[image]`) instead of a bare
+  `ModuleNotFoundError: No module named 'PIL'`.
+- `OpenAIEmbedder.embed` sorts the API response by each item's `index` before
+  stacking, so the returned rows stay aligned with the input order even if the
+  API returns them out of order.
+- `resolve_n_train` clamps an absolute-count `train_size` to
+  `[1, n_samples - 1]`, mirroring the fractional path, so a direct caller can
+  never collapse one side of the split to empty (public entry points already
+  reject out-of-range counts earlier).
+
+### Documentation
+- `stratified_random_split` documents that every class in `y` needs at least 2
+  members or scikit-learn raises `ValueError`.
+- `histogram_matched_split` documents that an all-constant feature set makes the
+  matching objective vacuous, leaving the result equivalent to a random split.
+
 ## [0.2.1] — 2026-07-06
 
 Bug-fix roll-up from a full-package code review. Most changes are fixes to

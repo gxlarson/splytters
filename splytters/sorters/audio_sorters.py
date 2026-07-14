@@ -19,7 +19,7 @@ from splytters.sorters._lazy import LazyModule
 
 # librosa is imported on first use (see _lazy), so importing this module needs
 # no [audio] extra — only calling a sorter does.
-librosa = LazyModule("librosa")
+librosa = LazyModule("librosa", extra="audio")
 
 AudioInput = str | Path | tuple[np.ndarray, int] | np.ndarray
 

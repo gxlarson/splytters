@@ -141,8 +141,8 @@ def test_clip_image_embedder(monkeypatch):
 def test_openai_embedder(monkeypatch):
     class FakeEmbeddings:
         def create(self, input, model):
-            data = [types.SimpleNamespace(embedding=[0.1, 0.2, 0.3, 0.4])
-                    for _ in input]
+            data = [types.SimpleNamespace(embedding=[0.1, 0.2, 0.3, 0.4], index=i)
+                    for i in range(len(input))]
             return types.SimpleNamespace(data=data)
 
     class FakeOpenAI:
@@ -153,3 +153,25 @@ def test_openai_embedder(monkeypatch):
                         _fake_module("openai", OpenAI=FakeOpenAI))
     out = OpenAIEmbedder().embed(["a", "b"])
     assert out.shape == (2, 4)
+
+
+def test_openai_embedder_sorts_by_index(monkeypatch):
+    """The API may return items out of order; embed() must realign them by the
+    ``index`` field so each row matches its input position."""
+    class FakeEmbeddings:
+        def create(self, input, model):
+            # One distinct embedding per input, returned in reverse order.
+            items = [types.SimpleNamespace(embedding=[float(i)], index=i)
+                     for i in range(len(input))]
+            return types.SimpleNamespace(data=list(reversed(items)))
+
+    class FakeOpenAI:
+        def __init__(self):
+            self.embeddings = FakeEmbeddings()
+
+    monkeypatch.setitem(sys.modules, "openai",
+                        _fake_module("openai", OpenAI=FakeOpenAI))
+    out = OpenAIEmbedder().embed(["a", "b", "c"])
+    assert out.shape == (3, 1)
+    # Aligned back to input order 0, 1, 2 despite the reversed response.
+    assert [row[0] for row in out] == [0.0, 1.0, 2.0]
