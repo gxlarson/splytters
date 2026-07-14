@@ -102,12 +102,14 @@ def validate_split_inputs(
 def resolve_n_train(n_samples: int, train_size: float | int) -> int:
     """Resolve ``train_size`` (fraction or absolute count) to an int count.
 
-    A fractional ``train_size`` is clamped to ``[1, n_samples - 1]`` so the
-    resolved count never collapses one side of the split to empty (e.g.
-    ``n_samples=2, train_size=0.3`` would otherwise truncate to 0).
+    Both a fractional and an absolute ``train_size`` are clamped to
+    ``[1, n_samples - 1]`` so the resolved count never collapses one side of the
+    split to empty (e.g. ``n_samples=2, train_size=0.3`` would otherwise truncate
+    to 0). Public entry points reject out-of-range values earlier via
+    ``validate_split_inputs``; this clamp is a defensive floor for direct callers.
     """
     if isinstance(train_size, (int, np.integer)) and not isinstance(train_size, bool):
-        return int(train_size)
+        return min(max(int(train_size), 1), n_samples - 1)
     n_train = int(n_samples * train_size)
     return min(max(n_train, 1), n_samples - 1)
 

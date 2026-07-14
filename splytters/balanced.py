@@ -128,6 +128,12 @@ def histogram_matched_split(
 
     Seed stability: varies with the seed like a random split -- the swap
     optimization reaches different assignments with equally matched histograms.
+
+    Note:
+        Constant (or near-constant) feature dimensions have collapsed percentile
+        bin edges and are skipped, so if *every* feature is constant the matching
+        objective is vacuous (always 0) and the result is equivalent to a random
+        split.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     n_dims = embeddings.shape[1]
@@ -177,6 +183,12 @@ def stratified_random_split(
 
     Seed stability: varies with the seed like a random split -- it is a seeded
     stratified random draw.
+
+    Note:
+        Every class in ``y`` must have at least 2 members: scikit-learn's
+        stratified split needs to place at least one sample of each class on each
+        side, so a singleton class raises ``ValueError`` (propagated from
+        ``train_test_split``).
     """
     from sklearn.model_selection import train_test_split
 
