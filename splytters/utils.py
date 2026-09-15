@@ -228,6 +228,29 @@ def compute_centroid(X: ArrayLike) -> np.ndarray:
     return X.mean(axis=0)
 
 
+def rank_by_centroid_distance(embeddings: np.ndarray, metric: str) -> np.ndarray:
+    """Sample indices ordered from closest to farthest from the centroid.
+
+    Shared by :func:`splytters.distance_adversarial_split` and
+    :func:`splytters.central_split` so the two stay exact mirrors.
+
+    Args:
+        embeddings: validated array of shape (n_samples, n_features).
+        metric: any ``scipy.spatial.distance.cdist`` metric or callable.
+
+    Raises:
+        ValueError: if ``metric`` is not a metric ``cdist`` accepts.
+    """
+    centroid = compute_centroid(embeddings)
+    # Euclidean keeps the original norm computation so its tie order, and
+    # hence distance_adversarial_split's historical splits, are unchanged.
+    if metric == "euclidean":
+        distances = np.linalg.norm(embeddings - centroid, axis=1)
+    else:
+        distances = cdist(embeddings, centroid[None, :], metric=metric).ravel()
+    return np.argsort(distances)
+
+
 def compute_split_centroids(
     X: ArrayLike, train_indices: ArrayLike, test_indices: ArrayLike
 ) -> tuple[np.ndarray | None, np.ndarray | None]:
