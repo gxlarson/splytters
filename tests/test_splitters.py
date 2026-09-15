@@ -1384,6 +1384,40 @@ class TestDistanceAdversarialSplit:
         # Every test sample should be at least as far as the closest train sample
         assert test_min >= train_max - 1e-10
 
+    @pytest.mark.parametrize("metric", ["cosine", "cityblock", "chebyshev"])
+    def test_metric_is_honored(self, metric):
+        """Regression for #66: metric was accepted but ignored, so every value
+        produced the euclidean split."""
+        from scipy.spatial.distance import cdist
+        X = np.random.default_rng(0).normal(size=(1000, 64)) + 0.5
+        train, test = distance_adversarial_split(X, 0.8, metric=metric)
+        assert_valid_split(train, test, len(X), train_size=0.8)
+        d = cdist(X, X.mean(axis=0, keepdims=True), metric=metric).ravel()
+        assert d[test].min() >= d[train].max()
+        euclidean_train, _ = distance_adversarial_split(X, 0.8)
+        assert set(train.tolist()) != set(euclidean_train.tolist())
+
+    def test_callable_metric(self):
+        X = np.random.default_rng(1).normal(size=(200, 8))
+        train, _ = distance_adversarial_split(
+            X, 0.7, metric=lambda u, v: np.abs(u - v).sum()
+        )
+        assert np.array_equal(
+            np.sort(train), np.sort(distance_adversarial_split(X, 0.7, metric="cityblock")[0])
+        )
+
+    def test_unknown_metric_raises(self, embeddings_2d):
+        with pytest.raises(ValueError, match="not_a_real_metric"):
+            distance_adversarial_split(embeddings_2d, metric="not_a_real_metric")
+
+    def test_euclidean_default_unchanged(self, embeddings_2d):
+        centroid = embeddings_2d.mean(axis=0)
+        order = np.argsort(np.linalg.norm(embeddings_2d - centroid, axis=1))
+        train, test = distance_adversarial_split(embeddings_2d, 0.7)
+        n_train = len(train)
+        assert np.array_equal(train, order[:n_train])
+        assert np.array_equal(test, order[n_train:])
+
 
 class TestDensityAdversarialSplit:
 
