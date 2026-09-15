@@ -18,7 +18,7 @@ Make the splytters API coalesce with scikit-learn so splitters can drop into exi
 
 ## Scalability
 
-- [~] **Approximate / chunked nearest neighbors** — `embedding_sorters.distance_to_nearest_neighbor`, `knn_label_disagreement`, and both `density_*_split` functions now use exact `NearestNeighbors` queries with O(n·k) result storage; `[ann]` extra (`pynndescent`) added. Remaining O(n²): `local_density`, `min_cut_split`, `normalized_cut_split`, `neighbor_coverage_split`, `duplicate_spread_split`, `max_coverage_split`, `compute_split_similarity` (each still TODO-flagged in-code).
+- [~] **Approximate / chunked nearest neighbors** — `embedding_sorters.distance_to_nearest_neighbor`, `knn_label_disagreement`, and both `density_*_split` functions now use exact `NearestNeighbors` queries with O(n·k) result storage; `[ann]` extra (`pynndescent`) added. Remaining O(n²): `local_density`, `min_cut_split`, `normalized_cut_split`, `neighbor_coverage_split`, `duplicate_spread_split`, `max_coverage_split` (each still TODO-flagged in-code). `compute_split_similarity` is O(max_samples · n) when `max_samples` is set (as `split_report` does).
 
 ## Infra
 

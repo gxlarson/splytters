@@ -262,6 +262,122 @@ class TestComputeSplitSimilarity:
         assert "mean_cross_distance" in result
         assert "coverage" in result
 
+    @staticmethod
+    def _reference(X, train, test, metric="euclidean"):
+        """The original all-pairs implementation, kept as an exact oracle."""
+        from scipy.spatial.distance import cdist
+        min_d = cdist(X[test], X[train], metric=metric).min(axis=1)
+        all_d = cdist(X, X, metric=metric)
+        np.fill_diagonal(all_d, np.inf)
+        median = np.median(all_d[all_d < np.inf])
+        return {
+            "centroid_distance": float(
+                np.linalg.norm(X[train].mean(axis=0) - X[test].mean(axis=0))
+            ),
+            "mean_cross_distance": float(min_d.mean()),
+            "coverage": float((min_d <= median).mean()),
+        }
+
+    # jensenshannon is scipy-only, so it exercises the chunked cdist fallback;
+    # the others go through sklearn's nearest-neighbor search.
+    @pytest.mark.parametrize(
+        "metric", ["euclidean", "cosine", "cityblock", "jensenshannon"]
+    )
+    def test_exact_without_max_samples(self, metric):
+        X = np.abs(np.random.RandomState(0).randn(301, 6))
+        train, test = random_split(X, train_size=0.7, random_state=0)
+        result = compute_split_similarity(X, train, test, metric)
+        assert result == pytest.approx(self._reference(X, train, test, metric))
+
+    def test_max_samples_at_least_n_is_exact(self):
+        X = np.random.RandomState(1).randn(200, 4)
+        train, test = random_split(X, random_state=1)
+        result = compute_split_similarity(X, train, test, max_samples=200)
+        assert result == pytest.approx(self._reference(X, train, test))
+
+    def test_chunked_fallback_matches_unchunked(self, monkeypatch):
+        import splytters.utils as utils
+        X = np.abs(np.random.RandomState(2).randn(250, 5))
+        train, test = random_split(X, random_state=2)
+        expected = compute_split_similarity(X, train, test, "jensenshannon")
+        monkeypatch.setattr(utils, "_CDIST_CHUNK_ELEMENTS", 7)  # one row per chunk
+        result = compute_split_similarity(X, train, test, "jensenshannon")
+        assert result == pytest.approx(expected)
+
+    @pytest.mark.parametrize("metric", ["euclidean", "jensenshannon"])
+    def test_max_samples_bounds_pairwise_work(self, monkeypatch, metric):
+        """With max_samples, no pairwise call scales with n²: pdist sees at most
+        max_samples points and the nearest-train search at most max_samples
+        test rows in total."""
+        from scipy.spatial.distance import cdist, pdist
+        from sklearn.metrics import pairwise_distances_argmin_min
+
+        import splytters.utils as utils
+        pdist_rows, search_rows = [], []
+
+        def spy_pdist(A, *args, **kwargs):
+            pdist_rows.append(len(A))
+            return pdist(A, *args, **kwargs)
+
+        def spy_cdist(A, B, *args, **kwargs):
+            search_rows.append(len(A))
+            return cdist(A, B, *args, **kwargs)
+
+        def spy_argmin(A, B, *args, **kwargs):
+            search_rows.append(len(A))
+            return pairwise_distances_argmin_min(A, B, *args, **kwargs)
+
+        monkeypatch.setattr(utils, "pdist", spy_pdist)
+        monkeypatch.setattr(utils, "cdist", spy_cdist)
+        monkeypatch.setattr(utils, "pairwise_distances_argmin_min", spy_argmin)
+        X = np.abs(np.random.RandomState(3).randn(3000, 8))
+        train, test = random_split(X, train_size=0.5, random_state=3)
+        result = compute_split_similarity(
+            X, train, test, metric, max_samples=100, random_state=0
+        )
+        assert max(pdist_rows) <= 100
+        assert 0 < sum(search_rows) <= 100
+        monkeypatch.undo()
+        # Subsampled estimates stay close to the exact values.
+        exact = compute_split_similarity(X, train, test, metric)
+        assert result["centroid_distance"] == pytest.approx(exact["centroid_distance"])
+        assert result["mean_cross_distance"] == pytest.approx(
+            exact["mean_cross_distance"], rel=0.1
+        )
+        assert result["coverage"] == pytest.approx(exact["coverage"], abs=0.1)
+
+    def test_max_samples_deterministic_with_seed(self):
+        X = np.random.RandomState(4).randn(500, 4)
+        train, test = random_split(X, random_state=4)
+        a = compute_split_similarity(X, train, test, max_samples=50, random_state=7)
+        b = compute_split_similarity(X, train, test, max_samples=50, random_state=7)
+        assert a == b
+
+    def test_memory_warning_threshold(self):
+        from splytters.utils import warn_if_pairwise_memory_large
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            warn_if_pairwise_memory_large(2**27, 1000, "f")  # exactly 1 GiB
+        with pytest.warns(UserWarning, match=r"f with max_samples=None .* 1\.0 GiB"):
+            warn_if_pairwise_memory_large(2**27 + 2**20, 1000, "f")
+
+    def test_warns_on_large_exact_computation(self, monkeypatch):
+        import splytters.utils as utils
+        monkeypatch.setattr(utils, "_PAIRWISE_MEMORY_WARN_BYTES", 0)
+        X = np.random.RandomState(5).randn(50, 3)
+        train, test = random_split(X, random_state=5)
+        with pytest.warns(UserWarning, match="Pass max_samples") as record:
+            compute_split_similarity(X, train, test)
+        assert record[0].filename == __file__  # attributed to the caller
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            compute_split_similarity(X, train, test, max_samples=10)
+
+    def test_rejects_non_positive_max_samples(self, embeddings_small):
+        train, test = random_split(embeddings_small)
+        with pytest.raises(ValueError, match="max_samples"):
+            compute_split_similarity(embeddings_small, train, test, max_samples=0)
+
 
 class TestGreedyAssignToTarget:
 
