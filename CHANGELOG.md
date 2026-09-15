@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`central_split`** (overlap family), the mirror of
+  `distance_adversarial_split`: the samples closest to the centroid go to test
+  and the rest to train, giving a prototypical, optimistic test set (#69).
+  Unlike swapping the outputs of `distance_adversarial_split`, `train_size`
+  means the training set, rounding matches every other splitter, and integer
+  `train_size` works. Honors `metric`; wrap it in `per_class_split` for
+  class-typical test samples.
+
 ### Fixed
 - `split_report` no longer does O(n²) work in the full dataset. `max_samples`
   now caps the geometric metrics too (`mean_cross_distance`, `coverage`), not

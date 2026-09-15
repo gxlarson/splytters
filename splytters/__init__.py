@@ -61,6 +61,7 @@ from splytters.interop import (
 # Likelihood Splits (Godbole & Jia 2023): lowest-log-likelihood examples -> eval.
 from splytters.likelihood import likelihood_split
 from splytters.overlap import (
+    central_split,
     centroid_matched_split,
     cluster_leak_split,
     duplicate_spread_split,
@@ -124,6 +125,7 @@ __all__ = [
     "centroid_matched_split",
     "stratified_similarity_split",
     "nearest_neighbor_split",
+    "central_split",
     "duplicate_spread_split",
     "max_coverage_split",
     # Balanced (match distributions)
@@ -201,6 +203,7 @@ _SPLITTER_FAMILIES: dict[str, list[str]] = {
         "centroid_matched_split",
         "stratified_similarity_split",
         "nearest_neighbor_split",
+        "central_split",
         "duplicate_spread_split",
         "max_coverage_split",
     ],

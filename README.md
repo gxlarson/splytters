@@ -131,7 +131,7 @@ distance, mean 1-D Wasserstein/KS, and optional label-distribution shift).
 ![Adversarial splitters on 2D distributions](https://raw.githubusercontent.com/gxlarson/splytters/main/docs/adv.png)
 
 **Overlap** (maximize train/test similarity):
-`cluster_leak_split`, `neighbor_coverage_split`, `centroid_matched_split`, `stratified_similarity_split`, `nearest_neighbor_split`, `duplicate_spread_split`, `max_coverage_split`
+`cluster_leak_split`, `neighbor_coverage_split`, `centroid_matched_split`, `stratified_similarity_split`, `nearest_neighbor_split`, `central_split`, `duplicate_spread_split`, `max_coverage_split`
 
 ![Overlap splitters on 2D distributions](https://raw.githubusercontent.com/gxlarson/splytters/main/docs/overlap.png)
 
