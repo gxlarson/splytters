@@ -21,6 +21,7 @@ from splytters.utils import (
     as_index_array,
     cluster_embeddings,
     compute_centroid,
+    near_duplicate_components,
     optimized_split,
     resolve_n_train,
     validate_split_inputs,
@@ -367,14 +368,21 @@ def duplicate_spread_split(
     Args:
         embeddings: array-like of shape (n_samples, embedding_dim)
         train_size: fraction in (0, 1) or absolute count for the training set
-        similarity_threshold: distance threshold for near-duplicates
-                              (default: 10th percentile of distances)
-        metric: distance metric
+        similarity_threshold: pairs at most this far apart (``metric``
+            distance) are near-duplicates. Defaults to 0.1 times the median
+            distance from each sample to its 10th nearest neighbor, i.e. pairs
+            much closer than neighbors typically are.
+        metric: distance metric (any ``scipy.spatial.distance.cdist`` metric)
         random_state: for reproducibility
 
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Warns:
+        UserWarning: if no near-duplicates are found, or one near-duplicate
+            group holds more than half the samples. Either way the result is
+            effectively a random split.
 
     Seed stability: varies with the seed like a random split -- each
     near-duplicate group is shuffled before being split across both sides.
@@ -382,27 +390,36 @@ def duplicate_spread_split(
     embeddings = validate_split_inputs(embeddings, train_size)
     rng = check_random_state(random_state)
 
-    # TODO: Replace full pairwise matrix with BallTree.query_radius to find
-    # near-duplicates without materializing O(n²) distances.
-    distances = cdist(embeddings, embeddings, metric=metric)
-    np.fill_diagonal(distances, np.inf)
-
-    # Set threshold
-    if similarity_threshold is None:
-        finite_dists = distances[distances < np.inf]
-        similarity_threshold = np.percentile(finite_dists, 10)
-
     # Find near-duplicate groups using connected components
-    from scipy.sparse import csr_matrix
-    from scipy.sparse.csgraph import connected_components
-
-    adjacency = (distances <= similarity_threshold).astype(int)
-    n_components, labels = connected_components(csr_matrix(adjacency))
+    labels, similarity_threshold = near_duplicate_components(
+        embeddings, similarity_threshold, metric
+    )
 
     # Group samples by component
     component_to_indices = defaultdict(list)
     for idx, label in enumerate(labels):
         component_to_indices[label].append(idx)
+
+    n_samples = len(embeddings)
+    largest = max(len(v) for v in component_to_indices.values())
+    if largest < 2:
+        warnings.warn(
+            f"duplicate_spread_split found no near-duplicates within "
+            f"similarity_threshold={similarity_threshold:.4g}, so there is "
+            "nothing to spread and the result is a random split. Raise "
+            "similarity_threshold to treat looser pairs as near-duplicates.",
+            UserWarning,
+            stacklevel=2,
+        )
+    elif largest > n_samples / 2:
+        warnings.warn(
+            f"duplicate_spread_split: one near-duplicate group holds {largest} "
+            f"of {n_samples} samples (similarity_threshold="
+            f"{similarity_threshold:.4g}), so spreading it is effectively a "
+            "random split. Lower similarity_threshold to merge fewer samples.",
+            UserWarning,
+            stacklevel=2,
+        )
 
     n_train_total = resolve_n_train(len(embeddings), train_size)
     train_fraction = n_train_total / len(embeddings)

@@ -10,16 +10,23 @@ similarity threshold), not discovered by clustering.
 
 from __future__ import annotations
 
+import warnings
 from collections import defaultdict
 
 import numpy as np
 from numpy.typing import ArrayLike
-from scipy.sparse import csr_matrix
-from scipy.sparse.csgraph import connected_components
-from scipy.spatial.distance import cdist
 from sklearn.utils import check_random_state
 
-from splytters.utils import as_index_array, resolve_n_train, validate_split_inputs
+from splytters.utils import (
+    as_index_array,
+    near_duplicate_components,
+    resolve_n_train,
+    validate_split_inputs,
+)
+
+# deduplicated_split warns when the realized train size misses the target by
+# more than this fraction of the samples.
+_TRAIN_SIZE_TOLERANCE = 0.05
 
 
 def _assign_whole_groups(
@@ -125,11 +132,13 @@ def deduplicated_split(
         embeddings: array-like of shape (n_samples, embedding_dim).
         train_size: fraction in (0, 1) or absolute count for the training set
             (approximate, since duplicate groups are indivisible).
-        similarity_threshold: pairs closer than this (``metric`` distance) are
-            treated as near-duplicates. Defaults to the 1st percentile of
-            pairwise distances (conservative — only the closest pairs); raise it
-            to merge looser near-duplicates, lower it to merge only exact ones.
-        metric: distance metric passed to ``scipy.spatial.distance.cdist``.
+        similarity_threshold: pairs at most this far apart (``metric``
+            distance) are treated as near-duplicates. Defaults to 0.1 times the
+            median distance from each sample to its 10th nearest neighbor, i.e.
+            pairs much closer than neighbors typically are; this links nothing
+            in data without near-duplicates. Raise it to merge looser
+            near-duplicates, or set it to 0 to merge only exact ones.
+        metric: distance metric (any ``scipy.spatial.distance.cdist`` metric).
         random_state: for reproducibility.
 
     Returns:
@@ -140,6 +149,11 @@ def deduplicated_split(
             component (nothing left to split without leakage) — lower
             ``similarity_threshold``.
 
+    Warns:
+        UserWarning: if indivisible near-duplicate groups push the realized
+            train size more than 5% of the samples away from ``train_size``.
+            The message reports the group count and the largest group.
+
     Seed stability: structure-stable -- the near-duplicate groups are fixed; only
     which group goes to which side is random.
     """
@@ -147,16 +161,9 @@ def deduplicated_split(
     n_samples = len(embeddings)
     rng = check_random_state(random_state)
 
-    # TODO: Replace the full pairwise matrix with BallTree.query_radius to find
-    # near-duplicate pairs without materializing O(n²) distances.
-    distances = cdist(embeddings, embeddings, metric=metric)
-    np.fill_diagonal(distances, np.inf)
-    if similarity_threshold is None:
-        finite = distances[distances < np.inf]
-        similarity_threshold = np.percentile(finite, 1)
-
-    adjacency = (distances <= similarity_threshold).astype(int)
-    _, labels = connected_components(csr_matrix(adjacency))
+    labels, similarity_threshold = near_duplicate_components(
+        embeddings, similarity_threshold, metric
+    )
 
     component_to_indices: dict[int, list[int]] = defaultdict(list)
     for idx, label in enumerate(labels):
@@ -170,4 +177,18 @@ def deduplicated_split(
     components = {k: np.asarray(v) for k, v in component_to_indices.items()}
     target_train = resolve_n_train(n_samples, train_size)
     train, test = _assign_whole_groups(components, target_train, rng)
+
+    if abs(len(train) - target_train) > max(_TRAIN_SIZE_TOLERANCE * n_samples, 1):
+        largest = max(len(v) for v in components.values())
+        warnings.warn(
+            f"deduplicated_split produced {len(train)} train / {len(test)} test "
+            f"samples instead of the requested {target_train} / "
+            f"{n_samples - target_train}, because near-duplicate groups cannot "
+            f"be divided. similarity_threshold={similarity_threshold:.4g} found "
+            f"{len(components)} groups, the largest with {largest} of "
+            f"{n_samples} samples. Lower similarity_threshold to merge fewer "
+            "samples.",
+            UserWarning,
+            stacklevel=2,
+        )
     return as_index_array(sorted(train)), as_index_array(sorted(test))
