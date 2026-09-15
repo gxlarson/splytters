@@ -21,6 +21,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `compute_split_similarity` and `split_report` warn when `max_samples=None`
   would need more than about 1 GiB of distance matrices, and suggest passing
   `max_samples`.
+- `cluster_split(method="dbscan")` no longer silently ignores `train_size`
+  (#67). DBSCAN noise points are no longer treated as one indivisible cluster:
+  `"size"` / `"centroid"` place them individually to fill train up to the
+  target, and `"closest"` / `"subset_sum"` start them in train, where the
+  individual fill / completion can use them. Previously a few near-duplicates
+  on typical embeddings produced splits like 18 train / 15,982 test.
+- `cluster_split` warns when train or test ends up smaller than half its
+  requested size, reporting the cluster count and largest cluster and
+  suggesting a fix (`eps` / `min_samples`, `n_clusters`, or
+  `fill_individual=True`). This also covers imbalanced KMeans clusters.
+- `cluster_split`, `cluster_kfold`, and `minority_split` warn when DBSCAN
+  labels more than half the samples as noise.
+
+### Changed
+- For `method="dbscan"` in `cluster_split`, `cluster_kfold`, and
+  `minority_split`, omitting `eps` now uses a default scaled to the data (the
+  90th percentile of each sample's distance to its `(min_samples - 1)`-th
+  nearest neighbor, so about 90% of samples are core points) instead of
+  sklearn's absolute `eps=0.5`, which labels nearly every sample noise on
+  unnormalized embeddings. Splits made without an explicit `eps` will differ.
 
 ## [0.2.1] — 2026-07-06
 
