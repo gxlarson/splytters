@@ -35,6 +35,61 @@ from splytters.utils import (
 # degenerate (clusters are nearly label-pure): warn rather than fail silently.
 _MINORITY_DEGENERATE_FRACTION = 0.05
 
+# Default DBSCAN eps when the caller doesn't pass one: this quantile of each
+# sample's distance to its (min_samples - 1)-th nearest neighbor, i.e. the
+# radius at which that fraction of samples are core points. Unlike sklearn's
+# absolute eps=0.5, it scales with the data.
+_DBSCAN_EPS_QUANTILE = 0.9
+# Warn when DBSCAN labels more than this fraction of the samples as noise.
+_DBSCAN_NOISE_WARN_FRACTION = 0.5
+# cluster_split warns when either side ends up smaller than this fraction of
+# its requested size.
+_CLUSTER_SPLIT_MIN_SIDE_FRACTION = 0.5
+
+
+def _default_dbscan_eps(embeddings: np.ndarray, dbscan_kwargs: dict[str, Any]) -> float:
+    """Scale-aware DBSCAN ``eps``: see :data:`_DBSCAN_EPS_QUANTILE`."""
+    from sklearn.neighbors import NearestNeighbors
+
+    # DBSCAN's min_samples counts the point itself, so a core point needs
+    # min_samples - 1 other neighbors within eps.
+    k = max(1, min(dbscan_kwargs.get("min_samples", 5) - 1, len(embeddings) - 1))
+    nn_kwargs = {
+        key: dbscan_kwargs[key] for key in ("metric", "metric_params", "p")
+        if dbscan_kwargs.get(key) is not None
+    }
+    distances = NearestNeighbors(n_neighbors=k, **nn_kwargs).fit(embeddings).kneighbors()[0]
+    eps = float(np.quantile(distances[:, -1], _DBSCAN_EPS_QUANTILE))
+    # DBSCAN requires eps > 0; a zero quantile means mostly exact duplicates.
+    return eps if eps > 0 else float(np.finfo(float).eps)
+
+
+def _dbscan_labels(
+    embeddings: np.ndarray,
+    cluster_kwargs: dict[str, Any],
+    caller: str,
+    stacklevel: int,
+) -> np.ndarray:
+    """Fit DBSCAN with a scale-aware default ``eps``, warning on mostly-noise output.
+
+    An explicit ``eps`` in ``cluster_kwargs`` is used as given.
+    """
+    kwargs = dict(cluster_kwargs)
+    if "eps" not in kwargs:
+        kwargs["eps"] = _default_dbscan_eps(embeddings, kwargs)
+    labels = DBSCAN(**kwargs).fit_predict(embeddings)
+    noise_fraction = float(np.mean(labels == -1))
+    if noise_fraction > _DBSCAN_NOISE_WARN_FRACTION:
+        warnings.warn(
+            f"{caller}: DBSCAN labeled {noise_fraction:.0%} of samples as noise "
+            f"(eps={kwargs['eps']:.4g}, min_samples={kwargs.get('min_samples', 5)}), "
+            "so few samples belong to any cluster. Increase eps or lower "
+            "min_samples; omit eps to use a default scaled to the data.",
+            UserWarning,
+            stacklevel=stacklevel + 1,
+        )
+    return labels
+
 
 def _cluster_centroids(
     embeddings: np.ndarray, cluster_to_indices: dict[int, list[int]]
@@ -46,20 +101,49 @@ def _cluster_centroids(
 def _assign_by_size(
     cluster_to_indices: dict[int, list[int]], target_train: int
 ) -> tuple[list[int], list[int]]:
-    """Greedily fill train with the largest clusters first (DBSCAN noise -> test)."""
+    """Greedily fill train with the largest clusters first."""
     clusters_by_size = sorted(
         cluster_to_indices.items(), key=lambda kv: len(kv[1]), reverse=True
     )
     train: list[int] = []
     test: list[int] = []
-    for cluster_id, indices in clusters_by_size:
-        if cluster_id == -1:  # DBSCAN noise points -> test
-            test.extend(indices)
-        elif len(train) + len(indices) <= target_train:
+    for _, indices in clusters_by_size:
+        if len(train) + len(indices) <= target_train:
             train.extend(indices)
         else:
             test.extend(indices)
     return train, test
+
+
+def _place_noise_points(
+    embeddings: np.ndarray,
+    noise: list[int],
+    train: list[int],
+    test: list[int],
+    target_train: int,
+    strategy: str,
+    rng: np.random.RandomState,
+) -> tuple[list[int], list[int]]:
+    """Assign DBSCAN noise points individually after the whole clusters.
+
+    Noise points belong to no cluster, so they are not kept together: they fill
+    train up to ``target_train`` and the rest go to test. ``"centroid"`` takes
+    the noise points nearest the global centroid first (near -> train, as for
+    clusters); other strategies take them in random order.
+    """
+    if not noise:
+        return train, test
+    noise_arr = np.asarray(noise)
+    if strategy == "centroid":
+        dist = np.linalg.norm(embeddings[noise_arr] - compute_centroid(embeddings), axis=1)
+        noise_arr = noise_arr[np.argsort(dist, kind="stable")]
+    else:
+        noise_arr = rng.permutation(noise_arr)
+    n_to_train = max(0, target_train - len(train))
+    return (
+        train + noise_arr[:n_to_train].tolist(),
+        test + noise_arr[n_to_train:].tolist(),
+    )
 
 
 def _assign_by_centroid(
@@ -444,7 +528,7 @@ def cluster_split(
         strategy: cluster -> train/test assignment policy:
             - ``"size"`` (default): greedily fill train with the largest clusters
               until the target ratio is met. The original, target-ratio-driven
-              behavior; DBSCAN noise points go to test.
+              behavior.
             - ``"centroid"``: rank clusters by distance from the global centroid,
               nearest -> train, farthest -> test (adversarial). This is what
               :func:`centroid_adversarial_split` delegates to.
@@ -489,7 +573,17 @@ def cluster_split(
               currently in the test pocket, which is what the authors' released
               code (``closest_clusters.py``) actually computes.
             Only used with ``strategy="closest"`` and ``fill_individual=True``.
-        **cluster_kwargs: passed to the clustering algorithm
+        **cluster_kwargs: passed to the clustering algorithm. For
+            ``method="dbscan"``, omitting ``eps`` uses a default scaled to the
+            data: the 90th percentile of each sample's distance to its
+            ``(min_samples - 1)``-th nearest neighbor, so about 90% of samples
+            are core points. (sklearn's absolute ``eps=0.5`` labels nearly
+            everything noise on typical embeddings.) DBSCAN noise points belong
+            to no cluster, so they are assigned individually: for ``"size"`` /
+            ``"centroid"`` they fill train up to the target after the whole
+            clusters (nearest the global centroid first for ``"centroid"``); for
+            ``"closest"`` / ``"subset_sum"`` they start in train, where the
+            individual fill / completion can draw on them.
 
     Returns:
         train_indices: ndarray of indices for training set
@@ -505,6 +599,10 @@ def cluster_split(
         UserWarning: if whole-cluster assignment would leave train or test empty.
             The function returns a seeded exact-size sample split because no
             cluster-coherent non-empty split exists.
+        UserWarning: if train or test ends up smaller than half its requested
+            size (whole clusters cannot be divided), naming the cluster count
+            and largest cluster.
+        UserWarning: if DBSCAN labels more than half the samples as noise.
 
     References:
         The ``"subset_sum"`` and ``"closest"`` strategies implement SUBSET-SUM-SPLIT
@@ -614,9 +712,9 @@ def cluster_split(
                 n_init="auto",
                 **cluster_kwargs,
             )
+            labels = clusterer.fit_predict(embeddings)
         else:  # dbscan (ignores k)
-            clusterer = DBSCAN(**cluster_kwargs)
-        labels = clusterer.fit_predict(embeddings)
+            labels = _dbscan_labels(embeddings, cluster_kwargs, "cluster_split", 3)
         mapping: dict[int, list[int]] = defaultdict(list)
         for idx, label in enumerate(labels):
             mapping[int(label)].append(idx)
@@ -632,24 +730,36 @@ def cluster_split(
         (fewest completions / smallest coverage gap); for the size/centroid
         strategies it is the L1 distance of the whole-cluster test set to the
         class-balanced target. Lower is better; ties keep the smaller k.
+
+        DBSCAN noise points (label -1) are not a cluster: they are placed
+        individually after the whole clusters (see :func:`_place_noise_points`)
+        for size/centroid, and start in train for closest/subset_sum, whose
+        individual fill/completion then draws on them.
         """
-        if strategy == "size":
-            tr, te = _assign_by_size(mapping, target_train)
-            return tr, te, _test_target_distance(te, y, target_test, n_samples), None
-        if strategy == "centroid":
-            tr, te = _assign_by_centroid(embeddings, mapping, target_train)
+        noise = mapping.get(-1, [])
+        clusters = {cid: idx for cid, idx in mapping.items() if cid != -1}
+        if strategy in ("size", "centroid"):
+            if strategy == "size":
+                tr, te = _assign_by_size(clusters, target_train)
+            else:
+                tr, te = _assign_by_centroid(embeddings, clusters, target_train)
+            tr, te = _place_noise_points(
+                embeddings, noise, tr, te, target_train, strategy, completion_rng
+            )
             return tr, te, _test_target_distance(te, y, target_test, n_samples), None
         if strategy == "closest":
-            tr, te, test_centroids = _closest_core(embeddings, mapping, target_test)
+            if not clusters:
+                return list(noise), [], float(target_test), None
+            tr, te, test_centroids = _closest_core(embeddings, clusters, target_test)
             gap = target_test - len(te)
             # Individual examples still to add; an overshooting pocket (every
             # cluster larger than the target -- only at very small k) can't be
             # filled down, so rank it below every pocket that fits.
             score = float(gap) if gap >= 0 else float(target_test - gap)
-            return tr, te, score, test_centroids
+            return tr + noise, te, score, test_centroids
         # subset_sum
-        tr, te = _subset_sum_core(mapping, y, classes, subset_target)
-        return tr, te, float(target_test - len(te)), None
+        tr, te = _subset_sum_core(clusters, y, classes, subset_target)
+        return tr + noise, te, float(target_test - len(te)), None
 
     def complete(
         tr: list[int], te: list[int], aid: np.ndarray | None
@@ -673,7 +783,8 @@ def cluster_split(
         return tr, te
 
     if cluster_range is None:
-        train, test, _, aid = core(cluster_at(n_clusters))
+        mapping = cluster_at(n_clusters)
+        train, test, _, aid = core(mapping)
     else:
         if method != "kmeans":
             raise ValueError("cluster_range requires method='kmeans'")
@@ -688,10 +799,12 @@ def cluster_split(
         best: tuple[list[int], list[int], float, np.ndarray | None] | None = None
         best_score = float("inf")
         for k in range(low, high + 1):
-            cand = core(cluster_at(k))
+            candidate_mapping = cluster_at(k)
+            cand = core(candidate_mapping)
             if cand[2] < best_score:  # strict: ties keep the smaller k
                 best_score = cand[2]
                 best = cand
+                mapping = candidate_mapping
         assert best is not None  # range is non-empty (low <= high after clamp)
         train, test, _, aid = best
 
@@ -707,6 +820,29 @@ def cluster_split(
         )
         train, test = _seeded_exact_fallback_split(
             n_samples, target_train, random_state
+        )
+    elif (
+        len(train) < _CLUSTER_SPLIT_MIN_SIDE_FRACTION * target_train
+        or len(test) < _CLUSTER_SPLIT_MIN_SIDE_FRACTION * target_test
+    ):
+        sizes = [len(idx) for cid, idx in mapping.items() if cid != -1]
+        hints = []
+        if strategy == "closest" and not fill_individual:
+            hints.append("pass fill_individual=True")
+        hints.append(
+            "tune eps / min_samples (the data may lack density structure)"
+            if method == "dbscan"
+            else "try a different n_clusters"
+        )
+        warnings.warn(
+            f"cluster_split produced {len(train)} train / {len(test)} test "
+            f"samples instead of the requested {target_train} / {target_test}, "
+            f"because whole clusters cannot be divided ({len(sizes)} "
+            f"cluster{'' if len(sizes) == 1 else 's'}, the largest with "
+            f"{max(sizes, default=0)} of {n_samples} samples). To get closer to "
+            f"train_size, {' or '.join(hints)}.",
+            UserWarning,
+            stacklevel=2,
         )
 
     return as_index_array(train), as_index_array(test)
@@ -1110,18 +1246,17 @@ def cluster_kfold(
         )
 
     if method == "kmeans":
-        clusterer = KMeans(
+        labels = KMeans(
             n_clusters=n_clusters,
             random_state=random_state,
             n_init="auto",
             **cluster_kwargs,
-        )
+        ).fit_predict(embeddings)
     elif method == "dbscan":
-        clusterer = DBSCAN(**cluster_kwargs)
+        labels = _dbscan_labels(embeddings, cluster_kwargs, "cluster_kfold", 2)
     else:
         raise ValueError(f"Unknown clustering method: {method}")
 
-    labels = clusterer.fit_predict(embeddings)
     cluster_to_indices: dict[int, list[int]] = defaultdict(list)
     for idx, label in enumerate(labels):
         cluster_to_indices[int(label)].append(idx)
@@ -1262,7 +1397,7 @@ def _minority_cluster_labels(
         )
         return clusterer.fit_predict(embeddings)
     if method == "dbscan":
-        return DBSCAN(**cluster_kwargs).fit_predict(embeddings)
+        return _dbscan_labels(embeddings, cluster_kwargs, "minority_split", 3)
     if method == "ward":
         return _ward_labels(embeddings, n_clusters, **cluster_kwargs)
     if method == "deepcluster-lite":

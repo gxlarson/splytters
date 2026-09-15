@@ -419,6 +419,103 @@ class TestClusterSplit:
         assert_valid_split(train, test, len(X), train_size=0.5, ratio_tol=0.01)
 
 
+class TestClusterSplitDBSCAN:
+    """DBSCAN default eps, noise handling, and train_size warnings (#67)."""
+
+    @pytest.fixture
+    def blobs(self):
+        from sklearn.datasets import make_blobs
+        X, labels = make_blobs(n_samples=4000, n_features=64, centers=16, random_state=0)
+        return X * 10, labels  # scaled: an absolute eps can't fit every scale
+
+    def test_default_eps_scales_with_data(self, blobs):
+        """sklearn's eps=0.5 labels all of this data noise; the default must
+        recover the blobs and honor train_size without warnings."""
+        X, labels = blobs
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            train, test = cluster_split(X, 0.8, method="dbscan")
+        assert_valid_split(train, test, len(X), train_size=0.8, ratio_tol=0.05)
+        in_train = np.isin(np.arange(len(X)), train)
+        for blob in range(16):  # whole blobs stay on one side (up to noise)
+            side = in_train[labels == blob].mean()
+            assert side >= 0.9 or side <= 0.1
+
+    @pytest.mark.parametrize("strategy", ["size", "centroid"])
+    def test_noise_placed_individually_to_hit_train_size(self, blobs, strategy):
+        """Regression for #67: with eps=0.5 nearly everything is noise; ten
+        duplicate rows form one cluster, and the old code sent the noise block
+        to test as a unit, giving 11 train / 3999 test."""
+        X, _ = blobs
+        Xd = np.vstack([X, np.repeat(X[:1], 10, axis=0)])
+        with pytest.warns(UserWarning, match="labeled 100% of samples as noise"):
+            train, test = cluster_split(
+                Xd, 0.8, method="dbscan", strategy=strategy, eps=0.5
+            )
+        assert_valid_split(train, test, len(Xd), train_size=0.8, ratio_tol=0.001)
+        in_train = np.isin(np.arange(len(Xd)), train)
+        assert len(set(in_train[[0, *range(4000, 4010)]])) == 1  # cluster kept whole
+
+    def test_closest_small_pocket_warns_with_fill_hint(self, blobs):
+        X, _ = blobs
+        Xd = np.vstack([X, np.repeat(X[:1], 10, axis=0)])
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter("always")
+            train, test = cluster_split(
+                Xd, 0.8, method="dbscan", strategy="closest", eps=0.5
+            )
+        assert len(test) == 11
+        messages = [str(w.message) for w in record]
+        assert any(
+            "instead of the requested" in m and "fill_individual=True" in m
+            for m in messages
+        )
+        assert all(w.filename == __file__ for w in record)
+
+    def test_all_noise_size_strategy_is_exact(self):
+        X = np.random.RandomState(0).randn(100, 8)
+        with pytest.warns(UserWarning, match="noise"):
+            train, test = cluster_split(X, 0.7, method="dbscan", eps=1e-6)
+        assert_valid_split(train, test, 100, train_size=0.7, ratio_tol=0.001)
+
+    def test_identical_points_default_eps_positive(self):
+        """A zero k-distance quantile must not produce an invalid eps=0."""
+        X = np.zeros((20, 3))
+        with pytest.warns(UserWarning, match="whole-cluster assignment"):
+            train, test = cluster_split(X, 0.5, method="dbscan")
+        assert_valid_split(train, test, 20, train_size=0.5, ratio_tol=0.01)
+
+    def test_default_eps_honors_metric(self):
+        from sklearn.neighbors import NearestNeighbors
+
+        from splytters.adversarial import _default_dbscan_eps
+        X = np.random.RandomState(0).rand(300, 5)
+        eps = _default_dbscan_eps(X, {"metric": "cosine", "min_samples": 4})
+        d = NearestNeighbors(n_neighbors=3, metric="cosine").fit(X).kneighbors()[0]
+        assert eps == pytest.approx(np.quantile(d[:, -1], 0.9))
+
+    def test_kmeans_imbalanced_clusters_warn(self):
+        """Clusters of 90 and 10 cannot make a 50/50 split: warn, don't hide it."""
+        rng = np.random.RandomState(0)
+        X = np.vstack([rng.randn(90, 2) * 0.1, rng.randn(10, 2) * 0.1 + 100])
+        with pytest.warns(UserWarning, match="try a different n_clusters"):
+            train, test = cluster_split(X, 0.5, n_clusters=2)
+        assert (len(train), len(test)) == (10, 90)
+
+    def test_kmeans_ordinary_split_does_not_warn(self, embeddings_2d):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            cluster_split(embeddings_2d, 0.7, n_clusters=10)
+
+    def test_cluster_kfold_default_eps(self, blobs):
+        """With sklearn's eps=0.5 this data has no clusters, and cluster_kfold
+        raised 'fewer than n_folds'; the scaled default finds the blobs."""
+        X, labels = blobs
+        folds = cluster_kfold(X, labels % 2, n_folds=4, method="dbscan")
+        assert len(folds) == len(X)
+        assert set(np.unique(folds)) == {0, 1, 2, 3}
+
+
 class TestClusterSplitStrategies:
     """The strategy= assignment policies on cluster_split."""
 
