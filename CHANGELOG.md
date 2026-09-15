@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- `split_report` no longer does O(n²) work in the full dataset. `max_samples`
+  now caps the geometric metrics too (`mean_cross_distance`, `coverage`), not
+  just the distribution metrics, so reports on large datasets finish instead of
+  allocating an n × n matrix (1.28 TB at n = 400k) (#65).
+- `compute_split_similarity` gains `max_samples` and `random_state`. With
+  `max_samples`, the nearest-train statistics use a random subsample of test
+  points (still searched against the full train set) and the median distance
+  behind `coverage` is estimated from a random subsample. The default (`None`)
+  stays exact and returns the same values as before. The nearest-train search
+  is now chunked and multithreaded, so it also uses bounded memory and runs
+  about 10× faster.
+- `compute_split_similarity` and `split_report` warn when `max_samples=None`
+  would need more than about 1 GiB of distance matrices, and suggest passing
+  `max_samples`.
+
 ## [0.2.1] — 2026-07-06
 
 Bug-fix roll-up from a full-package code review. Most changes are fixes to
