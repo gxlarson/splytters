@@ -21,6 +21,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `compute_split_similarity` and `split_report` warn when `max_samples=None`
   would need more than about 1 GiB of distance matrices, and suggest passing
   `max_samples`.
+- `deduplicated_split` and `duplicate_spread_split` no longer merge most of the
+  dataset into one "near-duplicate" group under the default threshold (#68).
+  `deduplicated_split` returned splits like 209 / 3791 for `train_size=0.8`,
+  and `duplicate_spread_split` degraded to a random split. See **Changed** for
+  the new default.
+- Both functions find near-duplicates without building the n × n distance
+  matrix, so memory now scales with the number of near-duplicate pairs.
+  Exact duplicates are still detected exactly at `similarity_threshold=0`.
+- `deduplicated_split` warns when indivisible near-duplicate groups push the
+  split more than 5% of the samples away from `train_size`, reporting the group
+  count and largest group. `duplicate_spread_split` warns when it finds no
+  near-duplicates, or when one group holds more than half the samples, since
+  either way its result is a random split.
+
+### Changed
+- The default `similarity_threshold` of `deduplicated_split` and
+  `duplicate_spread_split` is now 0.1 × the median distance from each sample to
+  its 10th nearest neighbor, replacing the 1st and 10th percentiles of all
+  pairwise distances. The old defaults linked each sample to a fixed fraction
+  of all others, so their groups grew with the dataset. Splits made with the
+  default threshold will differ; an explicit `similarity_threshold` behaves as
+  before.
 
 ## [0.2.1] — 2026-07-06
 

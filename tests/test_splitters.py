@@ -2111,6 +2111,32 @@ class TestDuplicateSpreadSplit:
         assert_valid_split(train, test, 20, train_size=0.7, ratio_tol=0.1)
         assert len(test) > 0
 
+    def test_default_spreads_injected_duplicates(self):
+        """Regression for #68: the old default (10th percentile of all pairwise
+        distances) merged almost everything into one group, reducing this
+        splitter to a random split."""
+        rng = np.random.default_rng(0)
+        base = rng.normal(size=(600, 32))
+        src = rng.choice(600, 200, replace=False)
+        X = np.vstack([base, base[src] + 1e-3 * rng.normal(size=(200, 32))])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            train, test = duplicate_spread_split(X, train_size=0.8)
+        # Each pair splits 1/1, leaving too few singletons to reach 0.8 exactly.
+        assert_valid_split(train, test, len(X), train_size=0.8, ratio_tol=0.1)
+        in_train = np.isin(np.arange(len(X)), train)
+        assert np.all(in_train[src] != in_train[600 + np.arange(200)])
+
+    def test_warns_when_no_duplicates_found(self):
+        X = np.random.default_rng(0).normal(size=(500, 32))
+        with pytest.warns(UserWarning, match="found no near-duplicates"):
+            duplicate_spread_split(X)
+
+    def test_warns_when_one_group_dominates(self):
+        X = np.random.default_rng(0).normal(size=(200, 4))
+        with pytest.warns(UserWarning, match="effectively a random split"):
+            duplicate_spread_split(X, similarity_threshold=5.0)
+
 
 class TestMaxCoverageSplit:
 
