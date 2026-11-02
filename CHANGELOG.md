@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`central_split`** (overlap family), the mirror of
+  `distance_adversarial_split`: the samples closest to the centroid go to test
+  and the rest to train, giving a prototypical, optimistic test set (#69).
+  Unlike swapping the outputs of `distance_adversarial_split`, `train_size`
+  means the training set, rounding matches every other splitter, and integer
+  `train_size` works. Honors `metric`; wrap it in `per_class_split` for
+  class-typical test samples.
+
 ### Fixed
 - `split_report` no longer does O(n²) work in the full dataset. `max_samples`
   now caps the geometric metrics too (`mean_cross_distance`, `coverage`), not
@@ -21,6 +30,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `compute_split_similarity` and `split_report` warn when `max_samples=None`
   would need more than about 1 GiB of distance matrices, and suggest passing
   `max_samples`.
+- `distance_adversarial_split` now uses its `metric` argument (#66). It was
+  accepted but ignored, so every value, including invalid names, produced the
+  euclidean split. Any `scipy.spatial.distance.cdist` metric (or callable) now
+  ranks samples by distance from the centroid, and an unknown metric raises
+  `ValueError`. The default euclidean split is unchanged.
+- `deduplicated_split` and `duplicate_spread_split` no longer merge most of the
+  dataset into one "near-duplicate" group under the default threshold (#68).
+  `deduplicated_split` returned splits like 209 / 3791 for `train_size=0.8`,
+  and `duplicate_spread_split` degraded to a random split. See **Changed** for
+  the new default.
+- Both functions find near-duplicates without building the n × n distance
+  matrix, so memory now scales with the number of near-duplicate pairs.
+  Exact duplicates are still detected exactly at `similarity_threshold=0`.
+- `deduplicated_split` warns when indivisible near-duplicate groups push the
+  split more than 5% of the samples away from `train_size`, reporting the group
+  count and largest group. `duplicate_spread_split` warns when it finds no
+  near-duplicates, or when one group holds more than half the samples, since
+  either way its result is a random split.
 - `cluster_split(method="dbscan")` no longer silently ignores `train_size`
   (#67). DBSCAN noise points are no longer treated as one indivisible cluster:
   `"size"` / `"centroid"` place them individually to fill train up to the
@@ -38,6 +65,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   they best balance the folds' labels and sizes.
 
 ### Changed
+- The default `similarity_threshold` of `deduplicated_split` and
+  `duplicate_spread_split` is now 0.1 × the median distance from each sample to
+  its 10th nearest neighbor, replacing the 1st and 10th percentiles of all
+  pairwise distances. The old defaults linked each sample to a fixed fraction
+  of all others, so their groups grew with the dataset. Splits made with the
+  default threshold will differ; an explicit `similarity_threshold` behaves as
+  before.
 - For `method="dbscan"` in `cluster_split`, `cluster_kfold`, and
   `minority_split`, omitting `eps` now uses a default scaled to the data (the
   90th percentile of each sample's distance to its `(min_samples - 1)`-th

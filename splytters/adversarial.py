@@ -27,6 +27,7 @@ from splytters.utils import (
     constrained_kernel_kmeans_split,
     kneighbors_excluding_self,
     optimized_mmd_split,
+    rank_by_centroid_distance,
     resolve_n_train,
     validate_split_inputs,
 )
@@ -2197,31 +2198,29 @@ def distance_adversarial_split(
 
     Samples closest to centroid go to train, furthest go to test.
     Unlike cluster-based methods, this operates on individual samples.
+    :func:`splytters.central_split` is the exact mirror (closest go to test).
 
     Args:
         embeddings: array-like of shape (n_samples, embedding_dim)
         train_size: fraction in (0, 1) or absolute count for the training set
-        metric: distance metric
+        metric: distance from each sample to the centroid (the mean
+            embedding): any ``scipy.spatial.distance.cdist`` metric, e.g.
+            ``"cosine"`` for embeddings compared by angle
         random_state: accepted for API consistency; this split is deterministic
 
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
 
+    Raises:
+        ValueError: if ``metric`` is not a metric ``cdist`` accepts.
+
     Seed stability: deterministic -- samples are ranked by distance from the
     centroid, so the seed has no effect (it is accepted only for API
     consistency).
     """
     embeddings = validate_split_inputs(embeddings, train_size)
-    centroid = compute_centroid(embeddings)
-
-    # Compute distance from centroid for each sample
-    distances = np.linalg.norm(embeddings - centroid, axis=1)
-
-    # Sort by distance (closest first)
-    sorted_indices = np.argsort(distances)
-
-    # Split
+    sorted_indices = rank_by_centroid_distance(embeddings, metric)  # closest first
     n_train = resolve_n_train(len(embeddings), train_size)
     return as_index_array(sorted_indices[:n_train]), as_index_array(
         sorted_indices[n_train:]
