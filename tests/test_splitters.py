@@ -32,6 +32,7 @@ from splytters.balanced import (
     stratified_random_split,
 )
 from splytters.overlap import (
+    central_split,
     centroid_matched_split,
     cluster_leak_split,
     duplicate_spread_split,
@@ -2123,6 +2124,71 @@ class TestNearestNeighborSplit:
             train, test = nearest_neighbor_split(X, train_size=0.25)
         assert_valid_split(train, test, 4, train_size=0.25, ratio_tol=0.3)
         assert len(test) < 3
+
+
+class TestCentralSplit:
+
+    def test_valid_split(self, embeddings_2d):
+        train, test = central_split(embeddings_2d)
+        assert_valid_split(train, test, len(embeddings_2d))
+
+    def test_test_closest_to_centroid(self, embeddings_2d):
+        train, test = central_split(embeddings_2d)
+        d = np.linalg.norm(embeddings_2d - embeddings_2d.mean(axis=0), axis=1)
+        assert d[test].max() <= d[train].min() + 1e-10
+
+    @pytest.mark.parametrize("train_size", [0.8, 0.7, 19999])
+    def test_sizes_match_other_splitters(self, train_size):
+        """train_size means train, and rounding matches every other splitter.
+        The swap workaround (distance_adversarial_split with train_size=0.2)
+        gives 4999 test samples for n=24999 instead of 5000 (#69)."""
+        X = np.random.default_rng(0).normal(size=(24999, 4))
+        train, test = central_split(X, train_size)
+        r_train, r_test = random_split(X, train_size)
+        assert (len(train), len(test)) == (len(r_train), len(r_test))
+
+    @pytest.mark.parametrize("metric", ["euclidean", "cosine"])
+    def test_exact_mirror_of_distance_adversarial(self, metric):
+        X = np.random.default_rng(1).normal(size=(500, 16)) + 0.3
+        train, test = central_split(X, 0.8, metric=metric)
+        adv_train, adv_test = distance_adversarial_split(
+            X, train_size=len(test), metric=metric
+        )
+        assert np.array_equal(test, adv_train)
+        assert np.array_equal(train, adv_test)
+
+    def test_metric_is_honored(self):
+        X = np.random.default_rng(2).normal(size=(1000, 64)) + 0.5
+        _, cosine_test = central_split(X, 0.8, metric="cosine")
+        _, euclidean_test = central_split(X, 0.8)
+        assert set(cosine_test.tolist()) != set(euclidean_test.tolist())
+        with pytest.raises(ValueError, match="not_a_real_metric"):
+            central_split(X, metric="not_a_real_metric")
+
+    def test_test_points_neighbor_each_other(self):
+        """Unlike nearest_neighbor_split, central test points are easy because
+        they are typical: most of their nearest neighbors are in test."""
+        X = np.random.default_rng(3).normal(size=(2000, 2))
+        train, test = central_split(X, 0.8)
+        _, idx = kneighbors_excluding_self(X, 1)
+        in_test = np.isin(np.arange(len(X)), test)
+        assert in_test[idx[test, 0]].mean() > 0.5
+
+    def test_per_class_split_gives_class_typical_test(self):
+        from splytters.stratify import per_class_split
+        rng = np.random.default_rng(4)
+        X = np.vstack([rng.normal(size=(300, 3)), rng.normal(size=(300, 3)) + 20])
+        y = np.repeat([0, 1], 300)
+        train, test = per_class_split(central_split, X, y, 0.8)
+        assert_valid_split(train, test, len(X), train_size=0.8)
+        for c in (0, 1):
+            members = np.flatnonzero(y == c)
+            d = np.linalg.norm(X[members] - X[members].mean(axis=0), axis=1)
+            dist = dict(zip(members.tolist(), d, strict=True))
+            c_test = [dist[i] for i in test.tolist() if y[i] == c]
+            c_train = [dist[i] for i in train.tolist() if y[i] == c]
+            assert len(c_test) == 60
+            assert max(c_test) <= min(c_train)
 
 
 class TestDuplicateSpreadSplit:

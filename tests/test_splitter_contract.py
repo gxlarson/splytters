@@ -65,6 +65,7 @@ SPLITTER_SPECS: dict[str, dict] = {
     "centroid_matched_split": {"kwargs": {"n_iterations": 100}},
     "stratified_similarity_split": {"ratio_tol": 0.4},
     "nearest_neighbor_split": {"ratio_tol": 0.4},
+    "central_split": {},
     "duplicate_spread_split": {"ratio_tol": 0.4},
     "max_coverage_split": {"ratio_tol": 0.45},
     "distribution_matched_split": {"kwargs": _FAST},

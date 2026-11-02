@@ -22,6 +22,7 @@ from splytters.utils import (
     cluster_embeddings,
     compute_centroid,
     optimized_split,
+    rank_by_centroid_distance,
     resolve_n_train,
     validate_split_inputs,
 )
@@ -349,6 +350,60 @@ def nearest_neighbor_split(
 
     train_indices = np.where(in_train)[0]
     return as_index_array(train_indices), as_index_array(test_indices)
+
+
+def central_split(
+    embeddings: ArrayLike,
+    train_size: float | int = 0.7,
+    metric: str = "euclidean",
+    random_state: int = 42,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Put the samples closest to the centroid in test and the rest in train.
+
+    The exact mirror of :func:`splytters.distance_adversarial_split`, which
+    tests on the samples *farthest* from the centroid. Here the test set is made
+    of the most prototypical samples, giving an optimistic bound on accuracy.
+
+    This is a different kind of "easy" from :func:`nearest_neighbor_split`,
+    which gives every test point a close twin in train. Central test points are
+    easy because they are typical, not because they are duplicated: they sit
+    packed together near the centroid, so most of their nearest neighbors are
+    other *test* points.
+
+    The centroid is that of the whole input. To get a test set of class-typical
+    samples, wrap this in :func:`splytters.per_class_split`; on a multi-class
+    dataset as a whole it picks samples typical of the overall mean, which skews
+    the test label distribution.
+
+    Args:
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        train_size: fraction in (0, 1) or absolute count for the training set.
+            The test set is the ``n_samples - n_train`` closest samples, so the
+            sizes match any other splitter given the same ``train_size``.
+        metric: distance from each sample to the centroid (the mean
+            embedding): any ``scipy.spatial.distance.cdist`` metric, e.g.
+            ``"cosine"`` for embeddings compared by angle
+        random_state: accepted for API consistency; this split is deterministic
+
+    Returns:
+        train_indices: ndarray of indices for training set
+        test_indices: ndarray of indices for test set
+
+    Raises:
+        ValueError: if ``metric`` is not a metric ``cdist`` accepts.
+
+    Seed stability: deterministic -- samples are ranked by distance from the
+    centroid, so the seed has no effect (it is accepted only for API
+    consistency).
+    """
+    embeddings = validate_split_inputs(embeddings, train_size)
+    n_samples = len(embeddings)
+    n_test = n_samples - resolve_n_train(n_samples, train_size)
+    sorted_indices = rank_by_centroid_distance(embeddings, metric)  # closest first
+    return as_index_array(sorted_indices[n_test:]), as_index_array(
+        sorted_indices[:n_test]
+    )
 
 
 def duplicate_spread_split(
