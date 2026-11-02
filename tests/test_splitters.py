@@ -515,6 +515,24 @@ class TestClusterSplitDBSCAN:
         assert len(folds) == len(X)
         assert set(np.unique(folds)) == {0, 1, 2, 3}
 
+    def test_cluster_kfold_spreads_noise(self):
+        """Noise points are not one cluster: four blobs of 50 plus 40 scattered
+        points must give four folds of 60, not one fold holding all the noise
+        (90 / 50 / 50 / 50)."""
+        rng = np.random.RandomState(0)
+        centers = np.array([[0, 0], [100, 0], [0, 100], [100, 100]])
+        blobs = np.vstack([c + rng.randn(50, 2) * 0.1 for c in centers])
+        noise = rng.uniform(-1000, 1000, size=(40, 2))
+        X = np.vstack([blobs, noise])
+        y = np.arange(len(X)) % 2
+        folds = cluster_kfold(X, y, n_folds=4, method="dbscan", eps=1.0)
+        assert np.bincount(folds).tolist() == [60, 60, 60, 60]
+        for b in range(4):  # each blob stays whole
+            assert len(set(folds[b * 50:(b + 1) * 50])) == 1
+        assert len(set(folds[200:])) == 4  # noise spread over every fold
+        for k in range(4):
+            assert y[folds == k].mean() == pytest.approx(0.5, abs=0.05)
+
 
 class TestClusterSplitStrategies:
     """The strategy= assignment policies on cluster_split."""

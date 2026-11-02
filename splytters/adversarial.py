@@ -1166,7 +1166,11 @@ def cluster_kfold(
         **cluster_kwargs: passed to the clustering algorithm. For
             ``method='sds_kmeans'`` the accepted keys are ``n_init`` (number of
             k-means++ initializations, default 8) and ``max_iter`` (max swap
-            rounds, default 100).
+            rounds, default 100). For ``method='dbscan'``, omitting ``eps``
+            uses a default scaled to the data (see :func:`cluster_split`).
+            DBSCAN noise points belong to no cluster, so they are placed one at
+            a time after the whole clusters, wherever they best balance the
+            folds' labels and sizes.
 
     Returns:
         fold_ids: integer ndarray of shape (n_samples,), values in
@@ -1258,14 +1262,19 @@ def cluster_kfold(
         raise ValueError(f"Unknown clustering method: {method}")
 
     cluster_to_indices: dict[int, list[int]] = defaultdict(list)
+    noise: list[int] = []
     for idx, label in enumerate(labels):
-        cluster_to_indices[int(label)].append(idx)
+        if label == -1:
+            noise.append(idx)
+        else:
+            cluster_to_indices[int(label)].append(idx)
 
     # Folds are whole clusters, so we need at least n_folds distinct clusters.
     # KMeans is guarded by the n_clusters check above, but DBSCAN chooses its
     # own cluster count and can return fewer (e.g. one dense cluster plus a
     # noise group), which would silently leave CV folds empty. Fail loudly.
-    n_found = len(cluster_to_indices)
+    # The noise points together can fill one fold, so they count once here.
+    n_found = len(cluster_to_indices) + (1 if noise else 0)
     if n_found < n_folds:
         raise ValueError(
             f"clustering produced only {n_found} cluster(s), fewer than "
@@ -1295,6 +1304,13 @@ def cluster_kfold(
     fold_counts = [np.zeros(len(classes)) for _ in range(n_folds)]
     fold_ids = np.empty(n_samples, dtype=np.intp)
     clusters.sort(key=lambda t: len(t[0]), reverse=True)
+    # DBSCAN noise points belong to no cluster, so they are not kept together:
+    # each is placed on its own after the whole clusters, filling whichever
+    # fold is furthest below its label target.
+    for i in noise:
+        vec = np.zeros(len(classes))
+        vec[class_idx[y[i]]] = 1
+        clusters.append(([i], vec))
     for idxs, vec in clusters:
         k = min(
             range(n_folds),

@@ -33,6 +33,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `fill_individual=True`). This also covers imbalanced KMeans clusters.
 - `cluster_split`, `cluster_kfold`, and `minority_split` warn when DBSCAN
   labels more than half the samples as noise.
+- `cluster_kfold(method="dbscan")` no longer puts all DBSCAN noise points in
+  one fold. They are placed one at a time after the whole clusters, wherever
+  they best balance the folds' labels and sizes.
 
 ### Changed
 - For `method="dbscan"` in `cluster_split`, `cluster_kfold`, and
