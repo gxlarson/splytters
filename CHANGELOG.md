@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`central_split`** (overlap family), the mirror of
+  `distance_adversarial_split`: the samples closest to the centroid go to test
+  and the rest to train, giving a prototypical, optimistic test set (#69).
+  Unlike swapping the outputs of `distance_adversarial_split`, `train_size`
+  means the training set, rounding matches every other splitter, and integer
+  `train_size` works. Honors `metric`; wrap it in `per_class_split` for
+  class-typical test samples.
+
 ### Fixed
 - `split_report` no longer does O(n²) work in the full dataset. `max_samples`
   now caps the geometric metrics too (`mean_cross_distance`, `coverage`), not
@@ -21,6 +30,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `compute_split_similarity` and `split_report` warn when `max_samples=None`
   would need more than about 1 GiB of distance matrices, and suggest passing
   `max_samples`.
+- `distance_adversarial_split` now uses its `metric` argument (#66). It was
+  accepted but ignored, so every value, including invalid names, produced the
+  euclidean split. Any `scipy.spatial.distance.cdist` metric (or callable) now
+  ranks samples by distance from the centroid, and an unknown metric raises
+  `ValueError`. The default euclidean split is unchanged.
 - `deduplicated_split` and `duplicate_spread_split` no longer merge most of the
   dataset into one "near-duplicate" group under the default threshold (#68).
   `deduplicated_split` returned splits like 209 / 3791 for `train_size=0.8`,
