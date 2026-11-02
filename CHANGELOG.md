@@ -21,6 +21,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `compute_split_similarity` and `split_report` warn when `max_samples=None`
   would need more than about 1 GiB of distance matrices, and suggest passing
   `max_samples`.
+- `distance_adversarial_split` now uses its `metric` argument (#66). It was
+  accepted but ignored, so every value, including invalid names, produced the
+  euclidean split. Any `scipy.spatial.distance.cdist` metric (or callable) now
+  ranks samples by distance from the centroid, and an unknown metric raises
+  `ValueError`. The default euclidean split is unchanged.
 
 ## [0.2.1] — 2026-07-06
 

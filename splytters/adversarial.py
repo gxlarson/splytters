@@ -2050,12 +2050,17 @@ def distance_adversarial_split(
     Args:
         embeddings: array-like of shape (n_samples, embedding_dim)
         train_size: fraction in (0, 1) or absolute count for the training set
-        metric: distance metric
+        metric: distance from each sample to the centroid (the mean
+            embedding): any ``scipy.spatial.distance.cdist`` metric, e.g.
+            ``"cosine"`` for embeddings compared by angle
         random_state: accepted for API consistency; this split is deterministic
 
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Raises:
+        ValueError: if ``metric`` is not a metric ``cdist`` accepts.
 
     Seed stability: deterministic -- samples are ranked by distance from the
     centroid, so the seed has no effect (it is accepted only for API
@@ -2064,8 +2069,13 @@ def distance_adversarial_split(
     embeddings = validate_split_inputs(embeddings, train_size)
     centroid = compute_centroid(embeddings)
 
-    # Compute distance from centroid for each sample
-    distances = np.linalg.norm(embeddings - centroid, axis=1)
+    # Compute distance from centroid for each sample. Euclidean keeps the
+    # original norm computation so its tie order, and hence its splits, are
+    # unchanged.
+    if metric == "euclidean":
+        distances = np.linalg.norm(embeddings - centroid, axis=1)
+    else:
+        distances = cdist(embeddings, centroid[None, :], metric=metric).ravel()
 
     # Sort by distance (closest first)
     sorted_indices = np.argsort(distances)
