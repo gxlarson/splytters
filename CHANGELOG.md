@@ -48,6 +48,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   count and largest group. `duplicate_spread_split` warns when it finds no
   near-duplicates, or when one group holds more than half the samples, since
   either way its result is a random split.
+- `cluster_split(method="dbscan")` no longer silently ignores `train_size`
+  (#67). DBSCAN noise points are no longer treated as one indivisible cluster:
+  `"size"` / `"centroid"` place them individually to fill train up to the
+  target, and `"closest"` / `"subset_sum"` start them in train, where the
+  individual fill / completion can use them. Previously a few near-duplicates
+  on typical embeddings produced splits like 18 train / 15,982 test.
+- `cluster_split` warns when train or test ends up smaller than half its
+  requested size, reporting the cluster count and largest cluster and
+  suggesting a fix (`eps` / `min_samples`, `n_clusters`, or
+  `fill_individual=True`). This also covers imbalanced KMeans clusters.
+- `cluster_split`, `cluster_kfold`, and `minority_split` warn when DBSCAN
+  labels more than half the samples as noise.
+- `cluster_kfold(method="dbscan")` no longer puts all DBSCAN noise points in
+  one fold. They are placed one at a time after the whole clusters, wherever
+  they best balance the folds' labels and sizes.
 
 ### Changed
 - The default `similarity_threshold` of `deduplicated_split` and
@@ -57,6 +72,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   of all others, so their groups grew with the dataset. Splits made with the
   default threshold will differ; an explicit `similarity_threshold` behaves as
   before.
+- For `method="dbscan"` in `cluster_split`, `cluster_kfold`, and
+  `minority_split`, omitting `eps` now uses a default scaled to the data (the
+  90th percentile of each sample's distance to its `(min_samples - 1)`-th
+  nearest neighbor, so about 90% of samples are core points) instead of
+  sklearn's absolute `eps=0.5`, which labels nearly every sample noise on
+  unnormalized embeddings. Splits made without an explicit `eps` will differ.
 
 ## [0.2.1] — 2026-07-06
 
