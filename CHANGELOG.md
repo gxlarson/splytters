@@ -25,10 +25,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `OpenAIEmbedder.embed` sorts the API response by each item's `index` before
   stacking, so the returned rows stay aligned with the input order even if the
   API returns them out of order.
-- `resolve_n_train` clamps an absolute-count `train_size` to
-  `[1, n_samples - 1]`, mirroring the fractional path, so a direct caller can
-  never collapse one side of the split to empty (public entry points already
-  reject out-of-range counts earlier).
 
 ### Documentation
 - `stratified_random_split` documents that every class in `y` needs at least 2
