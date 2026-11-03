@@ -159,6 +159,80 @@ def _naive_mmd_swap_reference(
     )
 
 
+# ---------------------------------------------------------------------------
+# Objective helpers for the balanced (matching) splitters
+#
+# Each function recomputes the exact quantity the corresponding splitter's
+# internal score_fn minimizes (see splytters/balanced.py), so a test can check
+# that the returned split actually beats a random baseline on that objective.
+# ---------------------------------------------------------------------------
+
+def _two_gaussian_mixture(n=120, seed=0):
+    """A structured mixture of two separated 4D Gaussians.
+
+    The separation gives random splits real, variable divergence to beat, so a
+    working matcher must measurably close the train/test gap.
+    """
+    rng = np.random.RandomState(seed)
+    half = n // 2
+    a = rng.randn(half, 4) + np.array([3.0, 3.0, 0.0, 0.0])
+    b = rng.randn(n - half, 4) + np.array([-3.0, -3.0, 0.0, 0.0])
+    return np.vstack([a, b])
+
+
+def _mean_ks_objective(emb, train, test):
+    """Mean KS statistic across dimensions (distribution_matched_split)."""
+    from scipy.stats import ks_2samp
+
+    train_data, test_data = emb[train], emb[test]
+    return float(np.mean([
+        ks_2samp(train_data[:, d], test_data[:, d]).statistic
+        for d in range(emb.shape[1])
+    ]))
+
+
+def _moment_objective(emb, train, test, match_variance=True):
+    """Mean (+variance) distance between train and test (moment_matched_split)."""
+    train_data, test_data = emb[train], emb[test]
+    mean_diff = np.linalg.norm(train_data.mean(axis=0) - test_data.mean(axis=0))
+    if match_variance:
+        var_diff = np.linalg.norm(train_data.var(axis=0) - test_data.var(axis=0))
+        return float(mean_diff + var_diff)
+    return float(mean_diff)
+
+
+def _histogram_objective(emb, train, test, n_bins=10):
+    """Summed per-dimension histogram distance (histogram_matched_split).
+
+    Mirrors the splitter: shared percentile bin edges, degenerate dims skipped,
+    density-normalized histograms.
+    """
+    n_dims = emb.shape[1]
+    bin_edges = [
+        np.percentile(emb[:, d], np.linspace(0, 100, n_bins + 1))
+        for d in range(n_dims)
+    ]
+    valid_dims = [d for d in range(n_dims) if np.all(np.diff(bin_edges[d]) > 0)]
+    train_data, test_data = emb[train], emb[test]
+    total_diff = 0.0
+    for d in valid_dims:
+        train_hist, _ = np.histogram(train_data[:, d], bins=bin_edges[d], density=True)
+        test_hist, _ = np.histogram(test_data[:, d], bins=bin_edges[d], density=True)
+        total_diff += np.sum(np.abs(train_hist - test_hist))
+    return float(total_diff)
+
+
+def _random_objective_mean(emb, objective_fn, n_train, n_repeats=20, seed=0):
+    """Mean of an objective over ``n_repeats`` random splits of the given size."""
+    rng = np.random.RandomState(seed)
+    n = len(emb)
+    values = []
+    for _ in range(n_repeats):
+        perm = rng.permutation(n)
+        values.append(objective_fn(emb, perm[:n_train], perm[n_train:]))
+    return float(np.mean(values))
+
+
 # ===========================================================================
 # Utils
 # ===========================================================================
@@ -1783,6 +1857,20 @@ class TestDistributionMatchedSplit:
         )
         assert_valid_split(train, test, len(embeddings_2d))
 
+    def test_beats_random_on_ks_objective(self):
+        """The returned split's mean KS statistic must be well below the mean of
+        random splits of the same size -- a no-op or objective-inverted optimizer
+        (which would match or exceed random) fails this."""
+        X = _two_gaussian_mixture()
+        n = len(X)
+        n_train = int(0.7 * n)
+        train, test = distribution_matched_split(X, n_iterations=1000, random_state=42)
+        achieved = _mean_ks_objective(X, train, test)
+        random_mean = _random_objective_mean(X, _mean_ks_objective, n_train)
+        assert achieved < 0.75 * random_mean, (
+            f"KS objective {achieved:.4f} not < 0.75 x random mean {random_mean:.4f}"
+        )
+
 
 class TestMomentMatchedSplit:
 
@@ -1791,15 +1879,40 @@ class TestMomentMatchedSplit:
         assert_valid_split(train, test, len(embeddings_2d))
 
     def test_centroids_close(self, embeddings_2d):
-        """After optimization, train/test centroids should be close."""
+        """After optimization, train/test centroids should be closer than a
+        random split's -- a relative comparison. The previous absolute ``< 5.0``
+        threshold was satisfied even by an inverted (distance-maximizing)
+        optimizer, so it could not catch an objective flip."""
         train, test = moment_matched_split(
-            embeddings_2d, n_iterations=200
+            embeddings_2d, n_iterations=200, random_state=42
         )
-        train_mean = embeddings_2d[train].mean(axis=0)
-        test_mean = embeddings_2d[test].mean(axis=0)
-        dist = np.linalg.norm(train_mean - test_mean)
-        # Should be closer than a random split's centroids (loose check)
-        assert dist < 5.0
+        dist = np.linalg.norm(
+            embeddings_2d[train].mean(axis=0) - embeddings_2d[test].mean(axis=0)
+        )
+
+        def centroid_dist(emb, tr, te):
+            return float(np.linalg.norm(emb[tr].mean(axis=0) - emb[te].mean(axis=0)))
+
+        n_train = int(0.7 * len(embeddings_2d))
+        random_mean = _random_objective_mean(
+            embeddings_2d, centroid_dist, n_train
+        )
+        assert dist < random_mean, (
+            f"centroid distance {dist:.4f} not < random mean {random_mean:.4f}"
+        )
+
+    def test_beats_random_on_moment_objective(self):
+        """The returned split's mean+variance distance must be well below the mean
+        of random splits of the same size. An inverted optimizer maximizes this
+        distance and fails."""
+        X = _two_gaussian_mixture()
+        n_train = int(0.7 * len(X))
+        train, test = moment_matched_split(X, n_iterations=1000, random_state=42)
+        achieved = _moment_objective(X, train, test)
+        random_mean = _random_objective_mean(X, _moment_objective, n_train)
+        assert achieved < 0.75 * random_mean, (
+            f"moment objective {achieved:.4f} not < 0.75 x random mean {random_mean:.4f}"
+        )
 
 
 class TestHistogramMatchedSplit:
@@ -1810,38 +1923,18 @@ class TestHistogramMatchedSplit:
         )
         assert_valid_split(train, test, len(embeddings_2d))
 
-    def test_matches_histograms_better_than_random(self, embeddings_2d):
-        """Documented objective: minimize the summed per-dimension histogram
-        difference between train and test. The matched split must achieve a
-        strictly smaller total histogram difference than a random split with the
-        same seed and sizes.
-
-        Kill-check: negating the score_fn in the source (maximizing the histogram
-        mismatch) pulls the distributions apart and fails this assertion.
-        """
-        n_bins = 10
-        bin_edges = [
-            np.percentile(embeddings_2d[:, d], np.linspace(0, 100, n_bins + 1))
-            for d in range(embeddings_2d.shape[1])
-        ]
-
-        def hist_diff(train, test):
-            total = 0.0
-            for d in range(embeddings_2d.shape[1]):
-                th, _ = np.histogram(
-                    embeddings_2d[train][:, d], bins=bin_edges[d], density=True
-                )
-                sh, _ = np.histogram(
-                    embeddings_2d[test][:, d], bins=bin_edges[d], density=True
-                )
-                total += float(np.sum(np.abs(th - sh)))
-            return total
-
-        m_tr, m_te = histogram_matched_split(
-            embeddings_2d, n_bins=n_bins, n_iterations=500, random_state=0
+    def test_beats_random_on_histogram_objective(self):
+        """The returned split's summed histogram distance (over valid dims) must
+        be well below the mean of random splits of the same size."""
+        X = _two_gaussian_mixture()
+        n_train = int(0.7 * len(X))
+        train, test = histogram_matched_split(X, n_iterations=1000, random_state=42)
+        achieved = _histogram_objective(X, train, test)
+        random_mean = _random_objective_mean(X, _histogram_objective, n_train)
+        assert achieved < 0.75 * random_mean, (
+            f"histogram objective {achieved:.4f} not < 0.75 x random mean "
+            f"{random_mean:.4f}"
         )
-        r_tr, r_te = random_split(embeddings_2d, train_size=0.7, random_state=0)
-        assert hist_diff(m_tr, m_te) < hist_diff(r_tr, r_te)
 
 
 class TestStratifiedRandomSplit:
@@ -1885,6 +1978,21 @@ class TestMmdMinimizedSplit:
     def test_valid_split(self, embeddings_2d):
         train, test = mmd_minimized_split(embeddings_2d, n_iterations=50)
         assert_valid_split(train, test, len(embeddings_2d))
+
+    def test_swap_beats_random_on_mmd_objective(self):
+        """The default swap path's returned split must reach an RBF MMD well below
+        the mean of random splits of the same size. Reuses the shared MMD helper
+        (gamma = 1/n_features, matching the splitter's default)."""
+        X = _two_gaussian_mixture()
+        n_train = int(0.7 * len(X))
+        train, test = mmd_minimized_split(X, n_iterations=500, random_state=42)
+        achieved = TestMMDMaximizedSplit._mmd(X, train, test)
+        random_mean = _random_objective_mean(
+            X, TestMMDMaximizedSplit._mmd, n_train
+        )
+        assert achieved < 0.75 * random_mean, (
+            f"MMD objective {achieved:.6f} not < 0.75 x random mean {random_mean:.6f}"
+        )
 
     def test_invalid_kernel_raises(self, embeddings_2d):
         with pytest.raises(ValueError, match="kernel must be"):
