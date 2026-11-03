@@ -22,7 +22,7 @@ from splytters.sorters._lazy import LazyModule
 
 # pandas is imported on first use (see _lazy), so importing this module needs no
 # [tabular] extra — only calling a sorter does.
-pd = LazyModule("pandas")
+pd = LazyModule("pandas", extra="tabular")
 
 
 def column_value(
@@ -72,11 +72,21 @@ def column_rank(
 
     Returns:
         List of (index, percentile) tuples sorted by percentile rank (0-100).
+        NaN values always sort last, regardless of ``low_first``.
     """
     series = df[column]
-    ranks = series.rank(pct=True, na_option='bottom') * 100
+    # Default ``na_option='keep'`` leaves NaN cells as NaN in the ranks; we then
+    # apply a direction-aware sentinel so NaN rows always sort last (a fixed
+    # +inf sentinel would sort them to the *front* when low_first=False). See
+    # column_zscore for the sibling implementation.
+    ranks = series.rank(pct=True) * 100
 
-    scores = [(idx, ranks.loc[idx]) for idx in df.index]
+    scores = []
+    for idx in df.index:
+        rank = ranks.loc[idx]
+        if pd.isna(rank):
+            rank = float('inf') if low_first else float('-inf')
+        scores.append((idx, rank))
     scores.sort(key=lambda p: p[1], reverse=not low_first)
     return scores
 
@@ -103,8 +113,8 @@ def column_zscore(
     mean = series.mean()
     std = series.std()
 
-    if std == 0:
-        # All values are the same
+    if std == 0 or pd.isna(std):
+        # All values are the same, or a single-row input whose ddof=1 std is NaN.
         return [(idx, 0.0) for idx in df.index]
 
     scores = []
@@ -143,7 +153,8 @@ def column_absolute_zscore(
     mean = series.mean()
     std = series.std()
 
-    if std == 0:
+    if std == 0 or pd.isna(std):
+        # Constant column, or a single-row input whose ddof=1 std is NaN.
         return [(idx, 0.0) for idx in df.index]
 
     scores = []
@@ -270,8 +281,12 @@ def outlier_score(
         raw_scores = -detector.negative_outlier_factor_
 
     elif method == "zscore":
-        # Compute mean absolute z-score across all columns
+        # Compute mean absolute z-score across all columns. A constant column
+        # yields all-NaN z-scores (0/0); map those to 0.0 before averaging so an
+        # all-constant frame scores a uniform 0.0 instead of emitting a
+        # RuntimeWarning and returning all-NaN.
         zscores = np.abs(stats.zscore(X, nan_policy='omit'))
+        zscores = np.nan_to_num(zscores, nan=0.0)
         raw_scores = np.nanmean(zscores, axis=1)
 
     else:

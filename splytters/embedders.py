@@ -98,4 +98,8 @@ class OpenAIEmbedder(Embedder):
 
     def embed(self, texts: Sequence[str]) -> np.ndarray:
         response = self.client.embeddings.create(input=texts, model=self.model_name)
-        return np.array([item.embedding for item in response.data])
+        # The API does not guarantee response order; each item's ``index`` gives
+        # its position in ``texts``, so sort by it before stacking to keep the
+        # returned rows aligned with the input.
+        data = sorted(response.data, key=lambda item: item.index)
+        return np.array([item.embedding for item in data])

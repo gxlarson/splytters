@@ -82,6 +82,19 @@ class TestColumnRank:
         indices = [idx for idx, _ in results]
         assert indices[0] == 3  # 25 is lowest
 
+    def test_nan_sorts_last_ascending(self):
+        """A NaN cell must sort to the end when low_first=True."""
+        df = pd.DataFrame({'value': [100.0, 50.0, np.nan, 25.0]})
+        results = column_rank(df, 'value', low_first=True)
+        assert results[-1][0] == 2  # the NaN row
+
+    def test_nan_sorts_last_descending(self):
+        """With low_first=False the NaN row must still sort to the end, not the
+        front (the old na_option='bottom' sentinel sorted it first here)."""
+        df = pd.DataFrame({'value': [100.0, 50.0, np.nan, 25.0]})
+        results = column_rank(df, 'value', low_first=False)
+        assert results[-1][0] == 2  # the NaN row
+
 
 class TestColumnZscore:
     """Tests for column_zscore function."""
@@ -525,6 +538,31 @@ class TestEdgeCases:
         df = pd.DataFrame({'a': [10.0, 20.0, 30.0, np.nan]})
         results = column_absolute_zscore(df, 'a', low_first=False)
         assert results[-1][0] == 3
+
+    # --- single-row z-score (ddof=1 std is NaN, not 0) ---
+
+    def test_column_zscore_single_row(self):
+        """One row makes ddof=1 std NaN; score must be 0.0, not NaN."""
+        df = pd.DataFrame({'a': [42.0]})
+        results = column_zscore(df, 'a')
+        assert results == [(0, 0.0)]
+
+    def test_column_absolute_zscore_single_row(self):
+        df = pd.DataFrame({'a': [42.0]})
+        results = column_absolute_zscore(df, 'a')
+        assert results == [(0, 0.0)]
+
+    # --- outlier_score zscore on all-constant columns ---
+
+    def test_outlier_score_zscore_all_constant(self):
+        """All-constant numeric columns yield 0/0 z-scores; they must map to a
+        uniform 0.0 (no all-NaN scores, no RuntimeWarning)."""
+        df = pd.DataFrame({'a': [5.0, 5.0, 5.0], 'b': [7.0, 7.0, 7.0]})
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            results = outlier_score(df, method='zscore')
+        assert all(score == 0.0 for _, score in results)
 
     # --- no-numeric-column fallbacks (return all-zero) ---
 

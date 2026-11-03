@@ -64,3 +64,22 @@ def test_light_text_sorter_runs_with_heavy_deps_blocked():
         "character_length(['a question', 'another one here'])",
     )
     assert out.returncode == 0 and out.stdout.strip() == "ok", out.stderr
+
+
+def test_lazy_module_missing_dep_names_extra():
+    """A missing optional dependency is re-raised naming the pip extra, instead
+    of a bare ModuleNotFoundError that doesn't say how to install it."""
+    from splytters.sorters._lazy import LazyModule
+
+    proxy = LazyModule("a_module_that_does_not_exist", extra="image")
+    with pytest.raises(ModuleNotFoundError, match=r"pip install splytters\[image\]"):
+        _ = proxy.some_attr
+
+
+def test_lazy_module_without_extra_reraises_bare():
+    """Without an ``extra`` the original ModuleNotFoundError propagates unchanged."""
+    from splytters.sorters._lazy import LazyModule
+
+    proxy = LazyModule("a_module_that_does_not_exist")
+    with pytest.raises(ModuleNotFoundError):
+        _ = proxy.some_attr

@@ -21,7 +21,7 @@ from splytters.sorters._lazy import LazyModule
 
 # Pillow is imported on first use (see _lazy), so importing this module needs no
 # [image] extra — only calling a sorter does.
-Image = LazyModule("PIL.Image")
+Image = LazyModule("PIL.Image", extra="image")
 
 if TYPE_CHECKING:
     from PIL import Image as _PILImage
