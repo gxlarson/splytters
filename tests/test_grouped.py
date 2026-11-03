@@ -72,6 +72,18 @@ class TestGroupSplit:
         realized = len(train) / len(X)
         assert abs(realized - 0.7) < abs(0.09 - 0.7)
 
+    @pytest.mark.parametrize("seed", range(6))
+    def test_never_worse_than_first_fit(self, seed):
+        """Groups of 15, 5 and 5 with a target of 10: first-fit reaches 10
+        exactly (5 + 5), but a lone best-fit pass that meets the 15 first
+        admits it and stops at 15. Whatever the group order, the result must
+        be the exact 10."""
+        X = np.random.RandomState(0).randn(25, 4)
+        groups = np.array([0] * 15 + [1] * 5 + [2] * 5)
+        train, test = group_split(X, groups, train_size=10, random_state=seed)
+        assert _valid(train, test, len(X))
+        assert len(train) == 10
+
 
 class TestDeduplicatedSplit:
 

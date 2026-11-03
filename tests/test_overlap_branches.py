@@ -71,9 +71,9 @@ class TestNeighborCoverageFeasibility:
         with pytest.raises(RuntimeError, match="invalid solution"):
             neighbor_coverage_split(X, train_size=0.5, k=1)
 
-    def test_undercovered_split_warns_best_effort(self, monkeypatch):
-        """A solver returning a correctly-sized but under-covered split must warn
-        (best-effort) instead of silently violating the coverage promise."""
+    def test_undercovered_solution_raises(self, monkeypatch):
+        """A correctly-sized split that leaves test points under-covered breaks
+        the documented k-coverage guarantee, so it must raise, not be returned."""
         import scipy.optimize
 
         # x has the right train count (3) but leaves both test points with fewer
@@ -86,9 +86,8 @@ class TestNeighborCoverageFeasibility:
             ),
         )
         X = np.array([0.0, 0.1, 0.2, 0.3, 50.0])[:, None]
-        with pytest.warns(UserWarning, match="fewer than k=3 train neighbors"):
-            train, test = neighbor_coverage_split(X, train_size=0.6, k=3)
-        _disjoint_and_complete(train, test, len(X))
+        with pytest.raises(RuntimeError, match="invalid solution"):
+            neighbor_coverage_split(X, train_size=0.6, k=3)
 
 
 class TestNearestNeighborDuplicates:

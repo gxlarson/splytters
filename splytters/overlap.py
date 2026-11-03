@@ -91,15 +91,11 @@ def neighbor_coverage_split(
     random_state: int = 42,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Best-effort: ensure each test sample has k similar samples in train.
+    Ensure each test sample has k similar samples in train.
 
     Solves a binary feasibility problem whose constraints require every test
     sample to have at least ``k`` train neighbors within the median pairwise
-    distance. Raises when no split of the requested size is feasible. When a
-    solver returns a split that does not fully meet the coverage constraint
-    (off-constraint solution), the promise is best-effort: the split is still
-    returned and a warning reports how many test samples are under-covered,
-    rather than silently violating the documented guarantee.
+    distance. Raises when no split of the requested size can meet that promise.
 
     Args:
         embeddings: array-like of shape (n_samples, embedding_dim)
@@ -172,22 +168,9 @@ def neighbor_coverage_split(
     train_mask = result.x >= 0.5
     train_indices = np.flatnonzero(train_mask)
     test_indices = np.flatnonzero(~train_mask)
-    if len(train_indices) != n_train:
-        raise RuntimeError("neighbor-coverage MILP returned an invalid solution")
-
-    # The MILP constraints enforce k-coverage, but report honestly rather than
-    # silently violate the documented promise if a solver ever returns a split
-    # where some test point has fewer than k train neighbors.
     coverage = neighbor_matrix[np.ix_(test_indices, train_indices)].sum(axis=1)
-    n_undercovered = int(np.count_nonzero(coverage < k))
-    if n_undercovered:
-        warnings.warn(
-            f"neighbor_coverage_split left {n_undercovered} of "
-            f"{len(test_indices)} test samples with fewer than k={k} train "
-            "neighbors within the median-distance neighborhood; the coverage "
-            "guarantee is best-effort and was not fully met for this split.",
-            stacklevel=2,
-        )
+    if len(train_indices) != n_train or np.any(coverage < k):
+        raise RuntimeError("neighbor-coverage MILP returned an invalid solution")
     return as_index_array(train_indices), as_index_array(test_indices)
 
 
