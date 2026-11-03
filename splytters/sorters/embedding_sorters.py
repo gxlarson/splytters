@@ -18,6 +18,8 @@ from scipy.spatial.distance import euclidean as _dist_euclidean
 from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import LocalOutlierFactor
 
+from splytters.utils import kneighbors_excluding_self
+
 
 def dist_euclidean(u: ArrayLike, v: ArrayLike) -> float:
     """Compute Euclidean distance between two vectors."""
@@ -66,7 +68,7 @@ def distance_to_nearest_neighbor(
 
     Args:
         embeddings: np.array of shape (n_samples, embedding_dim)
-        metric: distance metric for cdist (default 'euclidean')
+        metric: distance metric for ``NearestNeighbors`` (default 'euclidean')
 
     Returns:
         List of (index, distance) tuples sorted by nearest neighbor distance ascending.
@@ -77,15 +79,8 @@ def distance_to_nearest_neighbor(
         # No neighbor to measure against.
         return [(i, float("inf")) for i in range(n)]
 
-    # O(n·k) memory via NearestNeighbors instead of a full O(n²) matrix.
-    # Querying the fit data puts each point's self at column 0 (distance 0),
-    # so column 1 is exactly the 1-nearest-neighbor distance.
-    from sklearn.neighbors import NearestNeighbors
-
-    nn = NearestNeighbors(n_neighbors=2, metric=metric)
-    nn.fit(embeddings)
-    dists, _ = nn.kneighbors(embeddings)
-    min_distances = dists[:, 1]
+    dists, _ = kneighbors_excluding_self(embeddings, 1, metric)
+    min_distances = dists[:, 0]
 
     scores = [(i, float(min_distances[i])) for i in range(n)]
     scores.sort(key=lambda p: p[1])
@@ -258,17 +253,10 @@ def knn_label_disagreement(
     Returns:
         List of (index, disagreement_fraction) tuples, each in [0, 1].
     """
-    from sklearn.neighbors import NearestNeighbors
-
     X = np.asarray(embeddings)
     y = np.asarray(y)
     n = len(X)
-    k = min(k, n - 1)
-    neighbors = (
-        NearestNeighbors(n_neighbors=k + 1, metric=metric)
-        .fit(X)
-        .kneighbors(X, return_distance=False)[:, 1:]  # drop self
-    )
+    _, neighbors = kneighbors_excluding_self(X, k, metric)
     scores = [(i, float(np.mean(y[neighbors[i]] != y[i]))) for i in range(n)]
     scores.sort(key=lambda p: p[1], reverse=not low_first)
     return scores

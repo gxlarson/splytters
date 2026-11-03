@@ -21,7 +21,9 @@ from splytters.utils import (
     as_index_array,
     cluster_embeddings,
     compute_centroid,
+    near_duplicate_components,
     optimized_split,
+    rank_by_centroid_distance,
     resolve_n_train,
     validate_split_inputs,
 )
@@ -91,8 +93,9 @@ def neighbor_coverage_split(
     """
     Ensure each test sample has k similar samples in train.
 
-    Iteratively assigns samples to test only if they have enough
-    similar samples already in train, maximizing coverage.
+    Solves a binary feasibility problem whose constraints require every test
+    sample to have at least ``k`` train neighbors within the median pairwise
+    distance. Raises when no split of the requested size can meet that promise.
 
     Args:
         embeddings: array-like of shape (n_samples, embedding_dim)
@@ -105,12 +108,15 @@ def neighbor_coverage_split(
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
 
-    Seed stability: varies with the seed like a random split -- it starts from a
-    random train set and admits/swaps points stochastically.
+    Seed stability: varies with the seed. The constraints are fixed, while a
+    seeded random linear objective selects among multiple feasible solutions.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     n_samples = len(embeddings)
     rng = check_random_state(random_state)
+
+    if not isinstance(k, (int, np.integer)) or isinstance(k, bool) or k < 1:
+        raise ValueError(f"k must be a positive integer, got {k!r}")
 
     # TODO: Replace full pairwise matrix with chunked or BallTree.query_radius
     # computation to reduce memory from O(n²). Only threshold-based neighbor
@@ -122,50 +128,50 @@ def neighbor_coverage_split(
     finite_dists = distances[distances < np.inf]
     threshold = np.median(finite_dists)
 
-    # Start with random train set
-    all_indices = np.arange(n_samples)
-    rng.shuffle(all_indices)
-
     n_train = resolve_n_train(n_samples, train_size)
-    train_set = set(all_indices[:n_train])
-    remaining = list(all_indices[n_train:])
-
-    # Iteratively improve: swap samples to maximize coverage
-    test_indices = []
-
-    for idx in remaining:
-        # Count similar samples in train
-        similar_in_train = sum(
-            1 for t_idx in train_set
-            if distances[idx, t_idx] <= threshold
+    if k > n_train:
+        raise ValueError(
+            "no feasible neighbor-coverage split: "
+            f"k={k} exceeds the {n_train} available train samples"
         )
 
-        if similar_in_train >= k:
-            test_indices.append(idx)
-        else:
-            # Find a train sample to swap
-            # Prefer train samples that have many similar train neighbors
-            train_list = list(train_set)
-            swap_candidate = None
-            max_redundancy = -1
+    # Binary variable x_i is 1 when sample i is in train. For every sample i,
+    #     sum_{j in N(i)} x_j + k*x_i >= k
+    # activates the coverage requirement only when i is in test (x_i == 0).
+    # Together with sum_i x_i == n_train this is the exact documented contract.
+    from scipy import sparse
+    from scipy.optimize import Bounds, LinearConstraint, milp
 
-            for t_idx in train_list:
-                redundancy = sum(
-                    1 for other in train_set
-                    if other != t_idx and distances[t_idx, other] <= threshold
-                )
-                if redundancy > max_redundancy:
-                    max_redundancy = redundancy
-                    swap_candidate = t_idx
+    neighbor_matrix = (distances <= threshold).astype(float)
+    coverage_matrix = neighbor_matrix + k * np.eye(n_samples)
+    constraint_matrix = sparse.vstack(
+        [np.ones((1, n_samples)), sparse.csr_matrix(coverage_matrix)],
+        format="csr",
+    )
+    lower = np.concatenate(([n_train], np.full(n_samples, float(k))))
+    upper = np.concatenate(([n_train], np.full(n_samples, np.inf)))
 
-            if swap_candidate is not None and max_redundancy > k:
-                train_set.remove(swap_candidate)
-                train_set.add(idx)
-                test_indices.append(swap_candidate)
-            else:
-                test_indices.append(idx)
+    # The objective only breaks ties between feasible solutions. Seeded random
+    # costs retain this splitter's documented seed variation.
+    result = milp(
+        c=rng.uniform(size=n_samples),
+        integrality=np.ones(n_samples),
+        bounds=Bounds(0.0, 1.0),
+        constraints=LinearConstraint(constraint_matrix, lower, upper),
+    )
+    if not result.success or result.x is None:
+        raise ValueError(
+            "no feasible neighbor-coverage split for the requested train_size, "
+            f"k={k}, and median-distance neighborhood graph"
+        )
 
-    return as_index_array(train_set), as_index_array(test_indices)
+    train_mask = result.x >= 0.5
+    train_indices = np.flatnonzero(train_mask)
+    test_indices = np.flatnonzero(~train_mask)
+    coverage = neighbor_matrix[np.ix_(test_indices, train_indices)].sum(axis=1)
+    if len(train_indices) != n_train or np.any(coverage < k):
+        raise RuntimeError("neighbor-coverage MILP returned an invalid solution")
+    return as_index_array(train_indices), as_index_array(test_indices)
 
 
 def centroid_matched_split(
@@ -233,6 +239,13 @@ def stratified_similarity_split(
     embeddings = validate_split_inputs(embeddings, train_size)
     rng = check_random_state(random_state)
 
+    if (
+        not isinstance(n_bins, (int, np.integer))
+        or isinstance(n_bins, bool)
+        or n_bins < 1
+    ):
+        raise ValueError(f"n_bins must be a positive integer, got {n_bins!r}")
+
     # Compute distances from centroid
     centroid = compute_centroid(embeddings)
     distances = np.linalg.norm(embeddings - centroid, axis=1)
@@ -294,13 +307,18 @@ def nearest_neighbor_split(
     n_test = n_samples - resolve_n_train(n_samples, train_size)
     rng = check_random_state(random_state)
 
-    # Find each point's nearest neighbor
+    # Find each point's nearest neighbor. Query k=2 because the point itself is
+    # among its own neighbors on the fitted data. Normally self is column 0
+    # (distance 0), but with exact duplicates the sorted result can list the
+    # point itself in either column; take whichever column is not the point's
+    # own index so the recorded nearest neighbor is always another point. This
+    # avoids self-neighbor no-ops that wasted test capacity and raised spurious
+    # "could only place N" warnings.
     nn_model = NearestNeighbors(n_neighbors=2, metric=metric, algorithm="auto")
     nn_model.fit(embeddings)
-    # k=2 because the first neighbor is the point itself when querying the
-    # same dataset — but fit/kneighbors on the same data excludes self only
-    # if we use radius; instead just grab second neighbor
-    neighbors = nn_model.kneighbors(embeddings, return_distance=False)[:, 1]
+    two_nn = nn_model.kneighbors(embeddings, return_distance=False)
+    row = np.arange(n_samples)
+    neighbors = np.where(two_nn[:, 0] == row, two_nn[:, 1], two_nn[:, 0])
 
     # Start with all points in train, then greedily move points to test.
     # A point can become test only if its NN is (and stays) in train.
@@ -340,6 +358,60 @@ def nearest_neighbor_split(
     return as_index_array(train_indices), as_index_array(test_indices)
 
 
+def central_split(
+    embeddings: ArrayLike,
+    train_size: float | int = 0.7,
+    metric: str = "euclidean",
+    random_state: int = 42,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Put the samples closest to the centroid in test and the rest in train.
+
+    The exact mirror of :func:`splytters.distance_adversarial_split`, which
+    tests on the samples *farthest* from the centroid. Here the test set is made
+    of the most prototypical samples, giving an optimistic bound on accuracy.
+
+    This is a different kind of "easy" from :func:`nearest_neighbor_split`,
+    which gives every test point a close twin in train. Central test points are
+    easy because they are typical, not because they are duplicated: they sit
+    packed together near the centroid, so most of their nearest neighbors are
+    other *test* points.
+
+    The centroid is that of the whole input. To get a test set of class-typical
+    samples, wrap this in :func:`splytters.per_class_split`; on a multi-class
+    dataset as a whole it picks samples typical of the overall mean, which skews
+    the test label distribution.
+
+    Args:
+        embeddings: array-like of shape (n_samples, embedding_dim)
+        train_size: fraction in (0, 1) or absolute count for the training set.
+            The test set is the ``n_samples - n_train`` closest samples, so the
+            sizes match any other splitter given the same ``train_size``.
+        metric: distance from each sample to the centroid (the mean
+            embedding): any ``scipy.spatial.distance.cdist`` metric, e.g.
+            ``"cosine"`` for embeddings compared by angle
+        random_state: accepted for API consistency; this split is deterministic
+
+    Returns:
+        train_indices: ndarray of indices for training set
+        test_indices: ndarray of indices for test set
+
+    Raises:
+        ValueError: if ``metric`` is not a metric ``cdist`` accepts.
+
+    Seed stability: deterministic -- samples are ranked by distance from the
+    centroid, so the seed has no effect (it is accepted only for API
+    consistency).
+    """
+    embeddings = validate_split_inputs(embeddings, train_size)
+    n_samples = len(embeddings)
+    n_test = n_samples - resolve_n_train(n_samples, train_size)
+    sorted_indices = rank_by_centroid_distance(embeddings, metric)  # closest first
+    return as_index_array(sorted_indices[n_test:]), as_index_array(
+        sorted_indices[:n_test]
+    )
+
+
 def duplicate_spread_split(
     embeddings: ArrayLike,
     train_size: float | int = 0.7,
@@ -356,14 +428,21 @@ def duplicate_spread_split(
     Args:
         embeddings: array-like of shape (n_samples, embedding_dim)
         train_size: fraction in (0, 1) or absolute count for the training set
-        similarity_threshold: distance threshold for near-duplicates
-                              (default: 10th percentile of distances)
-        metric: distance metric
+        similarity_threshold: pairs at most this far apart (``metric``
+            distance) are near-duplicates. Defaults to 0.1 times the median
+            distance from each sample to its 10th nearest neighbor, i.e. pairs
+            much closer than neighbors typically are.
+        metric: distance metric (any ``scipy.spatial.distance.cdist`` metric)
         random_state: for reproducibility
 
     Returns:
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
+
+    Warns:
+        UserWarning: if no near-duplicates are found, or one near-duplicate
+            group holds more than half the samples. Either way the result is
+            effectively a random split.
 
     Seed stability: varies with the seed like a random split -- each
     near-duplicate group is shuffled before being split across both sides.
@@ -371,27 +450,36 @@ def duplicate_spread_split(
     embeddings = validate_split_inputs(embeddings, train_size)
     rng = check_random_state(random_state)
 
-    # TODO: Replace full pairwise matrix with BallTree.query_radius to find
-    # near-duplicates without materializing O(n²) distances.
-    distances = cdist(embeddings, embeddings, metric=metric)
-    np.fill_diagonal(distances, np.inf)
-
-    # Set threshold
-    if similarity_threshold is None:
-        finite_dists = distances[distances < np.inf]
-        similarity_threshold = np.percentile(finite_dists, 10)
-
     # Find near-duplicate groups using connected components
-    from scipy.sparse import csr_matrix
-    from scipy.sparse.csgraph import connected_components
-
-    adjacency = (distances <= similarity_threshold).astype(int)
-    n_components, labels = connected_components(csr_matrix(adjacency))
+    labels, similarity_threshold = near_duplicate_components(
+        embeddings, similarity_threshold, metric
+    )
 
     # Group samples by component
     component_to_indices = defaultdict(list)
     for idx, label in enumerate(labels):
         component_to_indices[label].append(idx)
+
+    n_samples = len(embeddings)
+    largest = max(len(v) for v in component_to_indices.values())
+    if largest < 2:
+        warnings.warn(
+            f"duplicate_spread_split found no near-duplicates within "
+            f"similarity_threshold={similarity_threshold:.4g}, so there is "
+            "nothing to spread and the result is a random split. Raise "
+            "similarity_threshold to treat looser pairs as near-duplicates.",
+            UserWarning,
+            stacklevel=2,
+        )
+    elif largest > n_samples / 2:
+        warnings.warn(
+            f"duplicate_spread_split: one near-duplicate group holds {largest} "
+            f"of {n_samples} samples (similarity_threshold="
+            f"{similarity_threshold:.4g}), so spreading it is effectively a "
+            "random split. Lower similarity_threshold to merge fewer samples.",
+            UserWarning,
+            stacklevel=2,
+        )
 
     n_train_total = resolve_n_train(len(embeddings), train_size)
     train_fraction = n_train_total / len(embeddings)

@@ -23,7 +23,11 @@ from sklearn.utils import check_random_state
 from splytters._types import Splitter
 from splytters.adversarial import get_cluster_info
 from splytters.metrics import diversity_text, mean_dist
-from splytters.utils import compute_split_similarity, validate_split_inputs
+from splytters.utils import (
+    _split_similarity,
+    validate_split_inputs,
+    warn_if_pairwise_memory_large,
+)
 
 
 def _rbf_mmd(A: np.ndarray, B: np.ndarray, gamma: float) -> float:
@@ -184,8 +188,15 @@ def split_report(
             ``max_samples`` for the O(n²) pairwise computation.
         metric: distance metric (default ``"euclidean"``).
         n_clusters: clusters used for the leakage statistic (default 10).
-        max_samples: cap per side for the O(n²) distribution metrics
-            (subsampled for speed); ``None`` uses all samples (default 2000).
+        max_samples: cap on the samples used by every pairwise (O(n²))
+            computation, so the report's cost does not grow quadratically with
+            the dataset: the distribution metrics use at most ``max_samples``
+            points per side, ``mean_cross_distance`` / ``coverage`` use at most
+            ``max_samples`` test points (searched against the full train set),
+            and the median distance behind ``coverage`` is estimated from at
+            most ``max_samples`` points. ``None`` uses all samples, which needs
+            O(n²) memory and warns when that is estimated to exceed 1 GiB
+            (default 2000).
         random_state: seed for subsampling (default 42).
 
     Returns:
@@ -199,7 +210,7 @@ def split_report(
 
     n_train, n_test = len(train_indices), len(test_indices)
     # A report compares two non-empty sides; an empty side otherwise divides by
-    # zero here or crashes downstream in compute_split_similarity.
+    # zero here or crashes downstream in _split_similarity.
     if n_train == 0 or n_test == 0:
         raise ValueError(
             f"split_report requires non-empty train and test splits "
@@ -211,8 +222,27 @@ def split_report(
         "train_fraction": float(n_train / (n_train + n_test)),
     }
 
+    if max_samples is None:
+        # Peak distance-matrix size of the exact computation: the median over
+        # all pairs (pdist plus np.median's copy), or _rbf_mmd's kernel
+        # matrices, of which up to three are alive at once plus an exp temporary.
+        n = len(X)
+        warn_if_pairwise_memory_large(
+            max(
+                n * (n - 1),
+                n_train**2 + n_test**2 + 2 * n_train * n_test,
+                2 * max(n_train, n_test) ** 2,
+            ),
+            n, "split_report",
+        )
+
     # Geometric similarity (centroid distance, nearest-train distance, coverage).
-    report.update(compute_split_similarity(X, train_indices, test_indices, metric))
+    # Seeded separately from ``rng`` so the distribution metrics below see the
+    # same random draws whether or not this step subsamples.
+    report.update(_split_similarity(
+        X, train_indices, test_indices, metric, max_samples,
+        random_state if isinstance(random_state, int) else 42,
+    ))
 
     # Cluster leakage.
     info = get_cluster_info(

@@ -70,7 +70,9 @@ def per_class_split(
         on_error: what to do when ``split_fn`` raises for a class (typically a
             class too small for the splitter's clustering, e.g. fewer samples
             than ``n_clusters``). ``"fallback"`` (default) falls back to a random
-            split for that class so coverage is preserved; ``"raise"`` propagates
+            split for that class so coverage is preserved (an absolute-count
+            ``train_size`` is clamped to ``[1, class_size - 1]`` for the fallback
+            so it can never empty either side of a class); ``"raise"`` propagates
             the original error.
         random_state: seed forwarded to ``split_fn`` on every per-class call (so
             it actually drives the wrapped splitter), and used for the
@@ -121,7 +123,17 @@ def per_class_split(
         except Exception:
             if on_error == "raise":
                 raise
-            tr_local, te_local = random_split(class_emb, train_size, random_state)
+            # Clamp an absolute-count train_size into this class's valid range
+            # [1, len(idx) - 1] so the fallback genuinely preserves coverage: a
+            # count >= the class size would otherwise make random_split re-raise
+            # the same "train_size out of range" ValueError. A fractional
+            # train_size is already clamped by resolve_n_train, so it is safe.
+            fallback_size: float | int = train_size
+            if isinstance(train_size, (int, np.integer)) and not isinstance(
+                train_size, bool
+            ):
+                fallback_size = int(min(max(int(train_size), 1), len(idx) - 1))
+            tr_local, te_local = random_split(class_emb, fallback_size, random_state)
 
         train.extend(idx[np.asarray(tr_local, dtype=np.intp)].tolist())
         test.extend(idx[np.asarray(te_local, dtype=np.intp)].tolist())

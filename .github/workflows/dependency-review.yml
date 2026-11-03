@@ -1,0 +1,17 @@
+name: Dependency review
+
+# Flags vulnerable dependencies and disallowed licenses introduced by a pull
+# request before it merges. Diff-based, so it only runs on pull_request.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    name: dependency review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/dependency-review-action@v5

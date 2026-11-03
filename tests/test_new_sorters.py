@@ -58,6 +58,18 @@ class TestKnnLabelDisagreement:
         assert _is_full_ranking(r, 40)
         assert all(0.0 <= v <= 1.0 for _, v in r)
 
+    def test_duplicate_ties_remove_self_by_index(self):
+        X = np.zeros((6, 2))
+        y = np.array([0, 1, 1, 1, 1, 1])
+        scores = dict(knn_label_disagreement(X, y, k=1))
+        assert scores[0] == 1.0
+
+    def test_k_must_be_positive(self):
+        X = np.arange(12, dtype=float).reshape(6, 2)
+        y = np.array([0, 0, 0, 1, 1, 1])
+        with pytest.raises(ValueError, match="k must be a positive integer"):
+            knn_label_disagreement(X, y, k=0)
+
 
 class TestGzipComplexity:
 
