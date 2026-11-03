@@ -32,28 +32,57 @@ _TRAIN_SIZE_TOLERANCE = 0.05
 def _assign_whole_groups(
     group_to_indices: dict, target_train: int, rng
 ) -> tuple[list[int], list[int]]:
-    """Greedily assign whole groups to train (up to ``target_train``), rest to
-    test, so no group is split across sides. Guarantees both sides non-empty.
+    """Assign whole groups to train to approach ``target_train`` by sample
+    count, rest to test, so no group is split across sides. Guarantees both
+    sides non-empty.
+
+    Runs two greedy passes over the same random group order and keeps whichever
+    lands closer to the target (first-fit on ties):
+
+    - first-fit admits a group only if it still fits under the target. It can
+      badly undershoot when a group is larger than the whole target, since such
+      a group never fits.
+    - best-fit admits a group whenever that moves the running count closer to
+      the target, so an oversized group can still land in train. It can
+      overshoot early and then reject groups that would have fit.
     """
     groups = [np.asarray(idxs) for idxs in group_to_indices.values()]
     order = rng.permutation(len(groups))
+    sizes = [len(g) for g in groups]
 
-    train_groups: list[int] = []
-    test_groups: list[int] = []
-    filled = 0
-    for j in order:
-        if filled + len(groups[j]) <= target_train:
-            train_groups.append(j)
-            filled += len(groups[j])
-        else:
-            test_groups.append(j)
+    def greedy(admit) -> tuple[list[int], list[int]]:
+        train_groups: list[int] = []
+        test_groups: list[int] = []
+        filled = 0
+        for j in order:
+            if admit(filled, sizes[j]):
+                train_groups.append(j)
+                filled += sizes[j]
+            else:
+                test_groups.append(j)
+        # Both sides must stay non-empty: if every group went to one side, move
+        # the smallest across. Whole groups remain intact either way.
+        if not train_groups:
+            smallest = min(test_groups, key=lambda j: sizes[j])
+            test_groups.remove(smallest)
+            train_groups.append(smallest)
+        elif not test_groups:
+            smallest = min(train_groups, key=lambda j: sizes[j])
+            train_groups.remove(smallest)
+            test_groups.append(smallest)
+        return train_groups, test_groups
 
-    # Pathological case (e.g. one group larger than target_train): make sure
-    # train isn't empty by pulling the smallest test group over.
-    if not train_groups and test_groups:
-        smallest = min(test_groups, key=lambda j: len(groups[j]))
-        test_groups.remove(smallest)
-        train_groups.append(smallest)
+    candidates = [
+        greedy(lambda filled, size: filled + size <= target_train),  # first-fit
+        greedy(  # best-fit
+            lambda filled, size: abs(filled + size - target_train)
+            < abs(filled - target_train)
+        ),
+    ]
+    train_groups, test_groups = min(
+        candidates,
+        key=lambda c: abs(sum(sizes[j] for j in c[0]) - target_train),
+    )  # min() keeps the first (first-fit) candidate on ties
 
     train = [i for j in train_groups for i in groups[j].tolist()]
     test = [i for j in test_groups for i in groups[j].tolist()]
@@ -71,7 +100,8 @@ def group_split(
 
     All samples sharing a group id (e.g. the same user, document, patient, or
     source) are kept together in either train or test. Whole groups are assigned
-    greedily to approach ``train_size`` by sample count. The analogue of
+    greedily to approach ``train_size`` by sample count; a group larger than the
+    target can still land in train when that gets the count closer. The analogue of
     scikit-learn's :class:`~sklearn.model_selection.GroupShuffleSplit`, but on
     embeddings and returning index arrays.
 

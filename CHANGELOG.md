@@ -63,6 +63,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `cluster_kfold(method="dbscan")` no longer puts all DBSCAN noise points in
   one fold. They are placed one at a time after the whole clusters, wherever
   they best balance the folds' labels and sizes.
+- `per_class_split` with `on_error="fallback"` no longer re-raises when an
+  absolute-count `train_size` is greater than or equal to a class's size; the
+  fallback clamps the count to the class's `[1, size - 1]` range so the class
+  stays on both sides.
+- `split_dataframe`, `to_torch_subsets`, and `split_dataset` (`splytters.interop`)
+  only forward `random_state` to splitters that accept it, so a custom splitter
+  without a `random_state` parameter no longer raises `TypeError`. They also
+  accept splitters that return plain lists of indices.
+- `nearest_neighbor_split` no longer records a point as its own nearest
+  neighbor when there are exact duplicates, which wasted test capacity and
+  raised spurious "could only place N" warnings.
 
 ### Changed
 - The default `similarity_threshold` of `deduplicated_split` and
@@ -83,6 +94,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   regex-based `scripts/hooks/pre-push` hook; run
   `git config --unset core.hooksPath` and then `pre-commit install`. CI gains a
   `secrets` job that runs gitleaks over the full history.
+- `group_split` (and `deduplicated_split`, which shares the routine) can now
+  put a group larger than the target train size in train when that lands
+  closer to `train_size`. Previously such a group was always sent to test,
+  badly undershooting `train_size` (e.g. 9% train for a requested 70%). The
+  assignment runs both the old first-fit pass and a best-fit pass and keeps
+  whichever is closer to the target, so it is never further off than before.
+  Groups stay whole and both sides stay non-empty.
 
 ## [0.2.1] — 2026-07-06
 

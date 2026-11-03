@@ -169,6 +169,23 @@ class TestPandasInterop:
         with pytest.raises(ValueError, match="rows but embeddings"):
             split_dataframe(df, np.zeros((9, 2)))
 
+    def test_custom_splitter_without_random_state(self, labelled_data):
+        """A user splitter that takes neither random_state nor **kwargs must not
+        get a random_state forced on it (that raised TypeError before the fix).
+        The splitter also returns plain lists, which must be handled."""
+        pd = pytest.importorskip("pandas")
+        X, y = labelled_data
+        df = pd.DataFrame({"a": X[:, 0], "b": X[:, 1], "label": y})
+
+        def s(embeddings, train_size=0.7):
+            n = len(embeddings)
+            n_train = int(n * train_size)
+            return list(range(n_train)), list(range(n_train, n))
+
+        train_df, test_df = split_dataframe(df, X, splitter=s)
+        assert len(train_df) + len(test_df) == len(df)
+        assert set(train_df.index) & set(test_df.index) == set()
+
 
 class TestTorchInterop:
 

@@ -307,13 +307,18 @@ def nearest_neighbor_split(
     n_test = n_samples - resolve_n_train(n_samples, train_size)
     rng = check_random_state(random_state)
 
-    # Find each point's nearest neighbor
+    # Find each point's nearest neighbor. Query k=2 because the point itself is
+    # among its own neighbors on the fitted data. Normally self is column 0
+    # (distance 0), but with exact duplicates the sorted result can list the
+    # point itself in either column; take whichever column is not the point's
+    # own index so the recorded nearest neighbor is always another point. This
+    # avoids self-neighbor no-ops that wasted test capacity and raised spurious
+    # "could only place N" warnings.
     nn_model = NearestNeighbors(n_neighbors=2, metric=metric, algorithm="auto")
     nn_model.fit(embeddings)
-    # k=2 because the first neighbor is the point itself when querying the
-    # same dataset — but fit/kneighbors on the same data excludes self only
-    # if we use radius; instead just grab second neighbor
-    neighbors = nn_model.kneighbors(embeddings, return_distance=False)[:, 1]
+    two_nn = nn_model.kneighbors(embeddings, return_distance=False)
+    row = np.arange(n_samples)
+    neighbors = np.where(two_nn[:, 0] == row, two_nn[:, 1], two_nn[:, 0])
 
     # Start with all points in train, then greedily move points to test.
     # A point can become test only if its NN is (and stays) in train.
