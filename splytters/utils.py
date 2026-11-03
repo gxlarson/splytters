@@ -5,14 +5,17 @@ Shared utilities for splitting algorithms.
 from __future__ import annotations
 
 import inspect
+import warnings
 from collections import defaultdict
 from collections.abc import Callable
 from typing import Any
 
 import numpy as np
 from numpy.typing import ArrayLike
-from scipy.spatial.distance import cdist
+from scipy.spatial.distance import cdist, pdist
 from sklearn.cluster import KMeans
+from sklearn.metrics import pairwise_distances_argmin_min
+from sklearn.neighbors import VALID_METRICS
 from sklearn.utils import check_array, check_random_state
 
 
@@ -219,10 +222,157 @@ def kneighbors_excluding_self(
     return out_distances, out_indices
 
 
+# Default near-duplicate threshold: _DUPLICATE_THRESHOLD_RATIO times the median
+# distance from each sample to its _DUPLICATE_SCALE_K-th nearest neighbor. The
+# k-th (not 1st) neighbor keeps the scale meaningful when most samples have a
+# few near-duplicates, which would otherwise pull the median down to the
+# duplicates' own spacing.
+_DUPLICATE_THRESHOLD_RATIO = 0.1
+_DUPLICATE_SCALE_K = 10
+# sklearn computes these with the dot-product expansion: fast, but exact
+# duplicates can come out ~1e-8 * |x| apart instead of 0.
+_DOT_PRODUCT_METRICS = frozenset({"euclidean", "l2", "sqeuclidean", "cosine"})
+
+
+def _chunk_rows(X: np.ndarray):
+    """Yield ``(start, stop)`` row ranges whose cdist against X fits in memory."""
+    step = max(1, _CDIST_CHUNK_ELEMENTS // len(X))
+    for start in range(0, len(X), step):
+        yield start, min(start + step, len(X))
+
+
+def _kth_neighbor_distances(X: np.ndarray, k: int, metric: str) -> np.ndarray:
+    """Distance from each sample to its k-th nearest other sample."""
+    if isinstance(metric, str) and metric in _SKLEARN_NN_METRICS:
+        from sklearn.neighbors import NearestNeighbors
+
+        # kneighbors() without a query excludes each point by index.
+        return NearestNeighbors(n_neighbors=k, metric=metric).fit(X).kneighbors()[0][:, -1]
+    # Including self (distance 0, the smallest), the k-th other neighbor is
+    # the (k+1)-th smallest distance in the row.
+    return np.concatenate([
+        np.partition(cdist(X[start:stop], X, metric=metric), k, axis=1)[:, k]
+        for start, stop in _chunk_rows(X)
+    ])
+
+
+def _exact_paired_distances(
+    X: np.ndarray, rows: np.ndarray, cols: np.ndarray, metric: str
+) -> np.ndarray:
+    """Exact ``metric`` distance between ``X[rows[i]]`` and ``X[cols[i]]``, for
+    the dot-product metrics, computed from differences so duplicates give 0."""
+    out = np.empty(len(rows))
+    step = max(1, _CDIST_CHUNK_ELEMENTS // X.shape[1])
+    for start in range(0, len(rows), step):
+        a, b = X[rows[start:start + step]], X[cols[start:start + step]]
+        if metric == "cosine":
+            # 1 - cos(a, b) == ||a/|a| - b/|b|||² / 2
+            with np.errstate(invalid="ignore", divide="ignore"):
+                a = a / np.linalg.norm(a, axis=1, keepdims=True)
+                b = b / np.linalg.norm(b, axis=1, keepdims=True)
+            out[start:start + step] = 0.5 * ((a - b) ** 2).sum(axis=1)
+        else:
+            sq = ((a - b) ** 2).sum(axis=1)
+            out[start:start + step] = sq if metric == "sqeuclidean" else np.sqrt(sq)
+    return out
+
+
+def _pairs_within(
+    X: np.ndarray, threshold: float, metric: str
+) -> tuple[np.ndarray, np.ndarray]:
+    """All index pairs ``(i, j)``, ``i < j``, with ``metric`` distance
+    ``<= threshold``, using memory proportional to the number of pairs."""
+    if isinstance(metric, str) and metric in _DOT_PRODUCT_METRICS:
+        from sklearn.neighbors import radius_neighbors_graph
+
+        # Widen the radius past sklearn's rounding error, then keep only pairs
+        # whose exactly recomputed distance is within the threshold.
+        if metric == "cosine":
+            radius = threshold + 1e-9
+        else:
+            slack = 1e-12 * float(np.max(np.einsum("ij,ij->i", X, X)))
+            radius = threshold + slack if metric == "sqeuclidean" else np.sqrt(
+                max(threshold, 0.0) ** 2 + slack
+            )
+        graph = radius_neighbors_graph(
+            X, radius, mode="connectivity", metric=metric, include_self=False
+        ).tocoo()
+        upper = graph.row < graph.col
+        rows, cols = graph.row[upper], graph.col[upper]
+        keep = _exact_paired_distances(X, rows, cols, metric) <= threshold
+        return rows[keep], cols[keep]
+
+    rows_out, cols_out = [], []
+    for start, stop in _chunk_rows(X):
+        r, c = np.nonzero(cdist(X[start:stop], X, metric=metric) <= threshold)
+        r = r + start
+        upper = r < c
+        rows_out.append(r[upper])
+        cols_out.append(c[upper])
+    return np.concatenate(rows_out), np.concatenate(cols_out)
+
+
+def near_duplicate_components(
+    X: np.ndarray, similarity_threshold: float | None, metric: str
+) -> tuple[np.ndarray, float]:
+    """Label connected components of the near-duplicate graph.
+
+    Two samples are linked when their ``metric`` distance is at most
+    ``similarity_threshold``. The default threshold is 0.1 times the median
+    distance from each sample to its 10th nearest neighbor: "much closer than
+    neighbors typically are". Unlike a percentile of *all* pairwise distances,
+    which links every sample to ~percentile * n others and merges the dataset
+    into one giant component as n grows, this scale does not grow with n, and
+    it links nothing in data without near-duplicates.
+
+    Never materializes the full ``n x n`` distance matrix.
+
+    Returns:
+        ``(labels, similarity_threshold)``: a component label per sample, and
+        the threshold used (the default, if one was not given).
+    """
+    n = len(X)
+    if similarity_threshold is None:
+        k = min(_DUPLICATE_SCALE_K, n - 1)
+        similarity_threshold = _DUPLICATE_THRESHOLD_RATIO * float(
+            np.median(_kth_neighbor_distances(X, k, metric))
+        )
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    rows, cols = _pairs_within(X, similarity_threshold, metric)
+    graph = coo_matrix((np.ones(len(rows), dtype=np.int8), (rows, cols)), shape=(n, n))
+    _, labels = connected_components(graph, directed=False)
+    return labels, float(similarity_threshold)
+
+
 def compute_centroid(X: ArrayLike) -> np.ndarray:
     """Compute centroid of embeddings."""
     X = np.asarray(X)
     return X.mean(axis=0)
+
+
+def rank_by_centroid_distance(embeddings: np.ndarray, metric: str) -> np.ndarray:
+    """Sample indices ordered from closest to farthest from the centroid.
+
+    Shared by :func:`splytters.distance_adversarial_split` and
+    :func:`splytters.central_split` so the two stay exact mirrors.
+
+    Args:
+        embeddings: validated array of shape (n_samples, n_features).
+        metric: any ``scipy.spatial.distance.cdist`` metric or callable.
+
+    Raises:
+        ValueError: if ``metric`` is not a metric ``cdist`` accepts.
+    """
+    centroid = compute_centroid(embeddings)
+    # Euclidean keeps the original norm computation so its tie order, and
+    # hence distance_adversarial_split's historical splits, are unchanged.
+    if metric == "euclidean":
+        distances = np.linalg.norm(embeddings - centroid, axis=1)
+    else:
+        distances = cdist(embeddings, centroid[None, :], metric=metric).ravel()
+    return np.argsort(distances)
 
 
 def compute_split_centroids(
@@ -301,11 +451,43 @@ def random_split(
     return indices[:n_train], indices[n_train:]
 
 
+# Upper bound on the number of distances held in memory at once by the chunked
+# cdist fallback in compute_split_similarity (2**24 float64 = 128 MB).
+_CDIST_CHUNK_ELEMENTS = 2**24
+# Metrics compute_split_similarity hands to sklearn's nearest-neighbor search.
+_SKLEARN_NN_METRICS = frozenset(VALID_METRICS["brute"]) - {"precomputed"}
+# Estimated peak size of the distance matrices above which an exact
+# (max_samples=None) computation warns (1 GiB).
+_PAIRWISE_MEMORY_WARN_BYTES = 2**30
+
+
+def warn_if_pairwise_memory_large(
+    n_distances: int, n_samples: int, caller: str, stacklevel: int = 3
+) -> None:
+    """Warn that an exact ``max_samples=None`` computation needs a lot of memory.
+
+    ``n_distances`` is the estimated peak number of float64 distances held at
+    once. Memory, unlike run time, is predictable across machines, and running
+    out of it is the failure worth heading off.
+    """
+    n_bytes = 8 * n_distances
+    if n_bytes > _PAIRWISE_MEMORY_WARN_BYTES:
+        warnings.warn(
+            f"{caller} with max_samples=None computes all pairwise distances for "
+            f"{n_samples:,} samples, needing about {n_bytes / 2**30:,.1f} GiB of "
+            "memory. Pass max_samples (e.g. 2000) to subsample.",
+            UserWarning,
+            stacklevel=stacklevel,
+        )
+
+
 def compute_split_similarity(
     X: ArrayLike,
     train_indices: ArrayLike,
     test_indices: ArrayLike,
     metric: str = "euclidean",
+    max_samples: int | None = None,
+    random_state: int | np.random.RandomState | None = None,
 ) -> dict[str, float]:
     """
     Compute similarity metrics between train and test splits.
@@ -314,8 +496,42 @@ def compute_split_similarity(
         - centroid_distance: distance between train/test centroids
         - mean_cross_distance: mean distance from test to nearest train
         - coverage: fraction of test samples with train neighbor within median distance
+
+    Args:
+        X: array-like of shape (n_samples, n_features).
+        train_indices: integer index array for the training split.
+        test_indices: integer index array for the test split.
+        metric: distance metric passed to ``scipy.spatial.distance.cdist``.
+        max_samples: if given, caps the pairwise work. The nearest-train
+            statistics use a random subsample of at most ``max_samples`` test
+            points (each still searched against the *full* train set, so the
+            estimates are unbiased), and the median pairwise distance used by
+            ``coverage`` is estimated from a random subsample of at most
+            ``max_samples`` points. ``None`` (default) computes both exactly,
+            which needs O(n²) memory for the median, and warns when that is
+            estimated to exceed 1 GiB.
+        random_state: seed for the subsampling (only used with ``max_samples``).
     """
     X = np.asarray(X)
+    if max_samples is None:
+        # pdist holds n(n-1)/2 distances, and np.median copies them.
+        n = len(X)
+        warn_if_pairwise_memory_large(n * (n - 1), n, "compute_split_similarity")
+    return _split_similarity(
+        X, train_indices, test_indices, metric, max_samples, random_state
+    )
+
+
+def _split_similarity(
+    X: np.ndarray,
+    train_indices: ArrayLike,
+    test_indices: ArrayLike,
+    metric: str,
+    max_samples: int | None,
+    random_state: int | np.random.RandomState | None,
+) -> dict[str, float]:
+    """compute_split_similarity without the memory warning, for callers (e.g.
+    split_report) that issue their own."""
     train_indices = np.asarray(train_indices, dtype=np.intp)
     test_indices = np.asarray(test_indices, dtype=np.intp)
 
@@ -323,26 +539,42 @@ def compute_split_similarity(
         raise ValueError(
             "compute_split_similarity requires non-empty train and test sets"
         )
+    if max_samples is not None and max_samples < 1:
+        raise ValueError(f"max_samples must be >= 1 or None, got {max_samples}")
+    rng = check_random_state(random_state)
 
     train_X = X[train_indices]
-    test_X = X[test_indices]
 
-    # Centroid distance
+    # Centroid distance (linear, always exact)
     train_centroid = train_X.mean(axis=0)
-    test_centroid = test_X.mean(axis=0)
+    test_centroid = X[test_indices].mean(axis=0)
     centroid_distance = np.linalg.norm(train_centroid - test_centroid)
 
-    # Cross-set distances
-    cross_distances = cdist(test_X, train_X, metric=metric)
-    min_distances = cross_distances.min(axis=1)
+    # Distance from each (sampled) test point to its nearest train point, in
+    # chunks so memory stays bounded however large train is. sklearn's search is
+    # multithreaded (and BLAS-backed for euclidean), ~10x faster than cdist;
+    # metrics it doesn't know (e.g. jensenshannon, callables) use chunked cdist.
+    if max_samples is not None and len(test_indices) > max_samples:
+        test_indices = rng.choice(test_indices, size=max_samples, replace=False)
+    test_X = X[test_indices]
+    if isinstance(metric, str) and metric in _SKLEARN_NN_METRICS:
+        _, min_distances = pairwise_distances_argmin_min(
+            test_X, train_X, metric=metric
+        )
+    else:
+        chunk = max(1, _CDIST_CHUNK_ELEMENTS // len(train_X))
+        min_distances = np.concatenate([
+            cdist(test_X[start:start + chunk], train_X, metric=metric).min(axis=1)
+            for start in range(0, len(test_X), chunk)
+        ])
     mean_cross_distance = min_distances.mean()
 
-    # Coverage (fraction of test with nearby train sample)
-    # TODO: Replace full pairwise matrix with sampled median estimation and
-    # NearestNeighbors for coverage check to reduce O(n²) memory.
-    all_distances = cdist(X, X, metric=metric)
-    np.fill_diagonal(all_distances, np.inf)
-    median_dist = np.median(all_distances[all_distances < np.inf])
+    # Coverage (fraction of test with nearby train sample). The median over
+    # distinct pairs equals the median over the full off-diagonal matrix, since
+    # that matrix just counts each pair twice.
+    if max_samples is not None and len(X) > max_samples:
+        X = X[rng.choice(len(X), size=max(max_samples, 2), replace=False)]
+    median_dist = np.median(pdist(X, metric=metric))
     coverage = (min_distances <= median_dist).mean()
 
     return {

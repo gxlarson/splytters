@@ -6,35 +6,101 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Correctness fixes from a non-adversarial code review. See **Changed** for the
-behavior change that can affect existing callers (`group_split`).
+### Added
+- **`central_split`** (overlap family), the mirror of
+  `distance_adversarial_split`: the samples closest to the centroid go to test
+  and the rest to train, giving a prototypical, optimistic test set (#69).
+  Unlike swapping the outputs of `distance_adversarial_split`, `train_size`
+  means the training set, rounding matches every other splitter, and integer
+  `train_size` works. Honors `metric`; wrap it in `per_class_split` for
+  class-typical test samples.
 
 ### Fixed
+- `split_report` no longer does O(n²) work in the full dataset. `max_samples`
+  now caps the geometric metrics too (`mean_cross_distance`, `coverage`), not
+  just the distribution metrics, so reports on large datasets finish instead of
+  allocating an n × n matrix (1.28 TB at n = 400k) (#65).
+- `compute_split_similarity` gains `max_samples` and `random_state`. With
+  `max_samples`, the nearest-train statistics use a random subsample of test
+  points (still searched against the full train set) and the median distance
+  behind `coverage` is estimated from a random subsample. The default (`None`)
+  stays exact and returns the same values as before. The nearest-train search
+  is now chunked and multithreaded, so it also uses bounded memory and runs
+  about 10× faster.
+- `compute_split_similarity` and `split_report` warn when `max_samples=None`
+  would need more than about 1 GiB of distance matrices, and suggest passing
+  `max_samples`.
+- `distance_adversarial_split` now uses its `metric` argument (#66). It was
+  accepted but ignored, so every value, including invalid names, produced the
+  euclidean split. Any `scipy.spatial.distance.cdist` metric (or callable) now
+  ranks samples by distance from the centroid, and an unknown metric raises
+  `ValueError`. The default euclidean split is unchanged.
+- `deduplicated_split` and `duplicate_spread_split` no longer merge most of the
+  dataset into one "near-duplicate" group under the default threshold (#68).
+  `deduplicated_split` returned splits like 209 / 3791 for `train_size=0.8`,
+  and `duplicate_spread_split` degraded to a random split. See **Changed** for
+  the new default.
+- Both functions find near-duplicates without building the n × n distance
+  matrix, so memory now scales with the number of near-duplicate pairs.
+  Exact duplicates are still detected exactly at `similarity_threshold=0`.
+- `deduplicated_split` warns when indivisible near-duplicate groups push the
+  split more than 5% of the samples away from `train_size`, reporting the group
+  count and largest group. `duplicate_spread_split` warns when it finds no
+  near-duplicates, or when one group holds more than half the samples, since
+  either way its result is a random split.
+- `cluster_split(method="dbscan")` no longer silently ignores `train_size`
+  (#67). DBSCAN noise points are no longer treated as one indivisible cluster:
+  `"size"` / `"centroid"` place them individually to fill train up to the
+  target, and `"closest"` / `"subset_sum"` start them in train, where the
+  individual fill / completion can use them. Previously a few near-duplicates
+  on typical embeddings produced splits like 18 train / 15,982 test.
+- `cluster_split` warns when train or test ends up smaller than half its
+  requested size, reporting the cluster count and largest cluster and
+  suggesting a fix (`eps` / `min_samples`, `n_clusters`, or
+  `fill_individual=True`). This also covers imbalanced KMeans clusters.
+- `cluster_split`, `cluster_kfold`, and `minority_split` warn when DBSCAN
+  labels more than half the samples as noise.
+- `cluster_kfold(method="dbscan")` no longer puts all DBSCAN noise points in
+  one fold. They are placed one at a time after the whole clusters, wherever
+  they best balance the folds' labels and sizes.
 - `per_class_split` with `on_error="fallback"` no longer re-raises when an
   absolute-count `train_size` is greater than or equal to a class's size; the
-  fallback clamps the count to the class's `[1, size - 1]` range so coverage is
-  genuinely preserved.
+  fallback clamps the count to the class's `[1, size - 1]` range so the class
+  stays on both sides.
 - `split_dataframe`, `to_torch_subsets`, and `split_dataset` (`splytters.interop`)
   only forward `random_state` to splitters that accept it, so a custom splitter
   without a `random_state` parameter no longer raises `TypeError`. They also
   accept splitters that return plain lists of indices.
-- `neighbor_coverage_split` documents its coverage promise as best-effort and
-  warns with the count of under-covered test samples if a solver ever returns a
-  split that does not fully meet the constraint, instead of silently violating
-  the documented guarantee.
-- `nearest_neighbor_split` masks self when reading each point's nearest
-  neighbor, so exact duplicates no longer record themselves as their own nearest
-  neighbor — removing spurious "could only place N" warnings and wasted test
-  capacity.
+- `nearest_neighbor_split` no longer records a point as its own nearest
+  neighbor when there are exact duplicates, which wasted test capacity and
+  raised spurious "could only place N" warnings.
 
 ### Changed
-- `group_split` assigns whole groups to train **best-fit** rather than first-fit:
-  a group larger than the target train size can now land in train when that
-  brings the realized train count closer to `train_size`. Previously such a group
-  was permanently barred from train, badly undershooting `train_size` (e.g. a
-  realized 9% train fraction for a requested 70%). Groups remain indivisible and
-  both sides remain non-empty. `deduplicated_split`, which shares the same
-  assignment routine, keeps whole near-duplicate components atomic as before.
+- The default `similarity_threshold` of `deduplicated_split` and
+  `duplicate_spread_split` is now 0.1 × the median distance from each sample to
+  its 10th nearest neighbor, replacing the 1st and 10th percentiles of all
+  pairwise distances. The old defaults linked each sample to a fixed fraction
+  of all others, so their groups grew with the dataset. Splits made with the
+  default threshold will differ; an explicit `similarity_threshold` behaves as
+  before.
+- For `method="dbscan"` in `cluster_split`, `cluster_kfold`, and
+  `minority_split`, omitting `eps` now uses a default scaled to the data (the
+  90th percentile of each sample's distance to its `(min_samples - 1)`-th
+  nearest neighbor, so about 90% of samples are core points) instead of
+  sklearn's absolute `eps=0.5`, which labels nearly every sample noise on
+  unnormalized embeddings. Splits made without an explicit `eps` will differ.
+- Contributor git hooks now run through pre-commit (`.pre-commit-config.yaml`):
+  gitleaks secret scanning and ruff lint on every commit. This replaces the
+  regex-based `scripts/hooks/pre-push` hook; run
+  `git config --unset core.hooksPath` and then `pre-commit install`. CI gains a
+  `secrets` job that runs gitleaks over the full history.
+- `group_split` (and `deduplicated_split`, which shares the routine) can now
+  put a group larger than the target train size in train when that lands
+  closer to `train_size`. Previously such a group was always sent to test,
+  badly undershooting `train_size` (e.g. 9% train for a requested 70%). The
+  assignment runs both the old first-fit pass and a best-fit pass and keeps
+  whichever is closer to the target, so it is never further off than before.
+  Groups stay whole and both sides stay non-empty.
 
 ## [0.2.1] — 2026-07-06
 

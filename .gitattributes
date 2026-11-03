@@ -1,3 +1,0 @@
-# Git hooks are POSIX sh scripts; they must keep LF endings even on
-# Windows checkouts or Git Bash's sh cannot execute them.
-scripts/hooks/* text eol=lf

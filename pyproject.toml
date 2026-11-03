@@ -78,6 +78,7 @@ dev = [
     "networkx",  # exact min-cut backend for min_cut_split(method="stoer_wagner")
     "pytest",
     "pytest-cov",
+    "pre-commit",
     "ruff",
 ]
 
