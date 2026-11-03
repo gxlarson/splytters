@@ -68,6 +68,10 @@ Make evaluation easier: useful as a sanity check or an optimistic upper bound.
 - `cluster_leak_split`, `neighbor_coverage_split`, `centroid_matched_split`,
   `stratified_similarity_split`, `nearest_neighbor_split`,
   `duplicate_spread_split`, `max_coverage_split`
+- `central_split` — the mirror of `distance_adversarial_split`: the samples
+  closest to the centroid go to test, so the test set is prototypical rather
+  than duplicated in train. Wrap it in `per_class_split` for class-typical test
+  samples.
 
 ### Balanced — match train↔test distributions
 

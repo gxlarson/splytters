@@ -131,7 +131,7 @@ distance, mean 1-D Wasserstein/KS, and optional label-distribution shift).
 ![Adversarial splitters on 2D distributions](https://raw.githubusercontent.com/gxlarson/splytters/main/docs/adv.png)
 
 **Overlap** (maximize train/test similarity):
-`cluster_leak_split`, `neighbor_coverage_split`, `centroid_matched_split`, `stratified_similarity_split`, `nearest_neighbor_split`, `duplicate_spread_split`, `max_coverage_split`
+`cluster_leak_split`, `neighbor_coverage_split`, `centroid_matched_split`, `stratified_similarity_split`, `nearest_neighbor_split`, `central_split`, `duplicate_spread_split`, `max_coverage_split`
 
 ![Overlap splitters on 2D distributions](https://raw.githubusercontent.com/gxlarson/splytters/main/docs/overlap.png)
 
@@ -222,11 +222,24 @@ pip install -e ".[dev]"
 pytest
 ```
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, conventions, and the
+pre-commit hooks (gitleaks secret scanning and ruff) to install before your
+first commit.
+
 ## Project layout
 
 ```
 splytters/                # the installable package
-  adversarial.py / overlap.py / balanced.py / utils.py   # splitting algorithms
+  adversarial.py / overlap.py / balanced.py   # embedding splitters by family
+  grouped.py              # group_split, deduplicated_split (keep related samples together)
+  stratify.py             # per_class_split / per_class_sort wrappers
+  likelihood.py           # likelihood_split (Godbole & Jia 2023)
+  curriculum.py           # sorted_stratified_split (easy -> train, hard -> test along a sort order)
+  utils.py                # shared helpers (validation, neighbors, clustering)
+  metrics.py              # diversity metrics for comparing splits
+  distances.py            # text similarity (difflib, n-gram Jaccard)
   sklearn_api.py          # SplytterSplit + *_train_test_split
   interop.py              # pandas / torch / HuggingFace adapters
   report.py               # split_report, compare_splitters
@@ -237,5 +250,5 @@ test_data/                # sample audio/images/text used by tests
 demos/                    # demo.py, im_demo.py (sorter demos: TREC text, CLIP images)
                           # visualize_splits.py + visualize_supervised_splits.py (README figures), visualize_text_splits.py
 scripts/                  # generate_test_*.py (regenerate the test_data/ fixtures)
-docs/                     # README figures
+docs/                     # MkDocs site source (guides, API reference) + README figures
 ```

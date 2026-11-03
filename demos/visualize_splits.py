@@ -50,6 +50,7 @@ SPLITTER_GROUPS = {
         ("centroid_match", splytters.centroid_matched_split),
         ("strat_sim", splytters.stratified_similarity_split),
         ("nearest_nbr", splytters.nearest_neighbor_split),
+        ("central", splytters.central_split),
         ("dup_spread", splytters.duplicate_spread_split),
         ("max_coverage", splytters.max_coverage_split),
     ],

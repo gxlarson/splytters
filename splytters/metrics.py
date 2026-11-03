@@ -53,9 +53,12 @@ def diversity_text(
     ) -> float:
     """Mean pairwise distance over a text corpus (a diversity score).
 
-    See Figure 5 from Larson et al. (2019),
-    https://aclanthology.org/N19-1051.pdf — ``D(*,*)`` is ``distance_function``
-    applied to every pair of samples.
+    Uses the pairwise distance ``D(*,*)`` from Figure 5 of Larson et al. (2019),
+    https://aclanthology.org/N19-1051.pdf, but intentionally reports a different
+    aggregate: the mean over unordered non-self pairs in one corpus. The paper's
+    dataset-level metric averages ordered pairs including self within each intent,
+    then averages intents; reproducing that metric requires intent labels and a
+    different normalization.
 
     Args:
         data: list of strings.

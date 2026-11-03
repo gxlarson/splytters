@@ -1,5 +1,7 @@
 """Tests for split-quality reporting."""
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -117,6 +119,63 @@ class TestSplitReport:
             split_report(embeddings_2d, empty, empty)
         with pytest.raises(ValueError, match="non-empty"):
             split_report(embeddings_2d, full, empty)
+
+    def test_max_samples_caps_geometric_metrics(self, monkeypatch):
+        """Regression for #65: the geometric metrics ignored max_samples and
+        built a full n x n distance matrix, so split_report was O(n²) in the
+        dataset. No distance call may now scale with n²."""
+        import scipy.spatial.distance as ssd
+        from sklearn.metrics import pairwise_distances_argmin_min
+
+        import splytters.report as report_mod
+        import splytters.utils as utils
+        n, max_samples = 3000, 200
+        largest = []
+
+        def spy_cdist(A, B, *args, **kwargs):
+            largest.append(len(A) * len(B))
+            return ssd.cdist(A, B, *args, **kwargs)
+
+        def spy_pdist(A, *args, **kwargs):
+            largest.append(len(A) ** 2)
+            return ssd.pdist(A, *args, **kwargs)
+
+        def spy_argmin(A, B, *args, **kwargs):
+            largest.append(len(A) * len(B))
+            return pairwise_distances_argmin_min(A, B, *args, **kwargs)
+
+        monkeypatch.setattr(
+            utils, "pairwise_distances_argmin_min", spy_argmin, raising=False
+        )
+        monkeypatch.setattr(utils, "cdist", spy_cdist)
+        monkeypatch.setattr(utils, "pdist", spy_pdist, raising=False)
+        monkeypatch.setattr(report_mod, "cdist", spy_cdist)
+        X = np.random.RandomState(0).randn(n, 8)
+        train, test = random_split(X, train_size=0.8, random_state=0)
+        rep = split_report(X, train, test, max_samples=max_samples)
+        for key in ("centroid_distance", "mean_cross_distance", "coverage"):
+            assert np.isfinite(rep[key])
+        # Nearest-train search is linear in train (max_samples x n_train); all
+        # other pairwise work is bounded by max_samples².
+        assert max(largest) <= max_samples * len(train)
+
+    def test_memory_warning_only_without_max_samples(self, embeddings_2d, monkeypatch):
+        """max_samples=None warns once (not again from the geometric step), at
+        the caller; the default max_samples never warns."""
+        import splytters.utils as utils
+        monkeypatch.setattr(utils, "_PAIRWISE_MEMORY_WARN_BYTES", 0)
+        train, test = random_split(embeddings_2d)
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter("always")
+            split_report(embeddings_2d, train, test, max_samples=None)
+        memory = [w for w in record if "Pass max_samples" in str(w.message)]
+        assert len(memory) == 1
+        assert "split_report" in str(memory[0].message)
+        assert memory[0].filename == __file__
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter("always")
+            split_report(embeddings_2d, train, test)
+        assert not [w for w in record if "Pass max_samples" in str(w.message)]
 
     def test_rejects_nan_embeddings(self, embeddings_2d):
         X = embeddings_2d.copy()

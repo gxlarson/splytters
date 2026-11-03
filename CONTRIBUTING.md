@@ -29,26 +29,39 @@ pytest tests/test_splitters.py tests/test_interop.py tests/test_report.py
 
 ### Git hooks (recommended)
 
-The repo ships a `pre-push` hook that scans outgoing commits for credential
-patterns (AWS/GitHub/OpenAI/Anthropic/Google/Slack keys, private key blocks,
-generic secret assignments) and blocks the push before anything leaves your
-machine. It is plain POSIX `sh` with no extra dependencies and works in Git
-Bash on Windows. Activate it once per clone:
+The repo uses [pre-commit](https://pre-commit.com) to run two checks on every
+commit (config in `.pre-commit-config.yaml`):
+
+- **gitleaks** scans staged changes for credentials (API keys, tokens, private
+  keys) and blocks the commit before the secret enters history.
+- **ruff** lints the staged Python files, the same check as CI's `lint` job.
+
+Activate it once per clone:
 
 ```bash
-git config core.hooksPath scripts/hooks
+pip install pre-commit
+pre-commit install
 ```
 
-If it flags a confirmed false positive, bypass a single push with
-`git push --no-verify`. GitHub-side secret scanning push protection is also
-enabled on the repository as a second layer.
+The first commit afterward takes a minute while pre-commit builds the hook
+environments. If gitleaks flags a confirmed false positive, add the finding's
+fingerprint (printed in the hook output) to `.gitleaksignore`. CI runs gitleaks
+over the full history on every push and PR, and GitHub-side secret scanning
+push protection is enabled on the repository as another layer.
+
+If you previously activated the old `pre-push` hook, clear it first, since
+`pre-commit install` refuses to run while it is set:
+
+```bash
+git config --unset core.hooksPath
+```
 
 ## Running tests
 
 ```bash
 pytest                 # full suite
 pytest -m "not slow"   # skip model-download tests (perplexity etc.)
-ruff check splytters   # lint
+ruff check .           # lint
 ```
 
 - A **core-only** install (`pip install -e .`) collects and runs cleanly:
@@ -87,4 +100,5 @@ pip install -e ".[dev]" -c constraints.txt
 1. Branch off `main` (e.g. `feature/my-splitter`).
 2. Keep the core (`pip install -e .`) test job green.
 3. Update `CHANGELOG.md` under "Unreleased".
-4. Run `ruff check splytters` and `pytest -m "not slow"` before pushing.
+4. Run `ruff check .` and `pytest -m "not slow"` before pushing (the
+   pre-commit hook covers ruff for staged files).
