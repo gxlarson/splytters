@@ -32,6 +32,7 @@ from splytters.balanced import (
     stratified_random_split,
 )
 from splytters.overlap import (
+    central_split,
     centroid_matched_split,
     cluster_leak_split,
     duplicate_spread_split,
@@ -417,6 +418,121 @@ class TestClusterSplit:
                 random_state=3,
             )
         assert_valid_split(train, test, len(X), train_size=0.5, ratio_tol=0.01)
+
+
+class TestClusterSplitDBSCAN:
+    """DBSCAN default eps, noise handling, and train_size warnings (#67)."""
+
+    @pytest.fixture
+    def blobs(self):
+        from sklearn.datasets import make_blobs
+        X, labels = make_blobs(n_samples=4000, n_features=64, centers=16, random_state=0)
+        return X * 10, labels  # scaled: an absolute eps can't fit every scale
+
+    def test_default_eps_scales_with_data(self, blobs):
+        """sklearn's eps=0.5 labels all of this data noise; the default must
+        recover the blobs and honor train_size without warnings."""
+        X, labels = blobs
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            train, test = cluster_split(X, 0.8, method="dbscan")
+        assert_valid_split(train, test, len(X), train_size=0.8, ratio_tol=0.05)
+        in_train = np.isin(np.arange(len(X)), train)
+        for blob in range(16):  # whole blobs stay on one side (up to noise)
+            side = in_train[labels == blob].mean()
+            assert side >= 0.9 or side <= 0.1
+
+    @pytest.mark.parametrize("strategy", ["size", "centroid"])
+    def test_noise_placed_individually_to_hit_train_size(self, blobs, strategy):
+        """Regression for #67: with eps=0.5 nearly everything is noise; ten
+        duplicate rows form one cluster, and the old code sent the noise block
+        to test as a unit, giving 11 train / 3999 test."""
+        X, _ = blobs
+        Xd = np.vstack([X, np.repeat(X[:1], 10, axis=0)])
+        with pytest.warns(UserWarning, match="labeled 100% of samples as noise"):
+            train, test = cluster_split(
+                Xd, 0.8, method="dbscan", strategy=strategy, eps=0.5
+            )
+        assert_valid_split(train, test, len(Xd), train_size=0.8, ratio_tol=0.001)
+        in_train = np.isin(np.arange(len(Xd)), train)
+        assert len(set(in_train[[0, *range(4000, 4010)]])) == 1  # cluster kept whole
+
+    def test_closest_small_pocket_warns_with_fill_hint(self, blobs):
+        X, _ = blobs
+        Xd = np.vstack([X, np.repeat(X[:1], 10, axis=0)])
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter("always")
+            train, test = cluster_split(
+                Xd, 0.8, method="dbscan", strategy="closest", eps=0.5
+            )
+        assert len(test) == 11
+        messages = [str(w.message) for w in record]
+        assert any(
+            "instead of the requested" in m and "fill_individual=True" in m
+            for m in messages
+        )
+        assert all(w.filename == __file__ for w in record)
+
+    def test_all_noise_size_strategy_is_exact(self):
+        X = np.random.RandomState(0).randn(100, 8)
+        with pytest.warns(UserWarning, match="noise"):
+            train, test = cluster_split(X, 0.7, method="dbscan", eps=1e-6)
+        assert_valid_split(train, test, 100, train_size=0.7, ratio_tol=0.001)
+
+    def test_identical_points_default_eps_positive(self):
+        """A zero k-distance quantile must not produce an invalid eps=0."""
+        X = np.zeros((20, 3))
+        with pytest.warns(UserWarning, match="whole-cluster assignment"):
+            train, test = cluster_split(X, 0.5, method="dbscan")
+        assert_valid_split(train, test, 20, train_size=0.5, ratio_tol=0.01)
+
+    def test_default_eps_honors_metric(self):
+        from sklearn.neighbors import NearestNeighbors
+
+        from splytters.adversarial import _default_dbscan_eps
+        X = np.random.RandomState(0).rand(300, 5)
+        eps = _default_dbscan_eps(X, {"metric": "cosine", "min_samples": 4})
+        d = NearestNeighbors(n_neighbors=3, metric="cosine").fit(X).kneighbors()[0]
+        assert eps == pytest.approx(np.quantile(d[:, -1], 0.9))
+
+    def test_kmeans_imbalanced_clusters_warn(self):
+        """Clusters of 90 and 10 cannot make a 50/50 split: warn, don't hide it."""
+        rng = np.random.RandomState(0)
+        X = np.vstack([rng.randn(90, 2) * 0.1, rng.randn(10, 2) * 0.1 + 100])
+        with pytest.warns(UserWarning, match="try a different n_clusters"):
+            train, test = cluster_split(X, 0.5, n_clusters=2)
+        assert (len(train), len(test)) == (10, 90)
+
+    def test_kmeans_ordinary_split_does_not_warn(self, embeddings_2d):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            cluster_split(embeddings_2d, 0.7, n_clusters=10)
+
+    def test_cluster_kfold_default_eps(self, blobs):
+        """With sklearn's eps=0.5 this data has no clusters, and cluster_kfold
+        raised 'fewer than n_folds'; the scaled default finds the blobs."""
+        X, labels = blobs
+        folds = cluster_kfold(X, labels % 2, n_folds=4, method="dbscan")
+        assert len(folds) == len(X)
+        assert set(np.unique(folds)) == {0, 1, 2, 3}
+
+    def test_cluster_kfold_spreads_noise(self):
+        """Noise points are not one cluster: four blobs of 50 plus 40 scattered
+        points must give four folds of 60, not one fold holding all the noise
+        (90 / 50 / 50 / 50)."""
+        rng = np.random.RandomState(0)
+        centers = np.array([[0, 0], [100, 0], [0, 100], [100, 100]])
+        blobs = np.vstack([c + rng.randn(50, 2) * 0.1 for c in centers])
+        noise = rng.uniform(-1000, 1000, size=(40, 2))
+        X = np.vstack([blobs, noise])
+        y = np.arange(len(X)) % 2
+        folds = cluster_kfold(X, y, n_folds=4, method="dbscan", eps=1.0)
+        assert np.bincount(folds).tolist() == [60, 60, 60, 60]
+        for b in range(4):  # each blob stays whole
+            assert len(set(folds[b * 50:(b + 1) * 50])) == 1
+        assert len(set(folds[200:])) == 4  # noise spread over every fold
+        for k in range(4):
+            assert y[folds == k].mean() == pytest.approx(0.5, abs=0.05)
 
 
 class TestClusterSplitStrategies:
@@ -1384,6 +1500,40 @@ class TestDistanceAdversarialSplit:
         # Every test sample should be at least as far as the closest train sample
         assert test_min >= train_max - 1e-10
 
+    @pytest.mark.parametrize("metric", ["cosine", "cityblock", "chebyshev"])
+    def test_metric_is_honored(self, metric):
+        """Regression for #66: metric was accepted but ignored, so every value
+        produced the euclidean split."""
+        from scipy.spatial.distance import cdist
+        X = np.random.default_rng(0).normal(size=(1000, 64)) + 0.5
+        train, test = distance_adversarial_split(X, 0.8, metric=metric)
+        assert_valid_split(train, test, len(X), train_size=0.8)
+        d = cdist(X, X.mean(axis=0, keepdims=True), metric=metric).ravel()
+        assert d[test].min() >= d[train].max()
+        euclidean_train, _ = distance_adversarial_split(X, 0.8)
+        assert set(train.tolist()) != set(euclidean_train.tolist())
+
+    def test_callable_metric(self):
+        X = np.random.default_rng(1).normal(size=(200, 8))
+        train, _ = distance_adversarial_split(
+            X, 0.7, metric=lambda u, v: np.abs(u - v).sum()
+        )
+        assert np.array_equal(
+            np.sort(train), np.sort(distance_adversarial_split(X, 0.7, metric="cityblock")[0])
+        )
+
+    def test_unknown_metric_raises(self, embeddings_2d):
+        with pytest.raises(ValueError, match="not_a_real_metric"):
+            distance_adversarial_split(embeddings_2d, metric="not_a_real_metric")
+
+    def test_euclidean_default_unchanged(self, embeddings_2d):
+        centroid = embeddings_2d.mean(axis=0)
+        order = np.argsort(np.linalg.norm(embeddings_2d - centroid, axis=1))
+        train, test = distance_adversarial_split(embeddings_2d, 0.7)
+        n_train = len(train)
+        assert np.array_equal(train, order[:n_train])
+        assert np.array_equal(test, order[n_train:])
+
 
 class TestDensityAdversarialSplit:
 
@@ -2091,6 +2241,71 @@ class TestNearestNeighborSplit:
         assert len(test) < 3
 
 
+class TestCentralSplit:
+
+    def test_valid_split(self, embeddings_2d):
+        train, test = central_split(embeddings_2d)
+        assert_valid_split(train, test, len(embeddings_2d))
+
+    def test_test_closest_to_centroid(self, embeddings_2d):
+        train, test = central_split(embeddings_2d)
+        d = np.linalg.norm(embeddings_2d - embeddings_2d.mean(axis=0), axis=1)
+        assert d[test].max() <= d[train].min() + 1e-10
+
+    @pytest.mark.parametrize("train_size", [0.8, 0.7, 19999])
+    def test_sizes_match_other_splitters(self, train_size):
+        """train_size means train, and rounding matches every other splitter.
+        The swap workaround (distance_adversarial_split with train_size=0.2)
+        gives 4999 test samples for n=24999 instead of 5000 (#69)."""
+        X = np.random.default_rng(0).normal(size=(24999, 4))
+        train, test = central_split(X, train_size)
+        r_train, r_test = random_split(X, train_size)
+        assert (len(train), len(test)) == (len(r_train), len(r_test))
+
+    @pytest.mark.parametrize("metric", ["euclidean", "cosine"])
+    def test_exact_mirror_of_distance_adversarial(self, metric):
+        X = np.random.default_rng(1).normal(size=(500, 16)) + 0.3
+        train, test = central_split(X, 0.8, metric=metric)
+        adv_train, adv_test = distance_adversarial_split(
+            X, train_size=len(test), metric=metric
+        )
+        assert np.array_equal(test, adv_train)
+        assert np.array_equal(train, adv_test)
+
+    def test_metric_is_honored(self):
+        X = np.random.default_rng(2).normal(size=(1000, 64)) + 0.5
+        _, cosine_test = central_split(X, 0.8, metric="cosine")
+        _, euclidean_test = central_split(X, 0.8)
+        assert set(cosine_test.tolist()) != set(euclidean_test.tolist())
+        with pytest.raises(ValueError, match="not_a_real_metric"):
+            central_split(X, metric="not_a_real_metric")
+
+    def test_test_points_neighbor_each_other(self):
+        """Unlike nearest_neighbor_split, central test points are easy because
+        they are typical: most of their nearest neighbors are in test."""
+        X = np.random.default_rng(3).normal(size=(2000, 2))
+        train, test = central_split(X, 0.8)
+        _, idx = kneighbors_excluding_self(X, 1)
+        in_test = np.isin(np.arange(len(X)), test)
+        assert in_test[idx[test, 0]].mean() > 0.5
+
+    def test_per_class_split_gives_class_typical_test(self):
+        from splytters.stratify import per_class_split
+        rng = np.random.default_rng(4)
+        X = np.vstack([rng.normal(size=(300, 3)), rng.normal(size=(300, 3)) + 20])
+        y = np.repeat([0, 1], 300)
+        train, test = per_class_split(central_split, X, y, 0.8)
+        assert_valid_split(train, test, len(X), train_size=0.8)
+        for c in (0, 1):
+            members = np.flatnonzero(y == c)
+            d = np.linalg.norm(X[members] - X[members].mean(axis=0), axis=1)
+            dist = dict(zip(members.tolist(), d, strict=True))
+            c_test = [dist[i] for i in test.tolist() if y[i] == c]
+            c_train = [dist[i] for i in train.tolist() if y[i] == c]
+            assert len(c_test) == 60
+            assert max(c_test) <= min(c_train)
+
+
 class TestDuplicateSpreadSplit:
 
     def test_valid_split(self, embeddings_2d):
@@ -2110,6 +2325,32 @@ class TestDuplicateSpreadSplit:
         )
         assert_valid_split(train, test, 20, train_size=0.7, ratio_tol=0.1)
         assert len(test) > 0
+
+    def test_default_spreads_injected_duplicates(self):
+        """Regression for #68: the old default (10th percentile of all pairwise
+        distances) merged almost everything into one group, reducing this
+        splitter to a random split."""
+        rng = np.random.default_rng(0)
+        base = rng.normal(size=(600, 32))
+        src = rng.choice(600, 200, replace=False)
+        X = np.vstack([base, base[src] + 1e-3 * rng.normal(size=(200, 32))])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            train, test = duplicate_spread_split(X, train_size=0.8)
+        # Each pair splits 1/1, leaving too few singletons to reach 0.8 exactly.
+        assert_valid_split(train, test, len(X), train_size=0.8, ratio_tol=0.1)
+        in_train = np.isin(np.arange(len(X)), train)
+        assert np.all(in_train[src] != in_train[600 + np.arange(200)])
+
+    def test_warns_when_no_duplicates_found(self):
+        X = np.random.default_rng(0).normal(size=(500, 32))
+        with pytest.warns(UserWarning, match="found no near-duplicates"):
+            duplicate_spread_split(X)
+
+    def test_warns_when_one_group_dominates(self):
+        X = np.random.default_rng(0).normal(size=(200, 4))
+        with pytest.warns(UserWarning, match="effectively a random split"):
+            duplicate_spread_split(X, similarity_threshold=5.0)
 
 
 class TestMaxCoverageSplit:
