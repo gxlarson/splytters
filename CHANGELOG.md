@@ -78,6 +78,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nearest neighbor, so about 90% of samples are core points) instead of
   sklearn's absolute `eps=0.5`, which labels nearly every sample noise on
   unnormalized embeddings. Splits made without an explicit `eps` will differ.
+- Contributor git hooks now run through pre-commit (`.pre-commit-config.yaml`):
+  gitleaks secret scanning and ruff lint on every commit. This replaces the
+  regex-based `scripts/hooks/pre-push` hook; run
+  `git config --unset core.hooksPath` and then `pre-commit install`. CI gains a
+  `secrets` job that runs gitleaks over the full history.
 
 ## [0.2.1] — 2026-07-06
 
