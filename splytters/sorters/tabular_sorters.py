@@ -14,7 +14,6 @@ from collections.abc import Hashable
 from typing import Any
 
 import numpy as np
-from scipy import stats
 from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import LocalOutlierFactor
 
@@ -281,13 +280,20 @@ def outlier_score(
         raw_scores = -detector.negative_outlier_factor_
 
     elif method == "zscore":
-        # Compute mean absolute z-score across all columns. A constant column
-        # yields all-NaN z-scores (0/0); map those to 0.0 before averaging so an
-        # all-constant frame scores a uniform 0.0 instead of emitting a
-        # RuntimeWarning and returning all-NaN.
-        zscores = np.abs(stats.zscore(X, nan_policy='omit'))
-        zscores = np.nan_to_num(zscores, nan=0.0)
-        raw_scores = np.nanmean(zscores, axis=1)
+        # Mean absolute z-score across all columns (population std, as in
+        # scipy.stats.zscore). A constant column has no spread, and an all-NaN
+        # column survives the median fill; both contribute 0.0, so an
+        # all-constant frame scores a uniform 0.0. Computed directly rather than
+        # via stats.zscore, which warns about precision loss on constant columns
+        # (scipy >= 1.17) before we could zero them.
+        X = X.astype(float)
+        std = X.std(axis=0)
+        varying = np.isfinite(std) & (std > 0)
+        zscores = np.zeros_like(X)
+        zscores[:, varying] = np.abs(
+            (X[:, varying] - X[:, varying].mean(axis=0)) / std[varying]
+        )
+        raw_scores = zscores.mean(axis=1)
 
     else:
         raise ValueError(f"Unknown outlier detection method: {method}")
