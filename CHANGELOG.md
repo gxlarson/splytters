@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- `list_sorters()` no longer lists the helpers `dist_euclidean` and
+  `simple_tokenizer`, which are not sorters (they are the default `distance=`
+  and `tokenizer=` arguments of some sorters). Both stay importable from
+  `splytters.sorters`. There are 50 sorters: 6 embedding, 8 text, 7 image,
+  17 audio and 12 tabular.
+
 ## [0.3.0] — 2026-11-24
 
 New splitters and paper-faithful modes for the methods that splytters adapts
