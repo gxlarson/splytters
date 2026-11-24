@@ -16,6 +16,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   class-typical test samples.
 
 ### Fixed
+- `min_cut_split` (spectral, the default) now handles disconnected similarity
+  graphs deterministically. Thresholding at the median similarity often splits
+  the graph into several components; the Laplacian's zero eigenvalue then
+  repeats, the Fiedler vector is not unique, and the split depended on
+  floating-point order (BLAS thread count, library build). It now sends whole
+  components to test, smallest first, and cuts only the last component it
+  needs along that component's own Fiedler vector. Splits on connected graphs
+  are unchanged; splits on disconnected graphs change.
+- `minority_grow_split` warns when the minority seed is more than 1.5x the
+  target test size. The seed is then subsampled down, which leaves a split
+  close to random; this happens when `n_clusters` is small relative to the
+  number of classes (for example, the default 10 on 150 classes).
 - `split_report` no longer does O(n²) work in the full dataset. `max_samples`
   now caps the geometric metrics too (`mean_cross_distance`, `coverage`), not
   just the distribution metrics, so reports on large datasets finish instead of

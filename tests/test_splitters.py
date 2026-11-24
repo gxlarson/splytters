@@ -1672,6 +1672,29 @@ class TestOutlierAdversarialSplit:
         assert scores[test].mean() < scores[train].mean()
 
 
+class TestMinorityGrowOversizedSeed:
+
+    def test_warns_when_seed_far_exceeds_test_size(self):
+        """Few clusters on many classes floods the minority seed; the split is
+        then subsampled toward random, so the user is warned."""
+        rng = np.random.RandomState(0)
+        y = np.repeat(np.arange(20), 20)
+        X = rng.randn(len(y), 5) + y[:, None] * 0.1
+        with pytest.warns(UserWarning, match="likely close to random"):
+            minority_grow_split(X, y, train_size=0.7, n_clusters=2, random_state=0)
+
+    def test_no_oversize_warning_when_seed_fits(self):
+        """Two well-separated classes with matching clusters give a small seed."""
+        rng = np.random.RandomState(0)
+        y = np.repeat([0, 1], 50)
+        X = rng.randn(100, 2) + y[:, None] * 6
+        X[0] += 6  # one anti-biased sample so the seed is non-empty
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            minority_grow_split(X, y, train_size=0.7, n_clusters=2, random_state=0)
+        assert not any("close to random" in str(w.message) for w in caught)
+
+
 class TestMinCutSplit:
 
     def test_valid_split_spectral(self, embeddings_small):
@@ -1780,6 +1803,59 @@ class TestMinCutSplit:
         monkeypatch.setattr(builtins, "__import__", fake_import)
         with pytest.raises(ImportError, match="networkx is required"):
             min_cut_split(embeddings_small, method="stoer_wagner")
+
+    @staticmethod
+    def _blobs(sizes, spread=0.05, gap=100.0, seed=0):
+        """Tight, far-apart blobs; returns (X, list of index arrays per blob)."""
+        rng = np.random.RandomState(seed)
+        parts, members, start = [], [], 0
+        for i, n in enumerate(sizes):
+            parts.append(rng.randn(n, 3) * spread + i * gap)
+            members.append(np.arange(start, start + n))
+            start += n
+        return np.vstack(parts), members
+
+    def test_spectral_disconnected_sends_whole_components_to_test(self):
+        """On a disconnected graph the spectral cut takes whole components,
+        smallest first, so no edge is cut (previously the Fiedler vector of a
+        disconnected graph was not unique and the split depended on BLAS)."""
+        X, (small, mid, big) = self._blobs([10, 20, 70])
+        train, test = min_cut_split(
+            X, train_size=0.7, method="spectral", similarity_threshold=0.5
+        )
+        assert set(test.tolist()) == set(small.tolist()) | set(mid.tolist())
+        assert set(train.tolist()) == set(big.tolist())
+
+    def test_spectral_disconnected_cuts_one_component_to_hit_size(self):
+        """When whole components overshoot the test size, only the last one
+        needed is cut, and the split still hits train_size exactly."""
+        X, (small, big) = self._blobs([10, 90])
+        train, test = min_cut_split(
+            X, train_size=0.7, method="spectral", similarity_threshold=0.5
+        )
+        assert len(test) == 30 and len(train) == 70
+        assert set(small.tolist()) <= set(test.tolist())
+        assert_valid_split(train, test, len(X), train_size=0.7, ratio_tol=0.01)
+
+    def test_spectral_disconnected_is_order_independent(self):
+        """Shuffling the rows gives the same partition (mapped back), so the
+        result no longer depends on solver internals."""
+        X, _ = self._blobs([12, 15, 18, 55])
+        perm = np.random.RandomState(1).permutation(len(X))
+        _, test_a = min_cut_split(X, train_size=0.6, similarity_threshold=0.5)
+        _, test_b = min_cut_split(X[perm], train_size=0.6, similarity_threshold=0.5)
+        assert set(test_a.tolist()) == set(perm[test_b].tolist())
+
+    def test_spectral_disconnected_eig_failure_still_falls_back(self, monkeypatch):
+        """The component path uses the same warned random fallback if the
+        eigendecomposition of the component being cut fails."""
+        def boom(*args, **kwargs):
+            raise RuntimeError("eig failed")
+        monkeypatch.setattr("splytters.adversarial.dense_eigh", boom)
+        X, _ = self._blobs([10, 90])
+        with pytest.warns(UserWarning, match="NOT adversarial"):
+            train, test = min_cut_split(X, train_size=0.7, similarity_threshold=0.5)
+        assert_valid_split(train, test, len(X), train_size=0.7, ratio_tol=0.01)
 
     def test_constant_embeddings_return_deterministic_fallback(self):
         X = np.zeros((6, 2))

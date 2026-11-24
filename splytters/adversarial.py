@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import ArrayLike
 from scipy.linalg import eigh as dense_eigh
-from scipy.sparse.csgraph import laplacian
+from scipy.sparse.csgraph import connected_components, laplacian
 from scipy.spatial.distance import cdist
 from sklearn.cluster import DBSCAN, AgglomerativeClustering, KMeans, kmeans_plusplus
 from sklearn.neural_network import MLPClassifier
@@ -1613,6 +1613,11 @@ def minority_split(
 
 _STRATIFY_MODES = ("none", "global", "per_class")
 
+# minority_grow_split warns when the minority seed exceeds the target test size
+# by more than this factor. In experiments, splits whose seed was over about 2x
+# the test size behaved close to random.
+_OVERSIZED_SEED_RATIO = 1.5
+
 
 def _proportional_quota(y: np.ndarray, target: int) -> dict[Any, int]:
     """Per-class integer test quotas summing to ``target``, proportional to each
@@ -1826,6 +1831,9 @@ def minority_grow_split(
         UserWarning: if the resulting test set contains no samples for one or more
             classes (those classes then can't be evaluated). Prefer a stratified
             mode or a larger ``train_size``.
+        UserWarning: if the minority seed is more than 1.5x the target test size.
+            It is then subsampled down, which leaves a split close to random;
+            raise ``n_clusters`` or use ``minority_labels='least_only'``.
 
     References:
         Extends the bias-amplified minority seed of Reif & Schwartz (2023); see
@@ -1864,6 +1872,18 @@ def minority_grow_split(
     target_n_test = max(1, min(target_n_test, n_samples - 1))
 
     if len(seed) > target_n_test:
+        if len(seed) > _OVERSIZED_SEED_RATIO * target_n_test:
+            # Subsampling a seed this large keeps little of its structure, so
+            # the "adversarial" test set ends up close to a stratified random one.
+            warnings.warn(
+                f"minority_grow_split: the minority seed has {len(seed)} samples, "
+                f"{len(seed) / target_n_test:.1f}x the target test size "
+                f"({target_n_test}), so it is subsampled down and the split is "
+                "likely close to random. This happens when n_clusters is small "
+                "relative to the number of classes. Try a larger n_clusters (for "
+                "example, the number of classes) or minority_labels='least_only'.",
+                stacklevel=2,
+            )
         # Grow can only add, never remove, so an oversized seed (e.g. the
         # 'all_but_majority' flood on many-class data) would otherwise blow past
         # train_size and starve train of classes. Shrink it back to target.
@@ -2361,6 +2381,65 @@ def _resize_cut_partition(
     return sorted(train), sorted(test)
 
 
+def _fiedler_order(similarities: np.ndarray) -> np.ndarray:
+    """Indices of a connected similarity graph sorted along its Fiedler vector.
+
+    Solved with a DENSE partial eigendecomposition (scipy.linalg.eigh,
+    subset_by_index=[0, 1]) rather than sparse ARPACK (eigsh, which='SM').
+    ARPACK aimed at the *small* end of the spectrum converges very slowly and,
+    on larger/messier graphs, effectively hangs. The similarity matrix is
+    already dense and O(n²), so a dense direct solve costs no extra memory
+    class, always terminates, and computes only the two eigenpairs needed.
+
+    The Fiedler vector is unique only when the graph is connected (the zero
+    eigenvalue is simple); callers handle disconnected graphs separately.
+    Its sign is mathematically arbitrary, so it is oriented deterministically
+    (sign of the largest-magnitude component, as in sklearn's svd_flip).
+    """
+    n = len(similarities)
+    if n < 3:
+        return np.arange(n)
+    L = laplacian(similarities, normed=True)
+    _, eigenvectors = dense_eigh(L, subset_by_index=[0, 1])
+    fiedler = eigenvectors[:, 1]
+    if fiedler[np.argmax(np.abs(fiedler))] < 0:
+        fiedler = -fiedler
+    return np.argsort(fiedler)
+
+
+def _component_cut_test(
+    similarities: np.ndarray, component_labels: np.ndarray, n_test: int
+) -> np.ndarray:
+    """Test indices for a disconnected graph: whole components, smallest first.
+
+    Components are taken smallest first (ties broken by lowest member index)
+    until the next one would overshoot ``n_test``; that component is then cut
+    along its own Fiedler vector, which is unique because the component is
+    connected. Every edge cut is inside that one component, so the result is
+    deterministic and as close to a zero-weight cut as the size allows.
+    """
+    members_by_component = [
+        np.flatnonzero(component_labels == c)
+        for c in range(int(component_labels.max()) + 1)
+    ]
+    members_by_component.sort(key=lambda m: (len(m), int(m[0])))
+    test_parts: list[np.ndarray] = []
+    remaining = n_test
+    for members in members_by_component:
+        if remaining <= 0:
+            break
+        if len(members) <= remaining:
+            test_parts.append(members)
+            remaining -= len(members)
+        else:
+            order = _fiedler_order(similarities[np.ix_(members, members)])
+            test_parts.append(members[order[len(members) - remaining:]])
+            remaining = 0
+    if not test_parts:
+        return np.empty(0, dtype=np.intp)
+    return np.sort(np.concatenate(test_parts))
+
+
 def _best_resized_cut(
     similarities: np.ndarray,
     partition: tuple[set[int], set[int]],
@@ -2409,11 +2488,19 @@ def min_cut_split(
         train_indices: ndarray of indices for training set
         test_indices: ndarray of indices for test set
 
+    Disconnected graphs: thresholding at the median similarity often leaves the
+    graph in several connected components. The spectral method then sends whole
+    components to test, smallest first, and cuts only the last one it needs
+    along that component's own Fiedler vector. (A Fiedler vector of the whole
+    graph is not unique when it is disconnected, so it would depend on
+    floating-point order.)
+
     Seed stability: deterministic for successful spectral and Stoer-Wagner paths.
     The spectral split follows a Fiedler vector from a dense eigendecomposition
     (no random start vector), whose otherwise-arbitrary sign is oriented
-    deterministically. The only seeded branch is the warned random fallback after
-    a spectral solver failure.
+    deterministically, and handles disconnected graphs by components as above.
+    The only seeded branch is the warned random fallback after a spectral solver
+    failure.
     """
     embeddings = validate_split_inputs(embeddings, train_size)
     n_samples = len(embeddings)
@@ -2462,41 +2549,27 @@ def min_cut_split(
     similarities[similarities < similarity_threshold] = 0
 
     if method == "spectral":
-        # Spectral partitioning using Fiedler vector
-        # (eigenvector corresponding to 2nd smallest eigenvalue of Laplacian)
-        #
-        # Solved with a DENSE partial eigendecomposition (scipy.linalg.eigh,
-        # subset_by_index=[0, 1]) rather than sparse ARPACK (eigsh, which='SM').
-        # ARPACK aimed at the *small* end of the spectrum converges very slowly
-        # and, on larger/messier graphs, effectively hangs — tens of thousands of
-        # iterations pegging a core for hours before it finally raises. The
-        # distance matrix above is already dense and O(n²), so a dense direct
-        # solve costs no extra memory class, always terminates, computes only the
-        # two eigenpairs we need, and is fully deterministic (no random ARPACK
-        # start vector). (A future sparse kNN-graph build — see the cdist TODO
-        # above — should pair with a shift-invert solver to scale past O(n²).)
-        L = laplacian(similarities, normed=True)
-
+        n_train = resolve_n_train(n_samples, train_size)
+        # A disconnected graph makes the Laplacian's zero eigenvalue repeat, so
+        # the "second eigenvector" is any vector in that null space and the
+        # solver's pick depends on floating-point order (BLAS thread count,
+        # library build). Cut along components instead: that cut has zero
+        # weight, the true minimum, and is the same on every machine.
+        n_components, component_labels = connected_components(
+            similarities > 0, directed=False
+        )
         try:
-            # Two smallest eigenpairs only (subset_by_index is 0-based, inclusive).
-            eigenvalues, eigenvectors = dense_eigh(L, subset_by_index=[0, 1])
-
-            # Fiedler vector (2nd eigenvector)
-            fiedler = eigenvectors[:, 1]
-
-            # The Fiedler sign is mathematically arbitrary and, with eigsh's
-            # random start vector, flips between runs — which would flip which
-            # half of the cut becomes test (giving a completely different, seed-
-            # dependent held-out set). Orient it deterministically (sign of the
-            # largest-magnitude component, as in sklearn's svd_flip) so the split
-            # is reproducible.
-            if fiedler[np.argmax(np.abs(fiedler))] < 0:
-                fiedler = -fiedler
-
-            # Partition by Fiedler vector values
-            # Sort and split to achieve desired train_size
-            sorted_indices = np.argsort(fiedler)
-
+            if n_components > 1:
+                test_indices = _component_cut_test(
+                    similarities, component_labels, n_samples - n_train
+                )
+                train_indices = np.setdiff1d(
+                    np.arange(n_samples), test_indices, assume_unique=True
+                )
+            else:
+                sorted_indices = _fiedler_order(similarities)
+                train_indices = sorted_indices[:n_train]
+                test_indices = sorted_indices[n_train:]
         except Exception as err:
             # Eigendecomposition failed; fall back to a random split. Warn
             # loudly — silently returning a *random* split from an adversarial
@@ -2510,11 +2583,8 @@ def min_cut_split(
             rng = check_random_state(random_state)
             sorted_indices = np.arange(n_samples)
             rng.shuffle(sorted_indices)
-
-        n_train = resolve_n_train(n_samples, train_size)
-        train_indices = sorted_indices[:n_train]
-        test_indices = sorted_indices[n_train:]
-
+            train_indices = sorted_indices[:n_train]
+            test_indices = sorted_indices[n_train:]
     elif method == "stoer_wagner":
         # Stoer-Wagner gives the exact unconstrained global min-cut. Enforcing an
         # arbitrary train_size is a different, cardinality-constrained problem,
