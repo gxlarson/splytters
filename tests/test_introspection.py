@@ -121,6 +121,40 @@ def test_list_sorters_by_modality_partitions_the_flat_list():
         assert names == sorted(names)
 
 
+def test_list_sorters_excludes_helpers():
+    """The exported helpers are not sorters, but stay importable."""
+    for helper in ("dist_euclidean", "simple_tokenizer"):
+        assert helper not in sorters.list_sorters()
+        for names in sorters.list_sorters(by_modality=True).values():
+            assert helper not in names
+    assert sorters.dist_euclidean([0.0, 0.0], [3.0, 4.0]) == 5.0
+    assert sorters.simple_tokenizer("a b") == ["a", "b"]
+
+
+def test_listed_sorters_return_index_score_pairs():
+    """Every listed sorter is annotated to return a list of pairs.
+
+    Read from the source with ``ast`` so that the optional dependencies of
+    the modality modules are not imported.
+    """
+    import ast
+    from pathlib import Path
+
+    from splytters.sorters import _LAZY
+
+    pkg = Path(sorters.__file__).parent
+    returns = {}
+    for module_suffix in {mod for mod, _ in _LAZY.values()}:
+        tree = ast.parse((pkg / f"{module_suffix}.py").read_text())
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and node.returns is not None:
+                returns[(module_suffix, node.name)] = ast.unparse(node.returns)
+    for name in sorters.list_sorters():
+        module_suffix, attr = _LAZY[name]
+        annotation = returns[(module_suffix, attr)]
+        assert annotation.startswith("list[tuple["), (name, annotation)
+
+
 def test_list_sorters_does_not_import_optional_deps():
     """Listing must not trigger the lazy modality imports."""
     import sys

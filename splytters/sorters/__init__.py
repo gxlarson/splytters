@@ -87,9 +87,17 @@ _LAZY: dict[str, tuple[str, str]] = {
 
 __all__ = [*_LAZY.keys(), "list_sorters"]
 
+# Helpers that are exported (they are the default ``distance=`` and
+# ``tokenizer=`` arguments of some sorters) but are not sorters themselves:
+# they do not rank samples or return ``(index, score)`` pairs.
+_HELPERS = frozenset({"dist_euclidean", "simple_tokenizer"})
+
 
 def list_sorters(by_modality: bool = False) -> list[str] | dict[str, list[str]]:
     """Return the names of all available sorters.
+
+    The exported helpers ``dist_euclidean`` and ``simple_tokenizer`` are not
+    sorters and are not listed; they stay importable from this module.
 
     Listing pulls in no optional dependency — only the names are returned;
     the sorters themselves stay lazily imported until first accessed.
@@ -106,10 +114,12 @@ def list_sorters(by_modality: bool = False) -> list[str] | dict[str, list[str]]:
     if by_modality:
         groups: dict[str, list[str]] = {}
         for name, (module_suffix, _attr) in _LAZY.items():
+            if name in _HELPERS:
+                continue
             modality = module_suffix.removesuffix("_sorters")
             groups.setdefault(modality, []).append(name)
         return {modality: sorted(names) for modality, names in groups.items()}
-    return sorted(_LAZY)
+    return sorted(name for name in _LAZY if name not in _HELPERS)
 
 
 def __getattr__(name: str) -> Any:
