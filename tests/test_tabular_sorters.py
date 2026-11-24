@@ -564,6 +564,20 @@ class TestEdgeCases:
             results = outlier_score(df, method='zscore')
         assert all(score == 0.0 for _, score in results)
 
+    def test_outlier_score_zscore_matches_scipy_with_constant_column(self):
+        """Varying columns score as scipy.stats.zscore does; a constant column
+        contributes 0.0, and no RuntimeWarning is raised (scipy >= 1.17 warns
+        about precision loss inside stats.zscore on constant columns)."""
+        from scipy import stats
+        rng = np.random.RandomState(0)
+        df = pd.DataFrame({'a': rng.randn(20), 'b': rng.randn(20) * 3 + 1, 'c': 4.0})
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            results = dict(outlier_score(df, method='zscore'))
+        expected = np.abs(stats.zscore(df[['a', 'b']].values)).sum(axis=1) / 3
+        assert np.allclose([results[i] for i in df.index], expected)
+
     # --- no-numeric-column fallbacks (return all-zero) ---
 
     @pytest.fixture

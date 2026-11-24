@@ -104,6 +104,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `OpenAIEmbedder.embed` sorts the API response by each item's `index` before
   stacking, so the returned rows stay aligned with the input order even if the
   API returns them out of order.
+- `outlier_score(method="zscore")` no longer raises a `RuntimeWarning` on
+  constant columns with scipy >= 1.17, whose `stats.zscore` now warns about
+  precision loss before the constant columns could be zeroed. Z-scores are
+  computed directly; results are unchanged (#77).
 
 ### Changed
 - The default `similarity_threshold` of `deduplicated_split` and
