@@ -6,7 +6,38 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-11-24
+
+New splitters and paper-faithful modes for the methods that splytters adapts
+from prior work, plus a round of fixes. Some splits change: `min_cut_split` on
+disconnected similarity graphs, and `distance_adversarial_split` with a
+non-default `metric` (see **Fixed**).
+
 ### Added
+- **`likelihood_split`** (`splytters.likelihood`), the Likelihood Splits
+  protocol of Godbole & Jia (2023): the lowest-likelihood `1 - train_size`
+  fraction goes to test. Takes precomputed `scores` or raw `texts` (scored
+  lazily with GPT-2), and `length_buckets=N` takes the lowest-likelihood
+  fraction within each length bucket, the paper's control for length.
+- `cluster_split` reproduces the SUBSET-SUM-SPLIT and CLOSEST-SPLIT of Zufle,
+  Dankers & Titov (2023) with the opt-in `cluster_range=(low, high)` (search
+  over k, e.g. `(3, 50)` as in the paper), `fill_individual=True` (top the
+  closest-split test pocket up to the target size with individual examples)
+  and `fill_anchor` (`"cluster_centroids"`, following the paper's text, or
+  `"test_mean"`, following its released code). Defaults are unchanged.
+- `mmd_maximized_split` and `mmd_minimized_split` gain
+  `method="kernel_kmeans"`, the constrained kernel k-means of Napoli & White
+  (TMLR 2025), with optional per-label (`y`) and per-group (`groups`) balance
+  enforced by a linear program. `method="swap"` stays the default.
+- `cluster_kfold(method="sds_kmeans")`, the size- and distribution-sensitive
+  k-means of Wecker, Friedrich & Adel (2020): the folds are the clusters, each
+  of about `n / n_folds` examples with a label distribution close to the
+  global one.
+- `minority_split` and `minority_grow_split` follow Reif & Schwartz (2023)
+  more closely: `method="ward"` and `method="deepcluster-lite"` clustering
+  backends, and `minority_labels="least_only"` (the paper's footnote 10) next
+  to the default `"all_but_majority"`. `minority_grow_split` subsamples an
+  oversized minority seed back to the target size.
 - **`central_split`** (overlap family), the mirror of
   `distance_adversarial_split`: the samples closest to the centroid go to test
   and the rest to train, giving a prototypical, optimistic test set (#69).
@@ -304,6 +335,8 @@ The original repository before the scikit-learn API alignment and PyPI
 packaging: adversarial / overlap / balanced splitters, per-modality sorters,
 embedders, demos, and the pytest suite.
 
+[Unreleased]: https://github.com/gxlarson/splytters/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/gxlarson/splytters/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/gxlarson/splytters/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/gxlarson/splytters/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/gxlarson/splytters/compare/v0.1.0...v0.1.1
