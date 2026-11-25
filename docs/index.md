@@ -1,15 +1,15 @@
 # splytters
 
-**Clustering-based data splits for model robustness testing** — adversarial,
-overlap, and distribution-balanced train-test splitting, with a
-scikit-learn-aligned API.
+**Clustering-based data splits for model robustness testing.** `splytters`
+provides adversarial, overlap, and distribution-balanced train-test splits, with
+an API aligned with scikit-learn.
 
-Standard random splits assume train and test are drawn from the same
-distribution. `splytters` lets you deliberately control the train/test
-relationship in embedding space — to make evaluation *harder* (adversarial),
-*easier* (overlap, for sanity checks), or *fair* (distribution-balanced) — so
-you can probe how a model behaves under covariate shift instead of assuming it
-away.
+Standard random splits assume that the training and test data are drawn from
+the same distribution. `splytters` controls how similar the training and test
+splits are in embedding space. Adversarial splits make evaluation harder,
+overlap splits make it easier (for sanity checks), and distribution-balanced
+splits make it fair, so that you can measure how a model behaves under
+covariate shift.
 
 ## Install
 
@@ -18,7 +18,8 @@ pip install splytters
 ```
 
 The core install depends only on `numpy`, `scipy`, and `scikit-learn`. Optional
-extras add modality sorters and embedders — see the [Guide](guide.md).
+extras add modality sorters and embedders, which the [Guide](guide.md)
+describes.
 
 ## Quickstart
 
@@ -29,16 +30,16 @@ from splytters import cluster_split, split_report
 # Any (n_samples, n_features) embedding matrix.
 X = np.random.default_rng(0).normal(size=(500, 16))
 
-# An adversarial split: whole clusters go to train OR test (no leakage).
+# An adversarial split: each cluster goes entirely to train or to test.
 train_idx, test_idx = cluster_split(X, train_size=0.7)
 
-# Quantify how hard/similar the split is (centroid/coverage/leakage + MMD,
-# energy distance, Wasserstein, KS).
+# Measure how different the two splits are (centroid distance, coverage,
+# leakage, MMD, energy distance, Wasserstein, KS).
 report = split_report(X, train_idx, test_idx)
 print(report)
 ```
 
-Drop-in for `sklearn.model_selection.train_test_split`:
+The family wrappers can replace `sklearn.model_selection.train_test_split`:
 
 ```python
 from splytters import adversarial_train_test_split
@@ -48,7 +49,8 @@ X_train, X_test, y_train, y_test = adversarial_train_test_split(
 )
 ```
 
-...or as a cross-validator anywhere scikit-learn expects `cv=`:
+`SplytterSplit` can be used as a cross-validator wherever scikit-learn accepts
+`cv=`:
 
 ```python
 from sklearn.linear_model import LogisticRegression
@@ -73,8 +75,9 @@ scores = cross_validate(LogisticRegression(), X, y, cv=cv)
 ![Balanced splits](bal.png)
 </div>
 
-Each row is a 2D distribution (unimodal, moons, spirals, rings, ...) and each
-column a splitter; blue = train, orange = test.
+Each row is a 2D distribution (unimodal, moons, spirals, rings and others), and
+each column is a splitter. Blue points are in the training split and orange
+points are in the test split.
 
-Read on in the [Guide](guide.md), or jump to the full
-[API reference](api.md).
+The [Guide](guide.md) describes the splitters in more detail, and the
+[API reference](api.md) lists every function and its parameters.
