@@ -1,6 +1,6 @@
 # splytters
 
-**Clustering-based data splits for model robustness testing.** `splytters`
+**Embedding-based data splits for model robustness testing.** `splytters`
 provides adversarial, overlap, and distribution-balanced train-test splits, with
 an API aligned with scikit-learn.
 
@@ -27,8 +27,10 @@ describes.
 import numpy as np
 from splytters import cluster_split, split_report
 
-# Any (n_samples, n_features) embedding matrix.
-X = np.random.default_rng(0).normal(size=(500, 16))
+# Any (n_samples, n_features) embedding matrix, with class labels.
+rng = np.random.default_rng(0)
+X = rng.normal(size=(500, 16))
+y = rng.integers(0, 3, size=500)
 
 # An adversarial split: each cluster goes entirely to train or to test.
 train_idx, test_idx = cluster_split(X, train_size=0.7)
