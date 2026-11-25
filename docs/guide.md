@@ -185,8 +185,8 @@ report = split_report(X, train_idx, test_idx, y=labels)
 The following helpers import their dependencies lazily, so the core install does
 not require pandas, torch or `datasets`:
 
-- **`split_dataframe`** (pandas): splits a `DataFrame`, optionally embedding a
-  subset of its columns
+- **`split_dataframe`** (pandas): splits the rows of a `DataFrame`, given one
+  embedding per row
 - **`to_torch_subsets`** (torch): wraps a split as `torch.utils.data.Subset`s
 - **`split_dataset`** (Hugging Face `datasets`): splits a `Dataset`
 
