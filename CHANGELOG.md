@@ -14,6 +14,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   words missing from the frequency list score 8 (#84).
 
 ### Fixed
+- The `[text]` and `[embedders]` extras require `torch>=2.4`. transformers 5
+  disables its PyTorch backend below that version, so `perplexity_score` and
+  the CLIP embedders failed with an ImportError on older torch.
+- Citations: the Wecker et al. (2020) docstrings now name Eval4NLP @ EMNLP
+  (not COLING), and Lake & Baroni (2018) links to the PMLR version.
 - `readability_score` scores only texts that are too short as `inf`. Other
   errors, such as missing NLTK tokenizer data, now propagate instead of
   scoring every text as `inf` (#84).

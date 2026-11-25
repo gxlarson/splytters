@@ -43,7 +43,8 @@ dependencies = [
 # Modality-specific sorters
 text = [
     "pysbd",
-    "torch",
+    # transformers 5 disables its PyTorch backend below torch 2.4.
+    "torch>=2.4",
     "transformers",
     "wordfreq",
     "py-readability-metrics",
@@ -54,6 +55,7 @@ tabular = ["pandas"]
 # Embedding models (TextEmbedder, CLIP, OpenAI)
 embedders = [
     "sentence-transformers",
+    "torch>=2.4",
     "transformers",
     "openai",
 ]
