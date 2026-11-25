@@ -56,3 +56,13 @@ def test_guide_regression_snippet_runs():
     )
     assert len(train_idx) == 35
     assert y_reg[train_idx].max() < y_reg[test_idx].min()
+
+
+def test_home_snippets_run():
+    """The Home page snippets run in order, each using the names defined before it."""
+    snippets = re.findall(r"```python\n(.*?)```", (DOCS / "index.md").read_text(encoding="utf-8"),
+                          re.DOTALL)
+    assert snippets
+    namespace: dict = {}
+    for snippet in snippets:
+        exec(snippet, namespace)
