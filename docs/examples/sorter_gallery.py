@@ -108,7 +108,9 @@ def image_section(lines: list[str]) -> None:
         paths.append(str(src))
 
     def thumb(i: int) -> str:
-        return f'<img src="assets/gallery/{IMAGES[i]}.png" width="40" title="{IMAGES[i]}">'
+        # Markdown image syntax (not raw <img>), so that MkDocs rewrites the relative
+        # path for the page's URL. The width needs the attr_list extension.
+        return f'![{IMAGES[i]}](assets/gallery/{IMAGES[i]}.png){{ width="40" title="{IMAGES[i]}" }}'
 
     lines += ["## Image sorters", "",
               "Ten synthetic test images from `test_data/images/`, named for the property "
