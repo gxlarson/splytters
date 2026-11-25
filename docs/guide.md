@@ -60,6 +60,25 @@ the test set probes generalization under covariate shift.
 - `min_cut_split`, `normalized_cut_split` — graph-cut formulations
 - `wasserstein_adversarial_split` — Wasserstein nearest-neighbor split
   (Søgaard et al., EACL 2021)
+- `maximin_split` — farthest-point (k-center) test set spread across the space
+
+Label-aware adversarial splitters also take class labels `y`:
+
+- `minority_split`, `minority_grow_split` — seed the test set with the
+  per-cluster minority-label ("anti-biased") samples (Reif & Schwartz, 2023);
+  `minority_grow_split` then grows it to the requested size
+- `class_boundary_split` — samples close to other classes go to test
+- `decision_boundary_split` — samples near the boundary of a cross-validated
+  linear model go to test
+
+Run any embedding splitter within each class with `per_class_split`, so that
+every class keeps its share of train and test:
+
+```python
+from splytters import distance_adversarial_split, per_class_split
+
+train_idx, test_idx = per_class_split(distance_adversarial_split, X, y, train_size=0.7)
+```
 
 ### Overlap — maximize train↔test similarity
 
@@ -102,6 +121,35 @@ train_idx, test_idx = sorted_stratified_split(ranking, y, train_size=0.7)
 Unlike the embedding-based families above, this one is driven by the ordering
 you give it rather than by the embeddings, so it isn't listed by
 `list_splitters()`.
+
+For regression, sort by the target and treat every sample as one class. This
+trains on the lowest targets and tests on the highest:
+
+```python
+import numpy as np
+from splytters import sorted_stratified_split
+
+train_idx, test_idx = sorted_stratified_split(
+    np.argsort(y_reg, kind="stable"), np.zeros(len(y_reg), dtype=int), train_size=0.7)
+```
+
+## Tips
+
+- **Report a random split too.** Show results on `random_split` next to any
+  other split, with the splitter, its parameters and the seeds, so that readers
+  can see how much the split changed the result.
+- **`minority_grow_split` depends on `n_clusters`.** With few clusters and many
+  classes, nearly every sample is a per-cluster minority, the seed is much
+  larger than the test set, and the subsampled split ends up close to random
+  (the function warns when the seed exceeds 1.5x the test size). Setting
+  `n_clusters` near the number of classes is a reasonable start.
+- **Some splitters ignore the seed.** `distance_adversarial_split` and
+  `min_cut_split` are deterministic, so repeating them over seeds does not add
+  variation. When the similarity graph of `min_cut_split` is disconnected, it
+  sends whole components to test, smallest first.
+- **A dissimilar split is not always a harder one.** `split_report` measures
+  how different the two splits are, but only training a model shows whether
+  the split is harder (see the [examples](examples.md)).
 
 ## Scoring a split
 
@@ -153,6 +201,8 @@ Each modality lives behind an optional extra and is imported lazily:
 `embedding_sorters` (core), `text_sorters` (`pip install "splytters[text]"`),
 `image_sorters` (`[image]`), `audio_sorters` (`[audio]`),
 `tabular_sorters` (`[tabular]`).
+
+The [sorter gallery](sorter_gallery.md) applies every sorter to a small example.
 
 ## Optional extras
 
