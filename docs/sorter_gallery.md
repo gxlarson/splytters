@@ -32,7 +32,7 @@ Each row lists the queries from the lowest to the highest score (in parentheses)
 | `readability_score` | Q1 (inf) → Q2 (inf) → Q3 (inf) → Q4 (inf) → Q5 (inf) → Q6 (inf) → Q7 (inf) → Q8 (inf) → Q9 (inf) → Q10 (inf) |
 | `sentence_count` | Q1 (1) → Q2 (1) → Q3 (1) → Q4 (1) → Q5 (1) → Q6 (1) → Q7 (1) → Q8 (1) → Q9 (1) → Q10 (1) |
 | `tokens_length` | Q3 (1) → Q4 (3) → Q1 (4) → Q2 (5) → Q5 (5) → Q9 (6) → Q10 (6) → Q8 (11) → Q7 (12) → Q6 (13) |
-| `vocabulary_rarity` | Q7 (0.987) → Q1 (0.996) → Q6 (0.996) → Q8 (0.996) → Q9 (0.996) → Q2 (0.996) → Q10 (0.998) → Q5 (0.998) → Q4 (0.999) → Q3 (1) |
+| `vocabulary_rarity` | Q9 (1.78) → Q7 (1.8) → Q1 (1.8) → Q6 (1.9) → Q2 (2.01) → Q8 (2.01) → Q5 (2.2) → Q10 (2.41) → Q4 (2.49) → Q3 (3.24) |
 
 `readability_score` requires at least 100 words per text, so every query scores `inf` and keeps its input order. Use it on paragraphs or documents.
 
@@ -45,10 +45,10 @@ The same 10 queries, embedded with `TextEmbedder("all-MiniLM-L6-v2")`.
 | `distance_to_mean` | Q4 (0.482) → Q1 (0.509) → Q2 (0.528) → Q5 (0.534) → Q3 (0.618) → Q8 (0.653) → Q7 (0.701) → Q6 (0.804) → Q9 (0.836) → Q10 (0.878) |
 | `distance_to_nearest_neighbor` | Q1 (0.271) → Q4 (0.271) → Q5 (0.497) → Q3 (0.533) → Q2 (0.694) → Q7 (0.694) → Q8 (0.784) → Q6 (0.9) → Q9 (0.992) → Q10 (1.09) |
 | `local_density` | Q10 (0) → Q9 (1) → Q6 (3) → Q3 (5) → Q7 (5) → Q1 (6) → Q4 (6) → Q5 (6) → Q8 (6) → Q2 (8) |
-| `mahalanobis_distance_to_mean` | Q4 (2.85) → Q1 (2.85) → Q5 (2.85) → Q2 (2.85) → Q3 (2.85) → Q8 (2.85) → Q7 (2.85) → Q6 (2.85) → Q9 (2.85) → Q10 (2.85) |
+| `mahalanobis_distance_to_mean` | Q4 (3.73) → Q1 (3.78) → Q5 (4.03) → Q2 (4.05) → Q3 (4.05) → Q8 (4.09) → Q7 (4.09) → Q6 (4.1) → Q9 (4.11) → Q10 (4.12) |
 | `outlier_score` | Q4 (0.435) → Q1 (0.439) → Q5 (0.461) → Q2 (0.463) → Q3 (0.465) → Q7 (0.487) → Q8 (0.511) → Q10 (0.514) → Q6 (0.517) → Q9 (0.522) |
 
-`knn_label_disagreement` is not shown here because it also requires class labels. It ranks each sample by the fraction of its nearest neighbors that have a different label. `mahalanobis_distance_to_mean` requires more samples than embedding dimensions. With 10 samples in 384 dimensions, the covariance matrix is singular, so the sorter assigns the same distance to every query.
+`knn_label_disagreement` is not shown here because it also requires class labels. It ranks each sample by the fraction of its nearest neighbors that have a different label. With 10 samples in 384 dimensions, the sample covariance is singular, so `mahalanobis_distance_to_mean` uses the Ledoit-Wolf shrinkage estimate of the covariance instead.
 
 ## Image sorters
 

@@ -149,6 +149,10 @@ def lexical_diversity(
     return scores
 
 
+# Upper bound for wordfreq Zipf frequencies ("the" is about 7.7).
+_MAX_ZIPF = 8.0
+
+
 def vocabulary_rarity(
     texts: list[str],
     language: str = "en",
@@ -158,8 +162,12 @@ def vocabulary_rarity(
     """
     Sort texts by average word rarity.
 
-    Uses word frequency data to score each word's rarity. Rarer words have
-    lower frequency, so we use (1 - frequency) as the rarity score.
+    Each word's rarity is ``8 - zipf_frequency(word)``, where the Zipf frequency
+    from ``wordfreq`` is the base-10 logarithm of the word's frequency per
+    billion words. Common words score low ("the" about 0.3, "cat" about 3.2),
+    uncommon words score higher ("coffers" about 5.1), and words missing from
+    the frequency list score 8. The log scale separates texts by their rare
+    words; a linear ``1 - frequency`` score puts almost every text near 1.
 
     Useful for adversarial splits: train on common vocabulary,
     test on rare/specialized vocabulary.
@@ -174,7 +182,7 @@ def vocabulary_rarity(
         List of (index, avg_rarity) tuples sorted by average word rarity.
         Texts with no tokens receive a score of 0.
     """
-    from wordfreq import word_frequency
+    from wordfreq import zipf_frequency
 
     scores = []
     for i, text in enumerate(texts):
@@ -183,9 +191,9 @@ def vocabulary_rarity(
             scores.append((i, 0.0))
             continue
 
-        # Calculate average rarity (1 - frequency) for all tokens
-        # word_frequency returns 0 for unknown words, so rarity = 1 for unknown
-        rarities = [1.0 - word_frequency(token, language) for token in tokens]
+        # zipf_frequency returns 0 for unknown words, so their rarity is the
+        # maximum, _MAX_ZIPF.
+        rarities = [_MAX_ZIPF - zipf_frequency(token, language) for token in tokens]
         avg_rarity = sum(rarities) / len(rarities)
         scores.append((i, avg_rarity))
 

@@ -6,7 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- `vocabulary_rarity` scores each word as `8 - zipf_frequency(word)` instead
+  of `1 - word_frequency(word)`, so scores and rankings change. The old linear
+  score put almost every text between 0.98 and 1.0, so rare words barely moved
+  a text's rank. Common words now score near 0.3, uncommon words around 5, and
+  words missing from the frequency list score 8 (#84).
+
 ### Fixed
+- `readability_score` scores only texts that are too short as `inf`. Other
+  errors, such as missing NLTK tokenizer data, now propagate instead of
+  scoring every text as `inf` (#84).
+- `mahalanobis_distance_to_mean` no longer puts every sample at the same
+  distance when there are fewer samples than dimensions. In that case it uses
+  the Ledoit-Wolf shrinkage estimate of the covariance and warns. Results with
+  more samples than dimensions are unchanged (#84).
 - `list_sorters()` no longer lists the helpers `dist_euclidean` and
   `simple_tokenizer`, which are not sorters (they are the default `distance=`
   and `tokenizer=` arguments of some sorters). Both stay importable from
