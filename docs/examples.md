@@ -82,9 +82,10 @@ tokens_length (short to train)              0.950    0.778
 `cluster_leak_split`, an overlap splitter, is slightly easier than `random_split`, and the
 adversarial splitters are harder: accuracy drops by 7.9 points with `cluster_split`, by 13.8
 points with `distance_adversarial_split` and by 39.7 points with `minority_grow_split`.
-`c2st_auc` is the AUC of a classifier trained to tell the two splits apart (0.5 means that
-they look alike). Splitting by query length produces splits that are easy to tell apart
-(0.778) without changing accuracy, so a dissimilar split is not always a harder one.
+`c2st_auc` is the AUC of a classifier trained to distinguish the training split from the test
+split (0.5 means that the two splits look alike). Splitting by query length produces splits
+that are easy to distinguish (0.778) without changing accuracy, so a dissimilar split is not
+always a harder one.
 
 ## Regression: STS-B
 
@@ -151,7 +152,7 @@ target-sorted (low scores to train)       0.360            2.00 / 4.33
 ```
 
 Training on the low scores and testing on the high scores lowers the Spearman correlation from
-0.799 to 0.360. `distance_adversarial_split` sends the pairs farthest from the centroid to
+0.799 to 0.360. `distance_adversarial_split` assigns the pairs farthest from the centroid to
 test, which here are mostly unrelated pairs with low scores (mean 1.22), and lowers it to
 0.632. `min_cut_split` raises it to 0.867, so not every adversarial splitter makes every task
 harder.
@@ -218,8 +219,8 @@ distance_adversarial_split (per class)      0.823
 mean_brightness (dark to train)             0.944
 ```
 
-The two adversarial splitters lower accuracy by 8.7 and 11.0 points, whereas training on the
-darkest images of each class and testing on the brightest leaves accuracy almost unchanged.
+The two adversarial splitters lower accuracy by 8.7 and 11.0 points. Training on the darkest
+images of each class and testing on the brightest raises accuracy by 1.1 points.
 
 ## Reusing a split
 
