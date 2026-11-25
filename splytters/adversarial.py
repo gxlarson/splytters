@@ -1577,6 +1577,18 @@ def minority_split(
         pseudo-labels and re-clusters its hidden representation) that recovers some
         label diversity at CPU cost.
 
+        An experiment on TREC (6 classes, 5,952 questions) compared these methods
+        with the full DEEP CLUSTER, which fine-tunes ``roberta-base``. With frozen
+        sentence embeddings, the clusters are already label-diverse: ``kmeans``,
+        ``ward`` and ``deepcluster-lite`` send 40-49% of the data to test, and
+        DEEP CLUSTER has nothing to correct. With the ``[CLS]`` embeddings of a
+        task-fine-tuned encoder, plain clustering yields almost single-label
+        clusters, and only 0.7-0.8% of the data goes to test. DEEP CLUSTER raises
+        this to 6.4%. ``deepcluster-lite`` is therefore a stand-in for the
+        frozen-embedding setting, not a replacement for DEEP CLUSTER on a
+        fine-tuned encoder. The experiment code (``experiments/deepcluster_minority``)
+        was removed from the repository after commit ``6990c40``.
+
     Seed stability: with ``'kmeans'``/``'deepcluster-lite'``, nearly deterministic given a
     fixed ``random_state`` (the per-cluster minority labels are stable; only the
     clustering wobbles slightly). ``'ward'`` is fully deterministic (no seed).
