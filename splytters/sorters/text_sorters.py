@@ -48,10 +48,6 @@ def character_length(texts: list[str], low_first: bool = True) -> list[tuple[int
             introduced the SCAN length split (train short, test long) -- a
             canonical length-generalization test (on output sequence length,
             synthetic data). https://arxiv.org/abs/1711.00350
-          - Søgaard et al. trace the idea of testing generalization to longer
-            sequences back to Siegelmann & Sontag (1992), "On the Computational
-            Power of Neural Nets," COLT, pp. 440-449.
-            https://doi.org/10.1145/130385.130432
     """
     scores = [(i, len(text)) for i, text in enumerate(texts)]
     scores.sort(key=lambda p: p[1], reverse=not low_first)
@@ -77,8 +73,7 @@ def tokens_length(
     References:
         A token-count variant of length-based splitting; see ``character_length``
         for the motivation and references (Søgaard et al. 2021, EACL; Varis &
-        Bojar 2021, EMNLP; Lake & Baroni 2018, ICML; Siegelmann & Sontag 1992,
-        COLT).
+        Bojar 2021, EMNLP; Lake & Baroni 2018, ICML).
     """
     scores = [(i, len(tokenizer(text))) for i, text in enumerate(texts)]
     scores.sort(key=lambda p: p[1], reverse=not low_first)
