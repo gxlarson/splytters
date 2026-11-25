@@ -47,7 +47,7 @@ def character_length(texts: list[str], low_first: bool = True) -> list[tuple[int
           - Lake & Baroni (2018), "Generalization without Systematicity," ICML,
             introduced the SCAN length split (train short, test long) -- a
             canonical length-generalization test (on output sequence length,
-            synthetic data). https://arxiv.org/abs/1711.00350
+            synthetic data). https://proceedings.mlr.press/v80/lake18a.html
     """
     scores = [(i, len(text)) for i, text in enumerate(texts)]
     scores.sort(key=lambda p: p[1], reverse=not low_first)

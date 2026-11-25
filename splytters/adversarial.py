@@ -648,7 +648,7 @@ def cluster_split(
         The label-balanced idea behind ``"subset_sum"`` traces to the earlier
         ClusterDataSplit of Wecker, Friedrich & Adel (2020), "ClusterDataSplit:
         Exploring Challenging Clustering-Based Data Splits for Model Performance
-        Evaluation," Eval4NLP @ COLING, which clusters data into splits that
+        Evaluation," Eval4NLP @ EMNLP, which clusters data into splits that
         differ lexically from train while keeping the label distribution fixed.
         https://aclanthology.org/2020.eval4nlp-1.15 . See :func:`cluster_kfold`
         for their cross-validation variant.
@@ -1185,7 +1185,7 @@ def cluster_kfold(
     References:
         Wecker, Friedrich & Adel (2020), "ClusterDataSplit: Exploring Challenging
         Clustering-Based Data Splits for Model Performance Evaluation,"
-        Eval4NLP @ COLING. https://aclanthology.org/2020.eval4nlp-1.15
+        Eval4NLP @ EMNLP. https://aclanthology.org/2020.eval4nlp-1.15
         Reference code (archived):
         https://github.com/boschresearch/clusterdatasplit_eval4nlp-2020
 
@@ -2112,7 +2112,7 @@ def decision_boundary_split(
     References:
         Uncertainty / margin sampling from active learning (Lewis & Gale, 1994;
         Scheffer et al., 2001; Settles, 2009). Like :func:`class_boundary_split`,
-        a label-aware variant of the hard-split motivation of Soegaard et al.
+        a label-aware variant of the hard-split motivation of Søgaard et al.
         (2021), "We Need to Talk About Random Splits"
         (https://aclanthology.org/2021.eacl-main.156), but using a *learned*
         boundary rather than embedding geometry.
