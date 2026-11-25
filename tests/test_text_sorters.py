@@ -428,6 +428,11 @@ class TestReadabilityScore:
         scores = {idx: score for idx, score in result}
         assert scores[0] == float("inf")
 
+    def test_too_few_sentences_for_smog_gets_infinity(self):
+        """SMOG's 30-sentence minimum is a too-short case, so it scores inf."""
+        result = readability_score(["word " * 120], metric="smog")
+        assert result == [(0, float("inf"))]
+
     def test_returns_index_score_tuples(self, texts):
         """Results should be (index, score) tuples."""
         result = readability_score(texts)
@@ -511,3 +516,20 @@ class TestEdgeCases:
         result = perplexity_score(["The cat sat on the mat."])
         assert len(result) == 1
         assert result[0][0] == 0
+
+
+def test_readability_score_missing_nltk_data_raises(monkeypatch):
+    """Errors other than a too-short text propagate instead of becoming inf (#84).
+
+    Runs without NLTK data: the fake Readability raises the LookupError that
+    NLTK raises when its tokenizer data is missing.
+    """
+    readability = pytest.importorskip("readability")
+
+    class MissingPunkt:
+        def __init__(self, text):
+            raise LookupError("Resource punkt not found.")
+
+    monkeypatch.setattr(readability, "Readability", MissingPunkt)
+    with pytest.raises(LookupError, match="punkt"):
+        readability_score(["The committee met on Monday to review the budget. " * 12])

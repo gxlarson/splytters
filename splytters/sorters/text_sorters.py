@@ -338,7 +338,13 @@ def readability_score(
 
     Returns:
         List of (index, score) tuples sorted by readability.
-        Texts too short to score receive a score of infinity.
+        Texts too short to score (fewer than 100 words, or fewer than 30
+        sentences for 'smog') receive a score of infinity.
+
+    Raises:
+        ValueError: if ``metric`` is not one of the metrics above.
+        LookupError: if the NLTK tokenizer data that py-readability-metrics
+            uses (``punkt`` / ``punkt_tab``) is not installed.
     """
     valid_metrics = {
         "flesch_kincaid", "flesch", "gunning_fog", "coleman_liau",
@@ -350,6 +356,7 @@ def readability_score(
         raise ValueError(f"Unknown readability metric: {metric}")
 
     from readability import Readability
+    from readability.exceptions import ReadabilityException
 
     scores = []
 
@@ -375,8 +382,10 @@ def readability_score(
             else:  # pragma: no cover - unreachable; metric validated above
                 raise ValueError(f"Unknown readability metric: {metric}")
             scores.append((i, score))
-        except Exception:
-            # Readability requires minimum text length
+        except ReadabilityException:
+            # Raised only when the text is too short for the metric. Other
+            # errors, such as missing NLTK data, propagate instead of scoring
+            # every text as inf.
             scores.append((i, float("inf")))
 
     scores.sort(key=lambda p: p[1], reverse=not low_first)
