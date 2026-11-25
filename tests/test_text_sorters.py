@@ -224,6 +224,21 @@ class TestVocabularyRarity:
         # "the a is" should have lower rarity than technical words
         assert scores[0] < scores[1]
 
+    def test_log_scale_separates_rare_vocabulary(self):
+        """One rare word lifts a text well above texts of common words (#84).
+
+        With the old linear 1 - frequency score, every text here scored
+        between 0.98 and 1.0.
+        """
+        texts = ["how full are my coffers today", "how are you today", "what time is it"]
+        scores = dict(vocabulary_rarity(texts))
+        assert scores[0] > max(scores[1], scores[2]) + 0.4
+        assert vocabulary_rarity(texts, low_first=False)[0][0] == 0
+
+    def test_unknown_word_gets_maximum_rarity(self):
+        """Words missing from the frequency list score the maximum, 8."""
+        assert vocabulary_rarity(["qwxzvbn"]) == [(0, 8.0)]
+
     def test_empty_text_gets_zero(self):
         """Empty text should receive rarity of 0."""
         result = vocabulary_rarity(["", "hello"])

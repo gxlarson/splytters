@@ -8,6 +8,7 @@ maximize dissimilarity.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 from typing import Any
 
@@ -207,6 +208,12 @@ def mahalanobis_distance_to_mean(
     relative to the data's own spread and feature correlations rather than in
     raw Euclidean units. Most typical samples first.
 
+    With fewer samples than dimensions, the sample covariance is singular, and
+    its pseudo-inverse puts every sample at the same distance from the mean. In
+    that case the sorter uses the Ledoit-Wolf shrinkage estimate of the
+    covariance instead and warns. With more samples than dimensions, it uses the
+    sample covariance.
+
     Args:
         embeddings: array of shape (n_samples, embedding_dim).
         low_first: if True, the most typical (smallest distance) samples first.
@@ -215,9 +222,22 @@ def mahalanobis_distance_to_mean(
         List of (index, mahalanobis_distance) tuples.
     """
     X = np.asarray(embeddings, dtype=float)
+    n_samples, n_features = X.shape
     centroid = X.mean(axis=0)
-    cov = np.atleast_2d(np.cov(X, rowvar=False)) + 1e-6 * np.eye(X.shape[1])
-    inv_cov = np.linalg.pinv(cov)
+    if n_samples <= n_features:
+        from sklearn.covariance import LedoitWolf
+
+        warnings.warn(
+            f"mahalanobis_distance_to_mean: {n_samples} samples in {n_features} "
+            "dimensions, so the sample covariance is singular; using the "
+            "Ledoit-Wolf shrinkage estimate instead.",
+            UserWarning,
+            stacklevel=2,
+        )
+        inv_cov = LedoitWolf().fit(X).precision_
+    else:
+        cov = np.atleast_2d(np.cov(X, rowvar=False)) + 1e-6 * np.eye(n_features)
+        inv_cov = np.linalg.pinv(cov)
     diff = X - centroid
     d2 = np.einsum("ij,jk,ik->i", diff, inv_cov, diff)
     dists = np.sqrt(np.maximum(d2, 0.0))

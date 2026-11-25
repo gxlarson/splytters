@@ -39,6 +39,25 @@ class TestMahalanobisDistanceToMean:
         assert a[0][0] == b[-1][0]
 
 
+    def test_fewer_samples_than_dimensions_uses_shrinkage(self):
+        """With n <= d, distances differ and the outlier ranks last (#84).
+
+        The singular sample covariance put every sample at the same distance.
+        """
+        X = np.random.RandomState(0).randn(10, 384)
+        X[3] *= 3.0
+        with pytest.warns(UserWarning, match="Ledoit-Wolf"):
+            r = mahalanobis_distance_to_mean(X)
+        assert _is_full_ranking(r, 10)
+        assert len({round(d, 6) for _, d in r}) > 1
+        assert r[-1][0] == 3
+
+    def test_more_samples_than_dimensions_does_not_warn(self, recwarn):
+        X = np.random.RandomState(0).randn(50, 6)
+        mahalanobis_distance_to_mean(X)
+        assert not [w for w in recwarn if "Ledoit-Wolf" in str(w.message)]
+
+
 class TestKnnLabelDisagreement:
 
     def test_boundary_point_scores_high(self):

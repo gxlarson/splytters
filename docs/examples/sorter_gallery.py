@@ -94,9 +94,9 @@ def embedding_section(lines: list[str]) -> None:
         lines.append(order_row(name, fn(X), lambda i: f"Q{i + 1}"))
     lines += ["", "`knn_label_disagreement` is not shown here because it also requires class "
               "labels. It ranks each sample by the fraction of its nearest neighbors that have a "
-              "different label. `mahalanobis_distance_to_mean` requires more samples than "
-              "embedding dimensions. With 10 samples in 384 dimensions, the covariance matrix is "
-              "singular, so the sorter assigns the same distance to every query.", ""]
+              "different label. With 10 samples in 384 dimensions, the sample covariance is "
+              "singular, so `mahalanobis_distance_to_mean` uses the Ledoit-Wolf shrinkage "
+              "estimate of the covariance instead.", ""]
 
 
 def image_section(lines: list[str]) -> None:
