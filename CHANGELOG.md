@@ -14,6 +14,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   words missing from the frequency list score 8 (#84).
 
 ### Fixed
+- The README lists `minority_grow_split` with the adversarial and supervised
+  splitters, and it lists every optional extra in one place.
 - The `[text]` and `[embedders]` extras require `torch>=2.4`. transformers 5
   disables its PyTorch backend below that version, so `perplexity_score` and
   the CLIP embedders failed with an ImportError on older torch.
